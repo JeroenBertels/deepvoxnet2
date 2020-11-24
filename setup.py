@@ -21,9 +21,7 @@ setup(
         'pydicom>=2.0',
         'numba>=0.39',
         'matplotlib>=2.2.2',
-        'scikit-image>=0.14'
-    ],
-    dependency_links=[
-        'https://github.com/gschramm/pymirc'
+        'scikit-image>=0.14',
+        'pymirc @ git+https://github.com/gschramm/pymirc'
     ]
 )

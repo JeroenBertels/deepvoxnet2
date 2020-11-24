@@ -156,8 +156,9 @@ class _SampleInput(_Input):
     def __init__(self, samples, n=1):
         self.samples = samples if isinstance(samples, list) else [samples]
         super(_SampleInput, self).__init__(n, len(self.samples))
+        self.load()
 
-    def load(self, identifier):
+    def load(self, identifier=None):
         for idx_, sample in enumerate(self.samples):
             self.outputs[0][idx_] = sample
 
@@ -694,7 +695,7 @@ class KerasModel(Transformer):
 
 
 class Put(Transformer):
-    def __init__(self, reference_connection, cashing=True, cval=0, order=1):
+    def __init__(self, reference_connection, cashing=True, cval=np.nan, order=0):
         super(Put, self).__init__(1, extra_connections=reference_connection)
         self.reference_connection = reference_connection
         self.cashing = cashing

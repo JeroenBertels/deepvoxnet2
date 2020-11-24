@@ -27,8 +27,7 @@ class KerasGenerator(tf.keras.utils.Sequence):
         outputs = []
         for group_i in range(self.group_size):
             identifier = self.sampler[idx * self.group_size + group_i]
-            creator = copy.deepcopy(self.creator)
-            for output in creator.eval(identifier):
+            for output in copy.deepcopy(self.creator).eval(identifier):
                 outputs.append(output)
 
         return tuple([[Sample(np.concatenate([output[j][i] for output in outputs]), np.concatenate([output[j][i].affine for output in outputs])) for i in range(len(outputs[0][j]))] for j in range(len(outputs[0]))])

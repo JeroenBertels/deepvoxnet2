@@ -68,6 +68,7 @@ class Creator(object):
     def deepcopy(output_connections):
         keras_models = {}
         transformers, _ = Creator.get_trace(output_connections)
+        Creator.reset_transformers(transformers)
         for transformer in transformers:
             if isinstance(transformer, KerasModel):
                 keras_model = transformer.keras_model
