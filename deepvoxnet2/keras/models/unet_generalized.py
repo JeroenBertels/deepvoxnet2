@@ -1,3 +1,8 @@
+"""
+Largely based on:
+Isensee F., Kickingereder P., Wick W., Bendszus M., Maier-Hein K.H. (2019) No New-Net. In: Crimi A., Bakas S., Kuijf H., Keyvan F., Reyes M., van Walsum T. (eds) Brainlesion: Glioma, Multiple Sclerosis, Stroke and Traumatic Brain Injuries. BrainLes 2018. Lecture Notes in Computer Science, vol 11384. Springer, Cham. https://doi.org/10.1007/978-3-030-11726-9_21
+"""
+
 import numpy as np
 
 

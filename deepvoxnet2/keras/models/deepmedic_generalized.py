@@ -1,3 +1,8 @@
+"""
+Largely based on:
+Kamnitsas, K., Ledig, C., & Newcombe, V. F. J. (2017). Efficient Multi-Scale 3D CNN with fully connected CRF for Accurate Brain Lesion Segmentation. Medical Image Analysis, 36, 61–78.
+"""
+
 import numpy as np
 
 
