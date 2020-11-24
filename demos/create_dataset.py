@@ -1,8 +1,6 @@
 import os
+from deepvoxnet2 import DEMO_DIR
 from deepvoxnet2.components.mirc import Dataset, Case, Record, NiftyFileModality
-
-
-DEMO_DIR = os.path.abspath(os.path.dirname(__file__))
 
 
 def create_dataset(data="train"):
