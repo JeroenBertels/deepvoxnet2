@@ -1,5 +1,5 @@
 from tensorflow.keras.losses import BinaryCrossentropy
-from DVN2.keras_components.metrics import binary_dice_score
+from deepvoxnet2.keras.metrics import binary_dice_score
 
 
 def binary_crossentropy(y_true, y_pred, sample_weight=None):
