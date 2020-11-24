@@ -1,0 +1,2 @@
+Case_id: Brats18_CBICA_ASK_1
+Subject_id: Brats18_CBICA_ASK_1

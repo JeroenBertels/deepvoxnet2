@@ -1,0 +1,2 @@
+Case_id: Brats18_TCIA08_105_1
+Subject_id: Brats18_TCIA08_105_1
