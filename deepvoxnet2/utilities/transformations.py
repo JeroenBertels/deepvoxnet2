@@ -1,6 +1,6 @@
 import numpy as np
 import nibabel as nib
-from scipy.ndimage import zoom, gaussian_filter
+from scipy.ndimage import zoom, gaussian_filter, uniform_filter, distance_transform_edt
 from scipy.spatial.transform import Rotation
 from pymirc.image_operations import aff_transform, backward_3d_warp, random_deformation_field
 
@@ -96,7 +96,7 @@ def resample(input_nii, output_zooms, order=3, prefilter=True, reference_nii=Non
     return output_nii
 
 
-def crop(I, S_size, coordinates=None, subsample_factors=None, default_value=0):
+def crop(I, S_size, coordinates=None, subsample_factors=None, default_value=0, prefilter=None):
     """
     This function can be used to extract an array of a specific size centered on a specific coordinate from the input array.
 
@@ -111,7 +111,9 @@ def crop(I, S_size, coordinates=None, subsample_factors=None, default_value=0):
     subsample_factors: None, tuple, list
         If the cropped array must be subsampled, one can specify an integer subsample factor for each axis. None is used to denote a subsample factor of 1.
     default_value: int
-        What value to pad with outside the input array.
+        What value to pad with outside the input array, if np.nan a nearest interpolation is done at the borders.
+    prefilter: None, str
+        One of "gaussian" and "uniform", the interpolation used in case prefilter is not None (the "uniform" prefilter is implemented with downsample_array function).
 
     Returns
     -------
@@ -133,6 +135,14 @@ def crop(I, S_size, coordinates=None, subsample_factors=None, default_value=0):
     else:
         assert len(subsample_factors) == len(S_size), "A subsample factor must be specified for each requested segment dimension."
         subsample_factors = list(subsample_factors) + [1] * (I.ndim - len(subsample_factors))
+
+    if prefilter is not None:
+        assert prefilter in ["uniform", "gaussian"]
+        if prefilter == "gaussian":
+            I = gaussian_filter(I, [s_f if s_f > 1 else 0 for s_f in subsample_factors], mode="nearest")
+
+        elif prefilter == "uniform":
+            I = uniform_filter(I, subsample_factors, mode="nearest")
 
     S_size = tuple(S_size) + tuple(I.shape[len(S_size):])
     S = np.full(S_size, fill_value=default_value, dtype=np.float32)
@@ -168,6 +178,9 @@ def crop(I, S_size, coordinates=None, subsample_factors=None, default_value=0):
         idx_S[i] = slice(start_S, end_S + 1)
 
     S[tuple(idx_S)] = I[tuple(idx_I)]
+    if np.isnan(S).any():
+        S = S[tuple(distance_transform_edt(np.isnan(S), return_distances=False, return_indices=True))]
+
     return S
 
 

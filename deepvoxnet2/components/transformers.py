@@ -1,7 +1,7 @@
 import random
 import uuid
 import numpy as np
-from scipy.ndimage import distance_transform_edt
+from scipy.ndimage import distance_transform_edt, gaussian_filter, uniform_filter
 from deepvoxnet2.components.sample import Sample
 from deepvoxnet2.utilities import transformations
 
@@ -538,6 +538,29 @@ class GaussianNoise(Transformer):
         pass
 
 
+class Filter(Transformer):
+    def __init__(self, filter_size, method="uniform", mode="nearest", cval=0):
+        super(Filter, self).__init__(1)
+        self.filter_size = filter_size if isinstance(filter_size, (tuple, list)) else [filter_size]
+        assert method in ["uniform", "gaussian"]
+        self.method = method
+        self.mode = mode
+        self.cval = cval
+
+    def _update(self, idx, connection):
+        for idx_, sample in enumerate(connection[0]):
+            if self.method == "uniform":
+                filtered_array = uniform_filter(sample, self.filter_size, mode=self.mode, cval=self.cval)
+
+            else:
+                filtered_array = gaussian_filter(sample, [s_f if s_f > 1 else 0 for s_f in self.filter_size], mode=self.mode, cval=self.cval)
+
+            self.outputs[idx][idx_] = Sample(filtered_array, sample.affine)
+
+    def _randomize(self):
+        pass
+
+
 class AffineDeformation(Transformer):
     def __init__(self, reference_connection, voxel_size=(1, 1, 1), shear_window_width=(0, 0, 0), rotation_window_width=(0, 0, 0), translation_window_width=(0, 0, 0), scaling_window_width=(0, 0, 0), cval=0, order=1, n=1):
         super(AffineDeformation, self).__init__(n, extra_connections=reference_connection)
@@ -606,18 +629,21 @@ class ElasticDeformation(Transformer):
 
 
 class Crop(Transformer):
-    def __init__(self, reference_connection, segment_size, subsample_factors=(1, 1, 1), default_value=0, n=1):
+    def __init__(self, reference_connection, segment_size, subsample_factors=(1, 1, 1), default_value=0, prefilter=None, n=1):
         super(Crop, self).__init__(n, extra_connections=reference_connection)
         self.segment_size = segment_size
         self.reference_connection = reference_connection
         self.subsample_factors = subsample_factors
         self.default_value = default_value
+        self.prefilter = prefilter
         self.coordinates = None
 
     def _update(self, idx, connection):
-        backward_affine = Sample.update_affine(translation=self.coordinates[self.n_]) @ Sample.update_affine(scaling=self.subsample_factors[:3]) @ Sample.update_affine(translation=[-(segment_size // 2) for segment_size in self.segment_size[:3]])
+        segment_size = self.segment_size[idx] if isinstance(self.segment_size, list) else self.segment_size
+        subsample_factors = self.subsample_factors[idx] if isinstance(self.subsample_factors, list) else self.subsample_factors
+        backward_affine = Sample.update_affine(translation=self.coordinates[self.n_]) @ Sample.update_affine(scaling=subsample_factors[:3]) @ Sample.update_affine(translation=[-(segment_size_ // 2) for segment_size_ in segment_size[:3]])
         for idx_, sample in enumerate(connection[0]):
-            transformed_sample = transformations.crop(sample, (len(sample),) + self.segment_size, (None,) + self.coordinates[self.n_] + (None,) * (len(self.segment_size) - len(self.coordinates[self.n_])), (1,) + self.subsample_factors, self.default_value)
+            transformed_sample = transformations.crop(sample, (len(sample),) + segment_size, (None,) + self.coordinates[self.n_] + (None,) * (len(segment_size) - len(self.coordinates[self.n_])), (1,) + subsample_factors, self.default_value, self.prefilter)
             transformed_affine = Sample.update_affine(sample.affine, transformation_matrix=backward_affine)
             self.outputs[idx][idx_] = Sample(transformed_sample, transformed_affine)
 
@@ -628,8 +654,8 @@ class Crop(Transformer):
 
 
 class RandomCrop(Crop):
-    def __init__(self, reference_connection, segment_size, n, nonzero=False, subsample_factors=(1, 1, 1), default_value=0):
-        super(RandomCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, n)
+    def __init__(self, reference_connection, segment_size, n, nonzero=False, subsample_factors=(1, 1, 1), default_value=0, prefilter=None):
+        super(RandomCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, prefilter, n)
         self.nonzero = nonzero
 
     def _randomize(self):
@@ -644,8 +670,8 @@ class RandomCrop(Crop):
 
 
 class GridCrop(Crop):
-    def __init__(self, reference_connection, segment_size, n=None, grid_size=None, strides=None, nonzero=False, subsample_factors=(1, 1, 1), default_value=0):
-        super(GridCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, n)
+    def __init__(self, reference_connection, segment_size, n=None, grid_size=None, strides=None, nonzero=False, subsample_factors=(1, 1, 1), default_value=0, prefilter=None):
+        super(GridCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, prefilter, n)
         self.ncrops = n
         self.grid_size = segment_size if grid_size is None else grid_size
         self.strides = self.grid_size if strides is None else strides
