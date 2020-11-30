@@ -45,7 +45,8 @@ def create_generalized_deepmedic_model(
         add_extra_dimension=False,
         l1_reg=0.0,
         l2_reg=0.0,
-        verbose=True):
+        verbose=True,
+        input_interpolation="nearest"):
     from tensorflow.keras.layers import Input, Dropout, MaxPooling3D, Concatenate, Multiply, Add, Reshape, Conv3DTranspose, AveragePooling3D, Conv3D, UpSampling3D, Cropping3D, LeakyReLU, PReLU, BatchNormalization
     from tensorflow.keras import regularizers
     from tensorflow.keras import backend as K
@@ -211,6 +212,9 @@ def create_generalized_deepmedic_model(
     input_sizes = []
     for p, (s_f_p_p, k_s_p_p) in enumerate(zip(subsample_factors_per_pathway, kernel_sizes_per_pathway)):
         field_of_view = np.ones(3, dtype=int)
+        if input_interpolation == "mean":
+            field_of_view *= np.array(s_f_p_p)
+
         for k_s in k_s_p_p:
             field_of_view += (np.array(k_s) - 1) * s_f_p_p
 
@@ -352,6 +356,36 @@ def create_generalized_deepmedic_model(
         for p in range(nb_pathways):
             assert list(model_input_shape[p][1:-1]) == input_sizes[p]
 
+    return model
+
+
+def create_simplified_deepmedic_model(**kwargs):
+    from tensorflow.keras.layers import Input, AveragePooling3D, Cropping3D
+    from tensorflow.keras import backend as K
+    from tensorflow.keras import Model
+
+    assert np.all([n_i_f_p_p == kwargs["number_input_features_per_pathway"][0] for n_i_f_p_p in kwargs["number_input_features_per_pathway"]])
+    if "input_interpolation" in kwargs:
+        assert kwargs["input_interpolation"] == "mean"
+
+    else:
+        kwargs["input_interpolation"] = "mean"
+
+    model = create_generalized_deepmedic_model(**kwargs)
+    input_size = np.max([[s_f_p_p[i] * K.int_shape(input_path)[i + 1] for i in range(3)] for s_f_p_p, input_path in zip(kwargs["subsample_factors_per_pathway"], model.inputs)], axis=0)
+    input = Input(tuple(input_size) + (kwargs["number_input_features_per_pathway"][0],))
+    paths = []
+    for s_f_p_p, input_path in zip(kwargs["subsample_factors_per_pathway"], model.inputs):
+        crop_size = [input_size[i] - s_f_p_p[i] * K.int_shape(input_path)[i + 1] for i in range(3)]
+        path = Cropping3D(tuple([(c_z // 2, c_z - c_z // 2) for c_z in crop_size]))(input)
+        path = AveragePooling3D(tuple(s_f_p_p))(path)
+        paths.append(path)
+
+    inputs = [input] + model.inputs[len(kwargs["subsample_factors_per_pathway"]):]
+    outputs = model(paths + model.inputs[len(kwargs["subsample_factors_per_pathway"]):])
+    model = Model(inputs=inputs, outputs=outputs if isinstance(outputs, list) else [outputs])
+    print("\nNetwork summary of simplified DeepMedic model:")
+    print(model.summary())
     return model
 
 

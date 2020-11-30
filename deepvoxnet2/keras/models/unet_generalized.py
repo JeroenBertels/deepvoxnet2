@@ -54,7 +54,8 @@ def create_generalized_unet_model(
         add_extra_dimension=False,
         l1_reg=0.0,
         l2_reg=1e-5,
-        verbose=True):
+        verbose=True,
+        input_interpolation="nearest"):
     from tensorflow.keras.layers import Input, Dropout, MaxPooling3D, Concatenate, Multiply, Add, Reshape, AveragePooling3D, Conv3D, UpSampling3D, Cropping3D, LeakyReLU, PReLU, BatchNormalization, Conv3DTranspose
     from tensorflow.keras import regularizers
     from tensorflow.keras import backend as K
@@ -213,6 +214,9 @@ def create_generalized_unet_model(
 
     # Calculate the field of view
     field_of_view = np.ones(3, dtype=int)
+    if input_interpolation == "mean":
+        field_of_view *= np.array(subsample_factors_per_pathway[0])
+
     for s_f_p_p, k_s_p_p in zip(subsample_factors_per_pathway, kernel_sizes_per_pathway):
         for k_s in k_s_p_p[0]:
             field_of_view += (np.array(k_s) - 1) * s_f_p_p
