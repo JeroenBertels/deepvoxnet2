@@ -3,41 +3,43 @@ import time
 import json
 import copy
 import pickle
+import gc
 import inspect
 import numpy as np
 import nibabel as nib
 import tensorflow as tf
+from abc import ABC
+from functools import partial
 from deepvoxnet2.components.sample import Sample
 from deepvoxnet2.components.creator import Creator
 from deepvoxnet2.components.mirc import Sampler
 from deepvoxnet2.components.transformers import KerasModel, _SampleInput
 
 
-class KerasGenerator(tf.keras.utils.Sequence):
-    def __init__(self, sampler, creator, group_size=1):
-        self.sampler = sampler
-        self.creator = creator
-        self.group_size = group_size
-        self.epoch = 0
+class TfDataset(tf.data.Dataset, ABC):
+    def __new__(cls, sampler, creator, batch_size=None, num_parallel_calls=None, prefetch_size=0, shuffle=False):
+        def _generator(idx):
+            outputs = [output for output in copy.deepcopy(creator).eval(sampler[idx])]
+            outputs = tuple([tuple([Sample(np.concatenate([output[j][i] for output in outputs]), np.concatenate([output[j][i].affine for output in outputs])) for i in range(len(outputs[0][j]))]) for j in range(len(outputs[0]))])
+            gc.collect()
+            return [output_ for output in outputs for output_ in output]
 
-    def __len__(self):
-        return len(self.sampler) // self.group_size
+        def _map_fn(idx):
+            outputs = tf.py_function(_generator, [idx], [tf.dtypes.float32 for output in creator.outputs for output_ in output])
+            for output in outputs:
+                output.set_shape((None, ) * 5)
 
-    def __getitem__(self, idx):
-        outputs = []
-        for group_i in range(self.group_size):
-            identifier = self.sampler[idx * self.group_size + group_i]
-            for output in copy.deepcopy(self.creator).eval(identifier):
-                outputs.append(output)
+            return tuple([tuple([outputs.pop(0) for j in range(len(creator.outputs[i]))]) for i in range(len(creator.outputs))])
 
-        return tuple([[Sample(np.concatenate([output[j][i] for output in outputs]), np.concatenate([output[j][i].affine for output in outputs])) for i in range(len(outputs[0][j]))] for j in range(len(outputs[0]))])
+        dataset = tf.data.Dataset.from_tensor_slices(list(range(len(sampler))))
+        dataset = dataset.map(_map_fn, num_parallel_calls=num_parallel_calls, deterministic=shuffle)
+        if batch_size is not None:
+            dataset = dataset.unbatch().batch(batch_size=batch_size)
 
-    def __iter__(self):
-        return iter([self[idx] for idx in range(len(self))])
+        if prefetch_size > 0:
+            dataset = dataset.prefetch(prefetch_size)
 
-    def on_epoch_end(self):
-        self.sampler.randomize()
-        self.epoch += 1
+        return dataset
 
 
 class DvnModel(object):
@@ -72,26 +74,34 @@ class DvnModel(object):
         self.optimizer = tf.keras.optimizers.get(optimizer) if isinstance(optimizer, str) else optimizer
         self.loss = self.dress(self.keras_model, loss, mode="losses")
         self.loss_weights = self.dress(self.keras_model, loss_weights)
+        for layer_name in self.loss:
+            loss_weights = self.loss_weights.get(layer_name, [1] * len(self.loss[layer_name]))
+            assert len(loss_weights) == len(self.loss[layer_name])
+            combined_loss = partial(self.get_combined_loss, losses=self.loss[layer_name], loss_weights=loss_weights)
+            combined_loss.__name__ = "loss_{}".format(layer_name)
+            self.loss[layer_name] = [combined_loss]
+            self.loss_weights[layer_name] = [1]
+
         self.metrics = self.dress(self.keras_model, metrics, mode="metrics")
         self.weighted_metrics = self.dress(self.keras_model, weighted_metrics, mode="metrics")
-        self.keras_model.compile(optimizer=optimizer, loss=loss, metrics=metrics, loss_weights=loss_weights, weighted_metrics=weighted_metrics)
+        self.keras_model.compile(optimizer=self.optimizer, loss=self.loss, metrics=self.metrics, loss_weights=self.loss_weights, weighted_metrics=self.weighted_metrics)
 
-    def fit(self, sampler, training_key, group_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, max_queue_size=10, workers=1, use_multiprocessing=False):
+    def fit(self, sampler, training_key, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=None, prefetch_size=0):
         assert len(self.outputs[training_key]) >= 2, "The requested training outputs are not appropriate to use fit."
-        fit_generator = KerasGenerator(sampler, Creator([self.inputs[training_key], *self.outputs[training_key][1:]]), group_size)
-        validation_fit_generator = None
+        fit_dataset = TfDataset(sampler, Creator([self.inputs[training_key], *self.outputs[training_key][1:]]), batch_size=batch_size, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size, shuffle=True)
+        validation_fit_dataset = None
         if validation_sampler is not None:
             assert len(self.outputs[validation_key]) >= 2, "The requested validation outputs are not appropriate to use fit."
-            validation_fit_generator = KerasGenerator(validation_sampler, Creator([self.inputs[validation_key], *self.outputs[validation_key][1:]]))
+            validation_fit_dataset = TfDataset(validation_sampler, Creator([self.inputs[validation_key], *self.outputs[validation_key][1:]]), batch_size=None, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size, shuffle=False)
 
-        return self.keras_model.fit(x=fit_generator, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_generator, validation_freq=validation_freq, max_queue_size=max_queue_size, workers=workers, use_multiprocessing=use_multiprocessing)
+        return self.keras_model.fit(x=fit_dataset, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_dataset, validation_freq=validation_freq)
 
-    def evaluate(self, sampler, key, max_queue_size=10, workers=1, use_multiprocessing=False):
+    def evaluate(self, sampler, key, num_parallel_calls=None, prefetch_size=0):
         assert len(self.outputs[key]) >= 2, "The requested outputs are not appropriate to use evaluate."
-        return self.keras_model.evaluate(x=KerasGenerator(sampler, Creator([self.inputs[key], *self.outputs[key][1:]])), return_dict=True, max_queue_size=max_queue_size, workers=workers, use_multiprocessing=use_multiprocessing)
+        return self.keras_model.evaluate(x=TfDataset(sampler, Creator([self.inputs[key], *self.outputs[key][1:]]), num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size), return_dict=True)
 
-    def predict(self, sampler, key, max_queue_size=10, workers=1, use_multiprocessing=False):
-        return self.keras_model.predict(x=KerasGenerator(sampler, Creator(self.inputs[key])), max_queue_size=max_queue_size, workers=workers, use_multiprocessing=use_multiprocessing)
+    def predict(self, sampler, key, num_parallel_calls=None, prefetch_size=0):
+        return self.keras_model.predict(x=TfDataset(sampler, Creator(self.inputs[key]), num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size))
 
     def evaluate_dvn(self, sampler, key, output_dirs=None, prediction_batch_size=None, save_y=True, name_tag=None):
         assert len(self.dvn_outputs[key]) >= 2, "The requested full outputs are not appropriate to use full evaluate."
@@ -132,13 +142,13 @@ class DvnModel(object):
         return evaluations
 
     def predict_dvn(self, sampler, key, output_dirs=None, prediction_batch_size=None, save_y=False, name_tag=None):
-        predict_generator = KerasGenerator(sampler, Creator(self.dvn_inputs[key]))
         dvn_outputs = Creator.deepcopy(self.dvn_outputs[key])
         keras_model_connection = [connection for connection in Creator.get_trace(dvn_outputs)[1] if isinstance(connection.transformer, KerasModel)][0]
         predictions = []
         for identifier_i, identifier in enumerate(sampler):
             start_time = time.time()
-            samples = predict_generator[identifier_i]
+            samples = [sample for sample in Creator(self.dvn_inputs[key]).eval(sampler[identifier_i])]
+            samples = [[Sample(np.concatenate([output[j][i] for output in samples]), np.concatenate([output[j][i].affine for output in samples])) for i in range(len(samples[0][j]))] for j in range(len(samples[0]))]
             y = []
             batch_size = prediction_batch_size or len(samples[0][0])
             for sample_i in range(len(samples[0][0])):
@@ -155,8 +165,8 @@ class DvnModel(object):
 
             keras_model_connection.transformer = _SampleInput([Sample(np.concatenate([y_batch_i[i] for y_batch_i in y]), np.concatenate([y_batch_i[i].affine for y_batch_i in y])) for i in range(len(y[0]))])
             keras_model_connection.idx = 0
-            dvn_output_generator = KerasGenerator(sampler, Creator(dvn_outputs))
-            samples = dvn_output_generator[identifier_i]
+            samples = [sample for sample in Creator(dvn_outputs).eval(sampler[identifier_i])]
+            samples = [[Sample(np.concatenate([output[j][i] for output in samples]), np.concatenate([output[j][i].affine for output in samples])) for i in range(len(samples[0][j]))] for j in range(len(samples[0]))]
             if output_dirs is not None:
                 for i, (prediction, layer_name) in enumerate(zip(samples[0], self.keras_model.output_names)):
                     output_path = os.path.join(output_dirs[identifier_i], "dvn_{}{}{}.nii.gz".format(key, "_" + layer_name if len(self.keras_model.output_names) > 1 else "", "_" + name_tag if name_tag is not None else ""))
@@ -179,6 +189,14 @@ class DvnModel(object):
                             custom_objects[custom_object_.__class__.__name__ if inspect.isclass(custom_object_) else custom_object_.__name__] = custom_object_
 
         return custom_objects
+
+    @staticmethod
+    def get_combined_loss(y_true, y_pred, sample_weight=None, losses=None, loss_weights=None):
+        loss_value = 0
+        for loss, loss_weight in zip(losses, loss_weights):
+            loss_value += loss(y_true, y_pred, sample_weight=sample_weight) * loss_weight
+
+        return loss_value
 
     def clear_keras_model(self):
         clear_state = False
