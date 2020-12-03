@@ -137,7 +137,7 @@ class NiftyModality(Modality):
         self.nifty = nifty
 
     def load(self):
-        return Sample(self.nifty.get_fdata(), self.nifty.affine)
+        return Sample(self.nifty.get_fdata(caching="unchanged"), self.nifty.affine)
 
 
 class NiftyFileModality(Modality):
@@ -147,4 +147,4 @@ class NiftyFileModality(Modality):
 
     def load(self):
         nii = nib.load(self.file_path)
-        return Sample(nii.get_fdata(), nii.affine)
+        return Sample(nii.get_fdata(caching="unchanged"), nii.affine)
