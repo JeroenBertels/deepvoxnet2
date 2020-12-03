@@ -715,10 +715,10 @@ class KerasModel(Transformer):
 
 
 class Put(Transformer):
-    def __init__(self, reference_connection, cashing=True, cval=np.nan, order=0):
+    def __init__(self, reference_connection, caching=True, cval=np.nan, order=0):
         super(Put, self).__init__(1, extra_connections=reference_connection)
         self.reference_connection = reference_connection
-        self.cashing = cashing
+        self.caching = caching
         self.cval = cval
         self.order = order
         self.prev_references = [None] * len(reference_connection)
@@ -750,7 +750,7 @@ class Put(Transformer):
         for idx, connection in enumerate(self.connections):
             assert len(connection[0]) == len(self.reference_connection)
             for idx_, sample in enumerate(connection[0]):
-                if not self.cashing or self.prev_references[idx_] is not self.reference_connection[idx_]:
+                if not self.caching or self.prev_references[idx_] is not self.reference_connection[idx_]:
                     assert self.reference_connection[idx_].shape[0] == 1
                     self.prev_references[idx_] = self.reference_connection[idx_]
                     self.outputs[idx][idx_] = Sample(np.zeros(self.reference_connection[idx_].shape[:4] + sample.shape[4:]), self.reference_connection[idx_].affine)
