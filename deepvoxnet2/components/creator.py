@@ -12,19 +12,21 @@ class Creator(object):
             transformer.active_indices = []
 
         self.active_transformers, self.active_connections = self.get_trace(self.outputs, set_active_indices=True)
+        self.active_input_transformers = [transformer for transformer in self.active_transformers if isinstance(transformer, _Input)]
 
     def eval(self, identifier=None):
         self.reset_transformers(self.active_transformers)
-        for transformer in self.active_transformers:
-            if isinstance(transformer, _Input):
-                transformer.load(identifier)
+        for transformer in self.active_input_transformers:
+            transformer.input_transformers = self.active_input_transformers
+            transformer.load(identifier)
 
         while True:
-            sample_id = uuid.uuid4()
-            for output_connection in self.outputs:
-                output_connection.eval(sample_id)
+            try:
+                sample_id = uuid.uuid4()
+                for output_connection in self.outputs:
+                    output_connection.eval(sample_id)
 
-            if all([transformer.n_resets > transformer.n for transformer in self.active_transformers if isinstance(transformer, _Input)]):
+            except RuntimeError:
                 break
 
             yield copy.deepcopy([output.get() for output in self.outputs])
@@ -37,6 +39,7 @@ class Creator(object):
             transformer.generator = None
             if isinstance(transformer, _Input):
                 transformer.n_resets = 0
+                transformer.input_transformers = None
 
     @staticmethod
     def get_trace(output_connections, set_active_indices=False):

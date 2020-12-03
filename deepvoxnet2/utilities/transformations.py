@@ -184,6 +184,76 @@ def crop(I, S_size, coordinates=None, subsample_factors=None, default_value=0, p
     return S
 
 
+def put(I, S, coordinates=None, subsample_factors=None):
+    """
+    This function can be used to put back a segment centered on a specific coordinate in the input array (reverse of crop function).
+
+    Parameters
+    ----------
+    I: np.ndarray
+        The input array in which to put back the segment S. Can be of any number of dimensions.
+    S: np.ndarray
+        The segment array to put back in I. Same number of dimensions as I.
+    coordinates: None, tuple, list
+        Around what coordinate in the input array the segment array will be put back. When None, the center coordinate in I will be used. None can also be used for a specific axis to specify that the center coordinate along that axis must be used.
+    subsample_factors: None, tuple, list
+        If the segment array was subsampled, one can specify an integer subsample factor for each axis. None is used to denote a subsample factor of 1.
+
+    Returns
+    -------
+    I: np.ndarray
+        The output array I in which the segment S is now put.
+    """
+    assert I.ndim == S.ndim, "Number of image dimensions must be equal to number of segment dimensions."
+    if coordinates is None:
+        coordinates = [s // 2 for s in I.shape]  # putting happens around the center
+
+    else:
+        assert len(coordinates) <= I.ndim
+        coordinates = [s // 2 if c is None else c for c, s in zip(coordinates, I.shape[:len(coordinates)])]  # putting happens around the specified coordinates
+        coordinates += [s // 2 for s in I.shape[len(coordinates):]]  # putting happens around the center of the remaining trailing dimensions
+
+    if subsample_factors is None:
+        subsample_factors = [1] * len(I.shape)
+
+    else:
+        assert len(subsample_factors) == I.ndim, "A subsample factor must be specified for each image/segment dimension."
+
+    idx_I = [slice(None)] * I.ndim
+    idx_S = [slice(None)] * S.ndim
+    for i, (d_I, d_S, c, s_f) in enumerate(zip(I.shape, S.shape, coordinates, subsample_factors)):
+        n_left_I = c
+        n_right_I = d_I - c - 1
+        n_left_S = d_S // 2
+        n_right_S = d_S // 2
+        if d_S % 2 == 0:
+            n_right_S -= 1
+
+        if n_left_I < n_left_S * s_f:
+            n = n_left_I // s_f
+            start_S = d_S // 2 - n
+            start_I = c - n * s_f
+
+        else:
+            start_S = 0
+            start_I = c - n_left_S * s_f
+
+        if n_right_I < n_right_S * s_f:
+            n = n_right_I // s_f
+            end_S = d_S // 2 + n
+            end_I = c + n * s_f
+
+        else:
+            end_S = d_S - 1
+            end_I = c + n_right_S * s_f
+
+        idx_I[i] = slice(start_I, end_I + 1, s_f)
+        idx_S[i] = slice(start_S, end_S + 1)
+
+    I[tuple(idx_I)] = S[tuple(idx_S)]
+    return I
+
+
 def get_affine_matrix(I_shape, voxel_size=(1, 1, 1), reflection=(1, 1, 1), shear=(0, 0, 0), rotation=(0, 0, 0), translation=(0, 0, 0), scaling=(1, 1, 1)):
     """
     Apply a certain deformation to an image, using the center of the image as origin for the scaling and rotation, and afterwards an optional translation as well.

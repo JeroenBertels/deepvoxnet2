@@ -1,5 +1,6 @@
 import random
 import uuid
+import transforms3d
 import numpy as np
 from scipy.ndimage import distance_transform_edt, gaussian_filter, uniform_filter
 from deepvoxnet2.components.sample import Sample
@@ -60,15 +61,7 @@ class Transformer(object):
         return input_connections if len(input_connections) > 1 else (input_connections[0] if len(input_connections) == 1 else None)
 
     def get_output_len(self, idx):
-        if self.output_len is None and len(self.connections[idx]) == 1:
-            return len(self.connections[idx][0])
-
-        elif self.output_len is None and len(self.connections[idx]) > 1:
-            return np.sum([len(connection) for connection in self.connections[idx]])
-
-        else:
-            assert self.output_len is not None
-            return self.output_len
+        return self.output_len or len(self.connections[idx][0])
 
     def __len__(self):
         return len(self.outputs)
@@ -122,6 +115,7 @@ class _Input(Transformer):
         super(_Input, self).__init__(n, output_len)
         self.outputs.append([None] * output_len)
         self.n_resets = 0
+        self.input_transformers = None
 
     def __call__(self):
         return super(_Input, self).__call__()
@@ -135,6 +129,9 @@ class _Input(Transformer):
     def _randomize(self):
         if self.n_ == 0:
             self.n_resets += 1
+
+        if self.input_transformers is not None and all([transformer.n_resets > transformer.n for transformer in self.input_transformers]):
+            raise StopIteration
 
 
 class _MircInput(_Input):
@@ -169,8 +166,8 @@ class SampleInput(_SampleInput):
 
 
 class Group(Transformer):
-    def __init__(self):
-        super(Group, self).__init__(1)
+    def __init__(self, output_len):
+        super(Group, self).__init__(1, output_len=output_len)
 
     def _update(self, idx, connection):
         idx_ = 0
@@ -198,7 +195,7 @@ class Split(Transformer):
 
 class Concat(Transformer):
     def __init__(self, axis=-1):
-        super(Concat, self).__init__(1, 1)
+        super(Concat, self).__init__(1, output_len=1)
         assert axis in [0, 4, -1]
         self.axis = axis
 
@@ -242,9 +239,6 @@ class Threshold(Transformer):
 class Multiply(Transformer):
     def __init__(self):
         super(Multiply, self).__init__(1)
-
-    def get_output_len(self, idx):
-        return len(self.connections[idx][0])
 
     def _update(self, idx, connection):
         for idx_, sample in enumerate(connection[0]):
@@ -733,10 +727,18 @@ class Put(Transformer):
     def _update(self, idx, connection):
         for idx_, (reference, sample) in enumerate(zip(self.reference_connection.get(), connection[0].get())):
             for i in range(sample.shape[0]):
-                transformed_array_counts = transformations.affine_deformation(np.ones_like(sample[i, ..., 0]), np.linalg.inv(sample.affine[i]) @ reference.affine[0], output_shape=reference.shape[1:4], cval=0, order=self.order)[None, ..., None]
-                transformed_array = np.stack([transformations.affine_deformation(sample[i, ..., j], np.linalg.inv(sample.affine[i]) @ reference.affine[0], output_shape=reference.shape[1:4], cval=self.cval, order=self.order) for j in range(sample.shape[4])], axis=-1)[None, ...]
-                if np.isnan(self.cval):
-                    transformed_array = transformed_array[tuple(distance_transform_edt(np.isnan(transformed_array), return_distances=False, return_indices=True))]
+                backward_affine = np.linalg.inv(sample.affine[i]) @ reference.affine[0]
+                T, R, Z, S = [np.round(transformation, 1) for transformation in transforms3d.affines.decompose44(backward_affine)]
+                if np.allclose(R, np.eye(3)) and np.allclose(Z, [1, 1, 1]) and np.allclose(S, [0, 0, 0]):
+                    coordinates = [int(round(s // 2 - t)) for s, t in zip(sample.shape[1:4], T)]
+                    transformed_array_counts = transformations.put(np.zeros(reference.shape[1:4]), np.ones_like(sample[i, ..., 0]), coordinates=coordinates)[None, ..., None]
+                    transformed_array = np.stack([transformations.put(np.zeros(reference.shape[1:4]), sample[i, ..., j], coordinates=coordinates) for j in range(sample.shape[4])], axis=-1)[None, ...]
+
+                else:
+                    transformed_array_counts = transformations.affine_deformation(np.ones_like(sample[i, ..., 0]), backward_affine, output_shape=reference.shape[1:4], cval=0, order=self.order)[None, ..., None]
+                    transformed_array = np.stack([transformations.affine_deformation(sample[i, ..., j], backward_affine, output_shape=reference.shape[1:4], cval=self.cval, order=self.order) for j in range(sample.shape[4])], axis=-1)[None, ...]
+                    if np.isnan(transformed_array).any():
+                        transformed_array = transformed_array[tuple(distance_transform_edt(np.isnan(transformed_array), return_distances=False, return_indices=True))]
 
                 self.outputs[idx][idx_][...] = self.output_array_counts[idx][idx_] / (self.output_array_counts[idx][idx_] + transformed_array_counts) * self.outputs[idx][idx_] + transformed_array_counts / (self.output_array_counts[idx][idx_] + transformed_array_counts) * transformed_array
                 self.output_array_counts[idx][idx_] += transformed_array_counts

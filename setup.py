@@ -22,6 +22,7 @@ setup(
         'numba>=0.39',
         'matplotlib>=2.2.2',
         'scikit-image>=0.14',
+        'transforms3d>=0.3.1',
         'pymirc @ git+https://github.com/gschramm/pymirc'
     ]
 )
