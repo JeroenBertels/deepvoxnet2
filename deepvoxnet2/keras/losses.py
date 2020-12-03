@@ -6,5 +6,8 @@ def binary_crossentropy(y_true, y_pred, sample_weight=None):
     return BinaryCrossentropy()(y_true, y_pred, sample_weight=sample_weight)
 
 
-def binary_dice_loss(y_true, y_pred, sample_weight=None, per_image=False, smoothing=1e-7):
-    return 1 - binary_dice_score(y_true, y_pred, sample_weight=sample_weight, per_image=per_image, mode="soft", smoothing=smoothing)
+def binary_dice_loss(y_true, y_pred, sample_weight=None, **kwargs):
+    if "threshold" not in kwargs:
+        kwargs["threshold"] = None
+
+    return 1 - binary_dice_score(y_true, y_pred, sample_weight=sample_weight, **kwargs)
