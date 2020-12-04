@@ -27,5 +27,5 @@ def create_dataset(data="train"):
 
 
 if __name__ == '__main__':
-    brats_2018_train = create_dataset()
-    brats_2018_val = create_dataset('val')
+    brats_2018_train = create_dataset("train")
+    brats_2018_val = create_dataset("val")

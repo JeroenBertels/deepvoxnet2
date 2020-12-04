@@ -1,5 +1,5 @@
 // MDL v1 utf8
-mevislabVersion = 3.3
+mevislabVersion = 3.1.1
 network  {
   watchlist = ""
 }
@@ -95,66 +95,20 @@ module itkImageFileReader {
   }
   fields  {
     instanceName = itkImageFileReader1
-    fileDataType = float
+    fileDataType = "unsigned int8"
     autoDetermineDataType = TRUE
     correctSubVoxelShift = TRUE
     fileDimension = 3
-    info = "Loading okay."
-    numDims = 3
+    info = " Could not create IO object for file /usr/local/avalok/data/jberte3/Git/deepvoxnet2/demos/brats_2018/runs/unet/case_8/record_0/Validation/adam_ce-sd_Round_0_Fold_0/dvn_val.nii.gz
+The file doesn't exist. 
+Filename = /usr/local/avalok/data/jberte3/Git/deepvoxnet2/demos/brats_2018/runs/unet/case_8/record_0/Validation/adam_ce-sd_Round_0_Fold_0/dvn_val.nii.gz
+ Loaded data may be undefined."
+    numDims = 0
     fileType = TypeNotApplicable
-    componentType = float
-    pixelType = SCALAR
-    loaderType = NiftiImageIO
-    outputMetaDataStr = "ITK_FileNotes : 
-aux_file : 
-bitpix : 32
-cal_max : 0
-cal_min : 0
-datatype : 16
-descrip : 
-dim[0] : 4
-dim[1] : 240
-dim[2] : 240
-dim[3] : 155
-dim[4] : 1
-dim[5] : 1
-dim[6] : 1
-dim[7] : 1
-dim_info : 
-intent_code : 0
-intent_name : 
-intent_p1 : 0
-intent_p2 : 0
-intent_p3 : 0
-pixdim[0] : 1
-pixdim[1] : 1
-pixdim[2] : 1
-pixdim[3] : 1
-pixdim[4] : 1
-pixdim[5] : 1
-pixdim[6] : 1
-pixdim[7] : 1
-qform_code : 0
-qoffset_x : 0
-qoffset_y : 239
-qoffset_z : 0
-quatern_b : 0
-quatern_c : 0
-quatern_d : 1
-scl_inter : 0
-scl_slope : 1
-sform_code : 2
-slice_code : 
-slice_duration : 0
-slice_end : 0
-slice_start : 0
-srow_x : -1 -0 -0 0
-srow_y : -0 -1 -0 239
-srow_z : 0 0 1 0
-toffset : 0
-vox_offset : 352
-xyzt_units : 
-"
+    componentType = ""
+    pixelType = UNKNOWNPIXELTYPE
+    loaderType = ""
+    outputMetaDataStr = ""
     suppressErrorPosting = FALSE
     unresolvedFileName = ""
   }
@@ -165,7 +119,7 @@ module SynchroView2D {
     moduleGroupName = ""
     windows  {
       window _default {
-        geometry = "271 114 804 400"
+        geometry = "1293 76 804 400"
         sizeHint = "804 400"
         wasOpen = yes
       }
@@ -182,10 +136,10 @@ module SynchroView2D {
     disconnectOnHide = TRUE
     snapToCenter1 = FALSE
     snapToCenter2 = FALSE
-    slice1 = 21
+    slice1 = 0
     timepoint1 = 0
     filterMode = FILTER_LINEAR
-    slice2 = 21
+    slice2 = 0
     timepoint2 = 0
     lut1w = 809
     lut1c = 404.5
@@ -206,8 +160,8 @@ module RunPythonScript {
     showNetworkPanel = true
     windows  {
       window _default {
-        geometry = "133 554 1262 304"
-        sizeHint = "708 304"
+        geometry = "1200 532 1205 437"
+        sizeHint = "651 304"
         wasOpen = yes
       }
     }
@@ -276,7 +230,7 @@ dataset_id = "brats_2018"
 case_id = "case_8"
 record_id = "record_0"
 
-run_name = "unet_117_same"
+run_name = "unet"
 experiment_name = "adam_ce-sd"
 round_i = 0
 fold_i = 0
