@@ -25,15 +25,17 @@ class MetricNameChanger(Callback):
 
 
 class DvnModelCheckpoint(Callback):
-    def __init__(self, dvn_model, model_dir, freq):
+    def __init__(self, dvn_model, model_dir, freq, epoch_as_name_tag=False):
         super(DvnModelCheckpoint, self).__init__()
         self.dvn_model = dvn_model
         self.model_dir = model_dir
         self.freq = freq
+        self.epoch_as_name_tag = epoch_as_name_tag
 
     def on_epoch_end(self, epoch, logs=None):
         if epoch > 0 and (epoch + 1) % self.freq == 0:
-            self.dvn_model.save(os.path.join(self.model_dir, "dvn_model_at_epoch_{:05}".format(epoch)))
+            model_name = "dvn_model_{:05}".format(epoch) if self.epoch_as_name_tag else "dvn_model"
+            self.dvn_model.save(os.path.join(self.model_dir, model_name))
 
 
 class DvnModelEvaluator(Callback):
@@ -50,7 +52,7 @@ class DvnModelEvaluator(Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         if epoch > 0 and (epoch + 1) % self.freq == 0:
-            evaluations = self.dvn_model.evaluate_dvn(self.sampler, self.key, self.output_dirs, prediction_batch_size=self.prediction_batch_size, name_tag="epoch_{:05}".format(epoch) if self.epoch_as_name_tag else None)
+            evaluations = self.dvn_model.evaluate_dvn(self.sampler, self.key, self.output_dirs, prediction_batch_size=self.prediction_batch_size, name_tag="{:05}".format(epoch) if self.epoch_as_name_tag else None)
             for metric_name in evaluations[0]:
                 self.history[metric_name] = self.history.get(metric_name, []) + [[evaluation[metric_name] for evaluation in evaluations]]
 
