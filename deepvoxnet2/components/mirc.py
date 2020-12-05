@@ -37,13 +37,17 @@ class Sampler(object):
     def __iter__(self):
         return iter(self.identifiers)
 
+    def __add__(self, other):
+        assert self.shuffle == other.shuffle
+        return Sampler(self.identifiers + other.identifiers, shuffle=self.shuffle)
+
     def randomize(self):
         if self.shuffle:
             random.shuffle(self.identifiers)
 
 
 class MircSampler(Sampler):
-    def __init__(self, mirc, mode="per_record", shuffle=True):
+    def __init__(self, mirc, mode="per_record", shuffle=False):
         if mode == "per_record":
             identifiers = [Identifier(mirc, dataset_id, case_id, record_id) for dataset_id in mirc for case_id in mirc[dataset_id] for record_id in mirc[dataset_id][case_id]]
 
@@ -51,13 +55,23 @@ class MircSampler(Sampler):
             raise NotImplementedError
 
         super(MircSampler, self).__init__(identifiers, shuffle)
-        self.mirc = mirc
-        self.mode = mode
+        # self.mirc = mirc
+        # self.mode = mode
 
 
 class Mirc(dict):
     def __init__(self):
         super(Mirc, self).__init__()
+
+    def __add__(self, other):
+        mirc = Mirc()
+        for dataset_id in self:
+            mirc.add(self[dataset_id])
+
+        for dataset_id in other:
+            mirc.add(other[dataset_id])
+
+        return mirc
 
     def add(self, dataset):
         assert dataset.dataset_id not in self
