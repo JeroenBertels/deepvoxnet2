@@ -4,6 +4,7 @@ Isensee F., Kickingereder P., Wick W., Bendszus M., Maier-Hein K.H. (2019) No Ne
 """
 
 import numpy as np
+from deepvoxnet2.utilities.calculate_gpu_memory import get_model_memory_usage
 
 
 def create_generalized_unet_model(
@@ -410,6 +411,7 @@ def create_generalized_unet_model(
             model_input_shape = [model_input_shape]
 
         assert list(model_input_shape[0][1:-1]) == input_size
+        print('With a batch size of {} this model needs {} GB on the GPU.'.format(1, get_model_memory_usage(1, model)))
 
     return model
 
