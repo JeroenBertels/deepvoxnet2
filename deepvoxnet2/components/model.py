@@ -31,11 +31,19 @@ class TfDataset(tf.data.Dataset, ABC):
 
             return tuple([tuple([outputs.pop(0) for j in range(len(creator.outputs[i]))]) for i in range(len(creator.outputs))])
 
+        # Create a tensorflow dataset.
         dataset = tf.data.Dataset.from_tensor_slices(list(range(len(sampler))))
+        # Transform the tensorflow dataset into a new dataset by chaining method call.
+        # Dataset.map() --> per-element transformations Dataset.batch() --> multi-element transformations
+        # num_parallel_calls: the number of elements to process asynchronously in parallel. If the value tf.data.experimental.AUTOTUNE is used,
+        # then the number of parallel calls is set dynamically based on available CPU.
         dataset = dataset.map(_map_fn, num_parallel_calls=num_parallel_calls, deterministic=shuffle)
         if batch_size is not None:
             dataset = dataset.unbatch().batch(batch_size=batch_size)
 
+        # Prefetching overlaps the preprocessing and model execution of a training step. While the model is executing training step s,
+        # the input pipeline is reading the data for step s+1. The number of elements to prefetch should be equal to (or possibly greater than) the
+        # number of batches consumed by a single training step.
         if prefetch_size > 0:
             dataset = dataset.prefetch(prefetch_size)
 

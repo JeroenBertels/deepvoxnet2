@@ -221,6 +221,7 @@ class Mean(Transformer):
 
 
 class Threshold(Transformer):
+    """The threshold filter returns a binary image of the input dataset whose scalars lie within the specified range."""
     def __init__(self, lower_threshold=0, upper_threshold=np.inf):
         super(Threshold, self).__init__(1)
         self.lower_threshold = lower_threshold
@@ -266,6 +267,8 @@ class FillNan(Transformer):
 
 
 class Clip(Transformer):
+    """Clip (limit) the values in an array. Given an interval, values outside the interval are clipped to the interval edges. For example,
+    if an interval of [0, 1] is specified, values smaller than 0 become 0 and values larger than 1 become 1."""
     def __init__(self, lower_clip=-np.inf, higher_clip=np.inf):
         super(Clip, self).__init__(1)
         self.lower_clip = lower_clip
@@ -557,6 +560,17 @@ class Filter(Transformer):
 
 class AffineDeformation(Transformer):
     def __init__(self, reference_connection, voxel_size=(1, 1, 1), shear_window_width=(0, 0, 0), rotation_window_width=(0, 0, 0), translation_window_width=(0, 0, 0), scaling_window_width=(0, 0, 0), cval=0, order=1, n=1):
+        """
+        :param reference_connection:
+        :param voxel_size:
+        :param shear_window_width:
+        :param rotation_window_width:
+        :param translation_window_width:
+        :param scaling_window_width:
+        :param cval:
+        :param order: order = 0 --> nearest neighbors, order = 1 --> interpolation
+        :param n:
+        """
         super(AffineDeformation, self).__init__(n, extra_connections=reference_connection)
         self.reference_connection = reference_connection
         self.voxel_size = voxel_size
@@ -649,6 +663,15 @@ class Crop(Transformer):
 
 class RandomCrop(Crop):
     def __init__(self, reference_connection, segment_size, n, nonzero=False, subsample_factors=(1, 1, 1), default_value=0, prefilter=None):
+        """
+        :param reference_connection:
+        :param segment_size: the size of the cropped image
+        :param n: number of crops
+        :param nonzero: True --> crop center is within the nonzero values of the reference_connection
+        :param subsample_factors:
+        :param default_value:
+        :param prefilter:
+        """
         super(RandomCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, prefilter, n)
         self.nonzero = nonzero
 
