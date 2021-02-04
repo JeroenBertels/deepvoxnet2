@@ -39,6 +39,7 @@ class Transformer(object):
         self.generator = None
         self.sample_id = None
         self.output_len = output_len
+        self.output_shape = (None, None, None, None, None)
 
     def __call__(self, *connections):
         if len(connections) == 0:
@@ -154,6 +155,7 @@ class _SampleInput(_Input):
         self.samples = samples if isinstance(samples, list) else [samples]
         super(_SampleInput, self).__init__(n, len(self.samples))
         self.load()
+        self.output_shape = tuple(samples.shape)
 
     def load(self, identifier=None):
         for idx_, sample in enumerate(self.samples):
@@ -168,6 +170,7 @@ class SampleInput(_SampleInput):
 class Group(Transformer):
     def __init__(self, output_len):
         super(Group, self).__init__(1, output_len=output_len)
+        self.output_shape = ((None, None, None, None, None), ) * output_len
 
     def _update(self, idx, connection):
         idx_ = 0
@@ -181,6 +184,7 @@ class Group(Transformer):
 
 
 class Split(Transformer):
+    """ TODO: output_shape """
     def __init__(self, indices=(0,)):
         self.indices = indices if isinstance(indices, tuple) else (indices,)
         super(Split, self).__init__(1, len(self.indices))
@@ -194,6 +198,7 @@ class Split(Transformer):
 
 
 class Concat(Transformer):
+    """ TODO: output_shape """
     def __init__(self, axis=-1):
         super(Concat, self).__init__(1, output_len=1)
         assert axis in [0, 4, -1]
@@ -293,6 +298,7 @@ class Round(Transformer):
 
 
 class Normalize(Transformer):
+    """ TODO: output_shape """
     def __init__(self, shift, scale):
         super(Normalize, self).__init__(1)
         self.shift = shift
@@ -455,6 +461,7 @@ class Extrapolate(Transformer):
         self.fixed_length = fixed_length
         self.mode = mode
         self.axis = axis
+        self.output_shape = (None, None, None, None, fixed_length)
 
     def _update(self, idx, connection):
         for idx_, sample in enumerate(connection[0]):
@@ -631,6 +638,7 @@ class Crop(Transformer):
         self.default_value = default_value
         self.prefilter = prefilter
         self.coordinates = None
+        self.output_shape = (None, segment_size[0], segment_size[1], segment_size[2], None)
 
     def _update(self, idx, connection):
         segment_size = self.segment_size[idx] if isinstance(self.segment_size, list) else self.segment_size
@@ -700,6 +708,7 @@ class KerasModel(Transformer):
         self.keras_model = keras_model
         self.output_affines = output_affines if isinstance(output_affines, list) else [output_affines]
         assert len(self.output_affines) == self.output_len
+        self.output_shape = keras_model.output_shape
 
     def _update(self, idx, connection):
         y = self.keras_model.predict(connection[0].get())
@@ -723,6 +732,7 @@ class Put(Transformer):
         self.order = order
         self.prev_references = [None] * len(reference_connection)
         self.output_array_counts = None
+        self.output_shape = reference_connection.transformer.output_shape
 
     def _update(self, idx, connection):
         for idx_, (reference, sample) in enumerate(zip(self.reference_connection.get(), connection[0].get())):
