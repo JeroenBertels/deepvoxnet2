@@ -29,7 +29,7 @@ class Connection(object):
 
 
 class Transformer(object):
-    def __init__(self, n=1, output_len=None, extra_connections=None):
+    def __init__(self, n=1, output_len=None, extra_connections=None, name=None):
         self.n = n
         self.n_ = 0
         self.connections = []
@@ -40,6 +40,7 @@ class Transformer(object):
         self.sample_id = None
         self.output_len = output_len
         self.output_shape = (None, None, None, None, None)
+        self.name = name
 
     def __call__(self, *connections):
         if len(connections) == 0:
