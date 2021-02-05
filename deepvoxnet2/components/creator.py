@@ -106,6 +106,19 @@ class Creator(object):
             trans_ids[id(at)] = final_name
         return trans_ids
 
+    def active_connections_reordered(self):
+        list_of_active_connections = self.active_connections
+        input_indices = []
+        other_indices = []
+        for i, ac in enumerate(list_of_active_connections):
+            if 'Input' in type(ac.transformer).__name__:
+                input_indices.append(i)
+            else:
+                other_indices.append(i)
+
+        myorder = other_indices + input_indices
+        return [list_of_active_connections[i] for i in myorder]
+
     def summary(self):
         done_transformers = []
         print('_' * 200)
@@ -113,7 +126,7 @@ class Creator(object):
         print('=' * 200)
         trans_id_names = self.unique_transformer_names()
         output_shape_per_id = {}
-        for ac in reversed(self.active_connections):
+        for ac in reversed(self.active_connections_reordered()):
             ac_transformer_id = id(ac.transformer)
             if ac_transformer_id in done_transformers:
                 continue
