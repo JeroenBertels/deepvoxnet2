@@ -25,11 +25,11 @@ class TfDataset(tf.data.Dataset, ABC):
             return [output_ for output in outputs for output_ in output]
 
         def _map_fn(idx):
-            outputs = tf.py_function(_generator, [idx], [tf.dtypes.float32 for output in creator.outputs for output_ in output])
+            outputs = tf.py_function(_generator, [idx], [tf.dtypes.float32 for output in creator.outputs for _ in output])
             for output in outputs:
                 output.set_shape((None, ) * 5)
 
-            return tuple([tuple([outputs.pop(0) for j in range(len(creator.outputs[i]))]) for i in range(len(creator.outputs))])
+            return tuple([tuple([outputs.pop(0) for _ in range(len(creator.outputs[i]))]) for i in range(len(creator.outputs))])
 
         dataset = tf.data.Dataset.from_tensor_slices(list(range(len(sampler))))
         dataset = dataset.map(_map_fn, num_parallel_calls=num_parallel_calls, deterministic=shuffle)
