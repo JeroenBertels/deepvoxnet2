@@ -39,7 +39,6 @@ class Transformer(object):
         self.generator = None
         self.sample_id = None
         self.output_len = output_len
-        self.output_shape = (None, None, None, None, None)
         self.name = name
 
     def __call__(self, *connections):
@@ -61,6 +60,14 @@ class Transformer(object):
                 input_connections.append(Connection(self, len(self.outputs) - 1))
 
         return input_connections if len(input_connections) > 1 else (input_connections[0] if len(input_connections) == 1 else None)
+
+    def get_output_shapes(self, input_shapes=None):
+        """
+        Calculate the output shape using the input shape for a certain index of the transformer.
+        :param input_shapes: a list of a list of arrays coming from a list of connections
+        :return: a list of tuples
+        """
+        return input_shapes[0] if input_shapes is not None else None
 
     def get_output_len(self, idx):
         return self.output_len or len(self.connections[idx][0])
@@ -141,6 +148,9 @@ class _MircInput(_Input):
         self.modality_ids = modality_ids if isinstance(modality_ids, list) else [modality_ids]
         super(_MircInput, self).__init__(n, len(self.modality_ids))
 
+    def get_output_shapes(self, input_shapes=None):
+        return [(None, None, None, None, None), ] * len(self.modality_ids)
+
     def load(self, identifier):
         for idx_, modality_id in enumerate(self.modality_ids):
             self.outputs[0][idx_] = identifier.mirc[identifier.dataset_id][identifier.case_id][identifier.record_id][modality_id].load()
@@ -156,7 +166,9 @@ class _SampleInput(_Input):
         self.samples = samples if isinstance(samples, list) else [samples]
         super(_SampleInput, self).__init__(n, len(self.samples))
         self.load()
-        self.output_shape = tuple(samples.shape)
+
+    def get_output_shapes(self, input_shapes=None):
+        return [sample.shape for sample in self.samples]
 
     def load(self, identifier=None):
         for idx_, sample in enumerate(self.samples):
@@ -171,7 +183,9 @@ class SampleInput(_SampleInput):
 class Group(Transformer):
     def __init__(self, output_len):
         super(Group, self).__init__(1, output_len=output_len)
-        self.output_shape = ((None, None, None, None, None), ) * output_len
+
+    def get_output_shapes(self, input_shapes=None):
+        return [input_shape_ for input_shape in input_shapes for input_shape_ in input_shape] if input_shapes is not None else None
 
     def _update(self, idx, connection):
         idx_ = 0
@@ -185,10 +199,12 @@ class Group(Transformer):
 
 
 class Split(Transformer):
-    """ TODO: output_shape """
     def __init__(self, indices=(0,)):
         self.indices = indices if isinstance(indices, tuple) else (indices,)
         super(Split, self).__init__(1, len(self.indices))
+
+    def get_output_shapes(self, input_shapes=None):
+        return [input_shapes[0][i] for i in self.indices] if input_shapes is not None else None
 
     def _update(self, idx, connection):
         for idx_, j in enumerate(self.indices):
@@ -199,11 +215,20 @@ class Split(Transformer):
 
 
 class Concat(Transformer):
-    """ TODO: output_shape """
     def __init__(self, axis=-1):
         super(Concat, self).__init__(1, output_len=1)
         assert axis in [0, 4, -1]
         self.axis = axis
+
+    def get_output_shapes(self, input_shapes=None):
+        os_axis = 0
+        for i in range(len(input_shapes[0])):
+            os_axis = os_axis + input_shapes[0][i][self.axis]
+
+        # TODO: finish!
+
+
+
 
     def _update(self, idx, connection):
         self.outputs[idx][0] = Sample(np.concatenate([sample for sample in connection[0]], axis=self.axis), connection[0][0].affine if self.axis != 0 else np.concatenate([sample.affine for sample in connection[0]]))
@@ -299,7 +324,6 @@ class Round(Transformer):
 
 
 class Normalize(Transformer):
-    """ TODO: output_shape """
     def __init__(self, shift, scale):
         super(Normalize, self).__init__(1)
         self.shift = shift
@@ -462,7 +486,16 @@ class Extrapolate(Transformer):
         self.fixed_length = fixed_length
         self.mode = mode
         self.axis = axis
-        self.output_shape = (None, None, None, None, fixed_length)
+
+    def get_output_shapes(self, input_shapes=None):
+        if input_shapes is not None:
+            output_shapes = []
+            for input_shape in input_shapes[0]:
+                os = list(input_shape)
+                os[self.axis] = self.fixed_length
+                output_shapes.append(tuple(os))
+            return output_shapes[0]
+        return None
 
     def _update(self, idx, connection):
         for idx_, sample in enumerate(connection[0]):
@@ -639,7 +672,14 @@ class Crop(Transformer):
         self.default_value = default_value
         self.prefilter = prefilter
         self.coordinates = None
-        self.output_shape = (None, segment_size[0], segment_size[1], segment_size[2], None)
+
+    def get_output_shapes(self, input_shapes=None):
+        if input_shapes is not None:
+            output_shapes = []
+            for input_shape in input_shapes[0]:
+                output_shapes.append((input_shape[0], self.segment_size[0], self.segment_size[1], self.segment_size[2], input_shape[4]))
+            return output_shapes[0]
+        return None
 
     def _update(self, idx, connection):
         segment_size = self.segment_size[idx] if isinstance(self.segment_size, list) else self.segment_size
@@ -709,7 +749,9 @@ class KerasModel(Transformer):
         self.keras_model = keras_model
         self.output_affines = output_affines if isinstance(output_affines, list) else [output_affines]
         assert len(self.output_affines) == self.output_len
-        self.output_shape = keras_model.output_shape
+
+    def get_output_shapes(self, input_shapes=None):
+        return self.keras_model.output_shape
 
     def _update(self, idx, connection):
         y = self.keras_model.predict(connection[0].get())
@@ -733,7 +775,10 @@ class Put(Transformer):
         self.order = order
         self.prev_references = [None] * len(reference_connection)
         self.output_array_counts = None
-        self.output_shape = reference_connection.transformer.output_shape
+        # self.output_shape = reference_connection.transformer.output_shape  # TODO
+
+    def get_output_shapes(self, input_shapes=None):
+        return self.reference_connection.transformer.get_output_shapes()
 
     def _update(self, idx, connection):
         for idx_, (reference, sample) in enumerate(zip(self.reference_connection.get(), connection[0].get())):
