@@ -11,6 +11,7 @@ class Connection(object):
     def __init__(self, transformer, idx):
         self.transformer = transformer
         self.idx = idx
+        self.shape = self.get_shape()
 
     def __len__(self):
         return len(self.get())
@@ -27,19 +28,22 @@ class Connection(object):
     def eval(self, sample_id=None):
         return self.transformer.eval(sample_id)[self.idx]
 
+    def get_shape(self):
+        return self.transformer.output_shapes[self.idx].copy()
+
 
 class Transformer(object):
-    def __init__(self, n=1, output_len=None, extra_connections=None, name=None):
+    def __init__(self, n=1, extra_connections=None, name=None):
         self.n = n
+        self.extra_connections = [] if extra_connections is None else (extra_connections if isinstance(extra_connections, list) else [extra_connections])
+        self.name = name
         self.n_ = 0
         self.connections = []
         self.outputs = []
-        self.extra_connections = [] if extra_connections is None else (extra_connections if isinstance(extra_connections, list) else [extra_connections])
-        self.active_indices = None
+        self.output_shapes = []
+        self.active_indices = []
         self.generator = None
         self.sample_id = None
-        self.output_len = output_len
-        self.name = name
 
     def __call__(self, *connections):
         if len(connections) == 0:
@@ -48,7 +52,7 @@ class Transformer(object):
         else:
             input_connections = []
             for connection in connections:
-                if self.__class__.__name__ in ["Group", "Multiply"]:
+                if self.__class__.__name__ in ["Group", "Multiply", "Concat", "Mean"]:
                     assert isinstance(connection, list)
                     self.connections.append(connection)
 
@@ -56,21 +60,15 @@ class Transformer(object):
                     assert not isinstance(connection, list)
                     self.connections.append([connection])
 
-                self.outputs.append([None] * self.get_output_len(len(self.connections) - 1))
+                self.output_shapes.append(self.get_output_shape(len(self.connections) - 1))
+                self.outputs.append([None] * len(self.output_shapes[len(self.connections) - 1]))
+                self.active_indices.append(len(self.connections) - 1)
                 input_connections.append(Connection(self, len(self.outputs) - 1))
 
         return input_connections if len(input_connections) > 1 else (input_connections[0] if len(input_connections) == 1 else None)
 
-    def get_output_shapes(self, input_shapes=None):
-        """
-        Calculate the output shape using the input shape for a certain index of the transformer.
-        :param input_shapes: a list of a list of arrays coming from a list of connections
-        :return: a list of tuples
-        """
-        return input_shapes[0] if input_shapes is not None else None
-
-    def get_output_len(self, idx):
-        return self.output_len or len(self.connections[idx][0])
+    def get_output_shape(self, idx):
+        return self.connections[idx][0].shape
 
     def __len__(self):
         return len(self.outputs)
@@ -93,7 +91,7 @@ class Transformer(object):
             else:
                 for connection in self.connections + [self.extra_connections]:
                     for connection_ in connection:
-                        if connection_.transformer.active_indices is None or len(connection_.transformer.active_indices) > 0:
+                        if len(connection_.transformer.active_indices) > 0:
                             connection_.transformer.eval(self.sample_id)
 
                 self.generator = self.update()
@@ -106,7 +104,7 @@ class Transformer(object):
         while self.n is None or self.n_ < self.n:
             self._randomize()
             for idx, connection in enumerate(self.connections):
-                if self.active_indices is None or idx in self.active_indices:
+                if idx in self.active_indices:
                     self._update(idx, connection)
 
             self.n_ += 1
@@ -120,14 +118,20 @@ class Transformer(object):
 
 
 class _Input(Transformer):
-    def __init__(self, n=1, output_len=None):
-        super(_Input, self).__init__(n, output_len)
-        self.outputs.append([None] * output_len)
+    def __init__(self, output_shapes, **kwargs):
+        super(_Input, self).__init__(**kwargs)
         self.n_resets = 0
         self.input_transformers = None
+        self.outputs.append(None)
+        assert isinstance(output_shapes, list) and all([isinstance(output_shape, tuple) and len(output_shape) == 5 for output_shape in output_shapes]), "The given output_shapes fot the _Input transformer are not in the correct format."
+        self.output_shapes.append(output_shapes)
+        self.active_indices.append(0)
 
     def __call__(self):
         return super(_Input, self).__call__()
+
+    def get_output_shape(self, idx):
+        return self.output_shapes[idx]
 
     def load(self, identifier):
         raise NotImplementedError
@@ -144,12 +148,13 @@ class _Input(Transformer):
 
 
 class _MircInput(_Input):
-    def __init__(self, modality_ids, n=1):
+    def __init__(self, modality_ids, output_shapes=None, **kwargs):
         self.modality_ids = modality_ids if isinstance(modality_ids, list) else [modality_ids]
-        super(_MircInput, self).__init__(n, len(self.modality_ids))
+        if output_shapes is None:
+            output_shapes = [(None, ) * 5, ] * len(self.modality_ids)
 
-    def get_output_shapes(self, input_shapes=None):
-        return [(None, None, None, None, None), ] * len(self.modality_ids)
+        assert len(output_shapes) == len(self.modality_ids)
+        super(_MircInput, self).__init__(output_shapes, **kwargs)
 
     def load(self, identifier):
         for idx_, modality_id in enumerate(self.modality_ids):
@@ -157,18 +162,16 @@ class _MircInput(_Input):
 
 
 class MircInput(_MircInput):
-    def __new__(cls, modality_ids, n=1):
-        return _MircInput(modality_ids, n)()
+    def __new__(cls, modality_ids, output_shapes=None, **kwargs):
+        return _MircInput(modality_ids, output_shapes, **kwargs)()
 
 
 class _SampleInput(_Input):
-    def __init__(self, samples, n=1):
+    def __init__(self, samples, **kwargs):
         self.samples = samples if isinstance(samples, list) else [samples]
-        super(_SampleInput, self).__init__(n, len(self.samples))
+        output_shapes = [sample.shape for sample in self.samples]
+        super(_SampleInput, self).__init__(output_shapes, **kwargs)
         self.load()
-
-    def get_output_shapes(self, input_shapes=None):
-        return [sample.shape for sample in self.samples]
 
     def load(self, identifier=None):
         for idx_, sample in enumerate(self.samples):
@@ -176,16 +179,16 @@ class _SampleInput(_Input):
 
 
 class SampleInput(_SampleInput):
-    def __new__(cls, samples, n=1):
-        return _SampleInput(samples, n)()
+    def __new__(cls, samples, **kwargs):
+        return _SampleInput(samples, **kwargs)()
 
 
 class Group(Transformer):
-    def __init__(self, output_len):
-        super(Group, self).__init__(1, output_len=output_len)
+    def __init__(self, **kwargs):
+        super(Group, self).__init__(**kwargs)
 
-    def get_output_shapes(self, input_shapes=None):
-        return [input_shape_ for input_shape in input_shapes for input_shape_ in input_shape] if input_shapes is not None else None
+    def get_output_shape(self, idx):
+        return [shape for connection in self.connections[idx] for shape in connection.shape]
 
     def _update(self, idx, connection):
         idx_ = 0
@@ -199,12 +202,12 @@ class Group(Transformer):
 
 
 class Split(Transformer):
-    def __init__(self, indices=(0,)):
+    def __init__(self, indices=(0,), **kwargs):
         self.indices = indices if isinstance(indices, tuple) else (indices,)
-        super(Split, self).__init__(1, len(self.indices))
+        super(Split, self).__init__(**kwargs)
 
-    def get_output_shapes(self, input_shapes=None):
-        return [input_shapes[0][i] for i in self.indices] if input_shapes is not None else None
+    def get_output_shape(self, idx):
+        return [self.connections[idx][0].shape[i] for i in self.indices]
 
     def _update(self, idx, connection):
         for idx_, j in enumerate(self.indices):
@@ -215,20 +218,28 @@ class Split(Transformer):
 
 
 class Concat(Transformer):
-    def __init__(self, axis=-1):
-        super(Concat, self).__init__(1, output_len=1)
+    def __init__(self, axis=-1, **kwargs):
+        super(Concat, self).__init__(**kwargs)
         assert axis in [0, 4, -1]
-        self.axis = axis
+        self.axis = axis if axis != -1 else 4
 
-    def get_output_shapes(self, input_shapes=None):
-        os_axis = 0
-        for i in range(len(input_shapes[0])):
-            os_axis = os_axis + input_shapes[0][i][self.axis]
+    def get_output_shape(self, idx):
+        assert all(len(self.connections[idx][0]) == len(connection) for connection in self.connections[idx]), "All input connections must have the same output length."
+        output_shapes = [list(output_shape) for output_shape in self.connections[idx][0].shape]
+        for output_shape_i, output_shape in enumerate(output_shapes):
+            for connection in self.connections[idx][1:]:
+                for axis_i, (output_shape_, output_shape__) in enumerate(zip(output_shape, connection.output_shapes[output_shape_i])):
+                    if axis_i == self.axis:
+                        if output_shape_ is None or output_shape__ is None:
+                            output_shape[axis_i] = None
 
-        # TODO: finish!
+                        else:
+                            output_shape[axis_i] = output_shape_ + output_shape__
 
+                    else:
+                        assert output_shape_ is not None and output_shape__ is not None and output_shape_ == output_shape__, "The shapes of the shared axes should be identical and different from None."
 
-
+        return [tuple(output_shape) for output_shape in output_shapes]
 
     def _update(self, idx, connection):
         self.outputs[idx][0] = Sample(np.concatenate([sample for sample in connection[0]], axis=self.axis), connection[0][0].affine if self.axis != 0 else np.concatenate([sample.affine for sample in connection[0]]))
@@ -238,10 +249,20 @@ class Concat(Transformer):
 
 
 class Mean(Transformer):
-    def __init__(self, axis=-1):
-        super(Mean, self).__init__(1)
+    def __init__(self, axis=-1, **kwargs):
+        super(Mean, self).__init__(**kwargs)
         assert axis in [0, 4, -1]
         self.axis = axis
+
+    def get_output_shape(self, idx):
+        assert all(len(self.connections[idx][0]) == len(connection) for connection in self.connections[idx]), "All input connections must have the same output length."
+        output_shapes = self.connections[idx][0].shape
+        for output_shape_i, output_shape in enumerate(output_shapes):
+            for connection in self.connections[idx][1:]:
+                for axis_i, (output_shape_, output_shape__) in enumerate(zip(output_shape, connection.output_shapes[output_shape_i])):
+                    assert output_shape_ is not None and output_shape__ is not None and output_shape_ == output_shape__, "The shapes of the shared axes should be identical and different from None."
+
+        return output_shapes
 
     def _update(self, idx, connection):
         for idx_, sample in enumerate(connection[0]):
@@ -252,8 +273,8 @@ class Mean(Transformer):
 
 
 class Threshold(Transformer):
-    def __init__(self, lower_threshold=0, upper_threshold=np.inf):
-        super(Threshold, self).__init__(1)
+    def __init__(self, lower_threshold=0, upper_threshold=np.inf, **kwargs):
+        super(Threshold, self).__init__(**kwargs)
         self.lower_threshold = lower_threshold
         self.upper_threshold = upper_threshold
 
@@ -268,8 +289,18 @@ class Threshold(Transformer):
 
 
 class Multiply(Transformer):
-    def __init__(self):
-        super(Multiply, self).__init__(1)
+    def __init__(self, **kwargs):
+        super(Multiply, self).__init__(**kwargs)
+
+    def get_output_shape(self, idx):
+        assert all(len(self.connections[idx][0]) == len(connection) for connection in self.connections[idx]), "All input connections must have the same output length."
+        output_shapes = self.connections[idx][0].shape
+        for output_shape_i, output_shape in enumerate(output_shapes):
+            for connection in self.connections[idx][1:]:
+                for axis_i, (output_shape_, output_shape__) in enumerate(zip(output_shape, connection.output_shapes[output_shape_i])):
+                    assert output_shape_ is not None and output_shape__ is not None and output_shape_ == output_shape__, "The shapes of the shared axes should be identical and different from None."
+
+        return output_shapes
 
     def _update(self, idx, connection):
         for idx_, sample in enumerate(connection[0]):
@@ -284,8 +315,8 @@ class Multiply(Transformer):
 
 
 class FillNan(Transformer):
-    def __init__(self, fill_value):
-        super(FillNan, self).__init__(1)
+    def __init__(self, fill_value, **kwargs):
+        super(FillNan, self).__init__(**kwargs)
         self.fill_value = fill_value
 
     def _update(self, idx, connection):
@@ -297,8 +328,8 @@ class FillNan(Transformer):
 
 
 class Clip(Transformer):
-    def __init__(self, lower_clip=-np.inf, higher_clip=np.inf):
-        super(Clip, self).__init__(1)
+    def __init__(self, lower_clip=-np.inf, higher_clip=np.inf, **kwargs):
+        super(Clip, self).__init__(**kwargs)
         self.lower_clip = lower_clip
         self.higher_clip = higher_clip
 
@@ -311,8 +342,8 @@ class Clip(Transformer):
 
 
 class Round(Transformer):
-    def __init__(self, decimals=0):
-        super(Round, self).__init__(1)
+    def __init__(self, decimals=0, **kwargs):
+        super(Round, self).__init__(**kwargs)
         self.decimals = decimals
 
     def _update(self, idx, connection):
@@ -324,8 +355,8 @@ class Round(Transformer):
 
 
 class Normalize(Transformer):
-    def __init__(self, shift, scale):
-        super(Normalize, self).__init__(1)
+    def __init__(self, shift, scale, **kwargs):
+        super(Normalize, self).__init__(**kwargs)
         self.shift = shift
         self.scale = scale
 
@@ -338,8 +369,8 @@ class Normalize(Transformer):
 
 
 class WindowNormalize(Transformer):
-    def __init__(self, lower_window=0, higher_window=1):
-        super(WindowNormalize, self).__init__(1)
+    def __init__(self, lower_window=0, higher_window=1, **kwargs):
+        super(WindowNormalize, self).__init__(**kwargs)
         self.lower_window = lower_window
         self.higher_window = higher_window
 
@@ -354,8 +385,8 @@ class WindowNormalize(Transformer):
 
 
 class Remove(Transformer):
-    def __init__(self, remove_probability, fill_value, axis=-1, n=1):
-        super(Remove, self).__init__(n)
+    def __init__(self, remove_probability, fill_value, axis=-1, **kwargs):
+        super(Remove, self).__init__(**kwargs)
         self.remove_probability = remove_probability
         self.fill_value = fill_value
         self.axis = axis
@@ -378,8 +409,8 @@ class Remove(Transformer):
 
 
 class ClassWeights(Transformer):
-    def __init__(self, class_weights_dict, one_hot=False):
-        super(ClassWeights, self).__init__(1)
+    def __init__(self, class_weights_dict, one_hot=False, **kwargs):
+        super(ClassWeights, self).__init__(**kwargs)
         self.class_weights_dict = class_weights_dict
         self.one_hot = one_hot
         k = np.array(list(class_weights_dict.keys()))
@@ -403,8 +434,8 @@ class ClassWeights(Transformer):
 
 
 class Recalibrate(Transformer):
-    def __init__(self, source_priors, target_priors):
-        super(Recalibrate, self).__init__(1)
+    def __init__(self, source_priors, target_priors, **kwargs):
+        super(Recalibrate, self).__init__(**kwargs)
         self.source_priors = source_priors if isinstance(source_priors, list) else [source_priors]
         self.target_priors = target_priors if isinstance(target_priors, list) else [target_priors]
         assert len(self.source_priors) == len(self.target_priors)
@@ -431,8 +462,8 @@ class Shift(Transformer):
     """
     TODO: If axis in [1, 2, 3] modify affine
     """
-    def __init__(self, max_shift_forward, max_shift_backward, axis=-1, n=1):
-        super(Shift, self).__init__(n)
+    def __init__(self, max_shift_forward, max_shift_backward, axis=-1, **kwargs):
+        super(Shift, self).__init__(**kwargs)
         self.max_shift_forward = max_shift_forward
         self.max_shift_backward = max_shift_backward
         self.axis = axis
@@ -459,8 +490,8 @@ class Shift(Transformer):
 
 
 class Contrast(Transformer):
-    def __init__(self, mean_log_scale=0, std_log_scale=0, axis=-1, n=1):
-        super(Contrast, self).__init__(n)
+    def __init__(self, mean_log_scale=0, std_log_scale=0, axis=-1, **kwargs):
+        super(Contrast, self).__init__(**kwargs)
         self.mean_log_scale = mean_log_scale
         self.std_log_scale = std_log_scale
         self.axis = axis
@@ -481,21 +512,14 @@ class Contrast(Transformer):
 
 
 class Extrapolate(Transformer):
-    def __init__(self, fixed_length, mode="back", axis=-1):
-        super(Extrapolate, self).__init__(1)
+    def __init__(self, fixed_length, mode="back", axis=-1, **kwargs):
+        super(Extrapolate, self).__init__(**kwargs)
         self.fixed_length = fixed_length
         self.mode = mode
         self.axis = axis
 
-    def get_output_shapes(self, input_shapes=None):
-        if input_shapes is not None:
-            output_shapes = []
-            for input_shape in input_shapes[0]:
-                os = list(input_shape)
-                os[self.axis] = self.fixed_length
-                output_shapes.append(tuple(os))
-            return output_shapes[0]
-        return None
+    def get_output_shape(self, idx):
+        return [tuple([output_shape_ if axis_i != self.axis else self.fixed_length for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shape]
 
     def _update(self, idx, connection):
         for idx_, sample in enumerate(connection[0]):
@@ -513,8 +537,8 @@ class Subsample(Transformer):
     """
     TODO: If axis in [1, 2, 3] modify affine
     """
-    def __init__(self, factor, mode="mean", axis=-1):
-        super(Subsample, self).__init__(1)
+    def __init__(self, factor, mode="mean", axis=-1, **kwargs):
+        super(Subsample, self).__init__(**kwargs)
         self.factor = factor
         assert mode in ["mean", "nearest"]
         self.mode = mode
@@ -542,8 +566,8 @@ class Subsample(Transformer):
 
 
 class Flip(Transformer):
-    def __init__(self, flip_probabilities=(0.5, 0.5, 0.5), n=1):
-        super(Flip, self).__init__(n)
+    def __init__(self, flip_probabilities=(0.5, 0.5, 0.5), **kwargs):
+        super(Flip, self).__init__(**kwargs)
         self.flip_probabilities = flip_probabilities
         self.flip_state = None
 
@@ -559,8 +583,8 @@ class Flip(Transformer):
 
 
 class GaussianNoise(Transformer):
-    def __init__(self, mean=0, std=1, n=1):
-        super(GaussianNoise, self).__init__(n)
+    def __init__(self, mean=0, std=1, **kwargs):
+        super(GaussianNoise, self).__init__(**kwargs)
         self.mean = mean
         self.std = std
         self.gaussian_noise = None
@@ -574,8 +598,8 @@ class GaussianNoise(Transformer):
 
 
 class Filter(Transformer):
-    def __init__(self, filter_size, method="uniform", mode="nearest", cval=0):
-        super(Filter, self).__init__(1)
+    def __init__(self, filter_size, method="uniform", mode="nearest", cval=0, **kwargs):
+        super(Filter, self).__init__(**kwargs)
         self.filter_size = filter_size if isinstance(filter_size, (tuple, list)) else [filter_size]
         assert method in ["uniform", "gaussian"]
         self.method = method
@@ -597,8 +621,8 @@ class Filter(Transformer):
 
 
 class AffineDeformation(Transformer):
-    def __init__(self, reference_connection, voxel_size=(1, 1, 1), shear_window_width=(0, 0, 0), rotation_window_width=(0, 0, 0), translation_window_width=(0, 0, 0), scaling_window_width=(0, 0, 0), cval=0, order=1, n=1):
-        super(AffineDeformation, self).__init__(n, extra_connections=reference_connection)
+    def __init__(self, reference_connection, voxel_size=(1, 1, 1), shear_window_width=(0, 0, 0), rotation_window_width=(0, 0, 0), translation_window_width=(0, 0, 0), scaling_window_width=(0, 0, 0), cval=0, order=1, **kwargs):
+        super(AffineDeformation, self).__init__(extra_connections=reference_connection, **kwargs)
         self.reference_connection = reference_connection
         self.voxel_size = voxel_size
         self.shear_window_width = shear_window_width
@@ -632,8 +656,8 @@ class AffineDeformation(Transformer):
 
 
 class ElasticDeformation(Transformer):
-    def __init__(self, reference_connection, shift=(2, 2, 2), nsize=(30, 30, 30), npad=(5, 5, 5), std=(6, 6, 6), cval=0, order=1, n=1):
-        super(ElasticDeformation, self).__init__(n, extra_connections=reference_connection)
+    def __init__(self, reference_connection, shift=(2, 2, 2), nsize=(30, 30, 30), npad=(5, 5, 5), std=(6, 6, 6), cval=0, order=1, **kwargs):
+        super(ElasticDeformation, self).__init__(extra_connections=reference_connection, **kwargs)
         self.reference_connection = reference_connection
         self.shift = shift
         self.nsize = nsize
@@ -664,8 +688,8 @@ class ElasticDeformation(Transformer):
 
 
 class Crop(Transformer):
-    def __init__(self, reference_connection, segment_size, subsample_factors=(1, 1, 1), default_value=0, prefilter=None, n=1):
-        super(Crop, self).__init__(n, extra_connections=reference_connection)
+    def __init__(self, reference_connection, segment_size, subsample_factors=(1, 1, 1), default_value=0, prefilter=None, **kwargs):
+        super(Crop, self).__init__(extra_connections=reference_connection, **kwargs)
         self.segment_size = segment_size
         self.reference_connection = reference_connection
         self.subsample_factors = subsample_factors
@@ -673,13 +697,8 @@ class Crop(Transformer):
         self.prefilter = prefilter
         self.coordinates = None
 
-    def get_output_shapes(self, input_shapes=None):
-        if input_shapes is not None:
-            output_shapes = []
-            for input_shape in input_shapes[0]:
-                output_shapes.append((input_shape[0], self.segment_size[0], self.segment_size[1], self.segment_size[2], input_shape[4]))
-            return output_shapes[0]
-        return None
+    def get_output_shape(self, idx):
+        return [tuple([output_shape_ if axis_i not in [1, 2, 3] else (self.segment_size[idx][axis_i] if isinstance(self.segment_size, list) else self.segment_size[axis_i]) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shape]
 
     def _update(self, idx, connection):
         segment_size = self.segment_size[idx] if isinstance(self.segment_size, list) else self.segment_size
@@ -697,8 +716,8 @@ class Crop(Transformer):
 
 
 class RandomCrop(Crop):
-    def __init__(self, reference_connection, segment_size, n, nonzero=False, subsample_factors=(1, 1, 1), default_value=0, prefilter=None):
-        super(RandomCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, prefilter, n)
+    def __init__(self, reference_connection, segment_size, nonzero=False, subsample_factors=(1, 1, 1), default_value=0, prefilter=None, **kwargs):
+        super(RandomCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, prefilter, **kwargs)
         self.nonzero = nonzero
 
     def _randomize(self):
@@ -714,7 +733,7 @@ class RandomCrop(Crop):
 
 class GridCrop(Crop):
     def __init__(self, reference_connection, segment_size, n=None, grid_size=None, strides=None, nonzero=False, subsample_factors=(1, 1, 1), default_value=0, prefilter=None):
-        super(GridCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, prefilter, n)
+        super(GridCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, prefilter, n=n)
         self.ncrops = n
         self.grid_size = segment_size if grid_size is None else grid_size
         self.strides = self.grid_size if strides is None else strides
@@ -744,13 +763,13 @@ class GridCrop(Crop):
 
 
 class KerasModel(Transformer):
-    def __init__(self, keras_model, output_affines=None):
-        super(KerasModel, self).__init__(1, len(keras_model.output_names))
+    def __init__(self, keras_model, output_affines=None, n=1):
+        super(KerasModel, self).__init__(n=n)
         self.keras_model = keras_model
         self.output_affines = output_affines if isinstance(output_affines, list) else [output_affines]
-        assert len(self.output_affines) == self.output_len
+        assert len(self.output_affines) == len(self.keras_model.output_shape)
 
-    def get_output_shapes(self, input_shapes=None):
+    def get_output_shape(self, idx):
         return self.keras_model.output_shape
 
     def _update(self, idx, connection):
@@ -767,8 +786,8 @@ class KerasModel(Transformer):
 
 
 class Put(Transformer):
-    def __init__(self, reference_connection, caching=True, cval=np.nan, order=0):
-        super(Put, self).__init__(1, extra_connections=reference_connection)
+    def __init__(self, reference_connection, caching=True, cval=np.nan, order=0, n=1):
+        super(Put, self).__init__(n=n, extra_connections=reference_connection)
         self.reference_connection = reference_connection
         self.caching = caching
         self.cval = cval
@@ -777,7 +796,7 @@ class Put(Transformer):
         self.output_array_counts = None
         # self.output_shape = reference_connection.transformer.output_shape  # TODO
 
-    def get_output_shapes(self, input_shapes=None):
+    def get_output_shape(self, idx):
         return self.reference_connection.transformer.get_output_shapes()
 
     def _update(self, idx, connection):
