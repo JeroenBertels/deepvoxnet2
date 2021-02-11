@@ -356,6 +356,7 @@ def create_generalized_deepmedic_model(
 
         for p in range(nb_pathways):
             assert list(model_input_shape[p][1:-1]) == input_sizes[p]
+
         print('With a batch size of {} this model needs {} GB on the GPU.'.format(1, get_model_memory_usage(1, model)))
 
     return model
