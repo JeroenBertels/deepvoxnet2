@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='deepvoxnet2',
-    version='2.0.0',
+    version='2.1.0',
     description='Deep learning processing framework for Keras.',
     url='https://github.com/JeroenBertels/deepvoxnet2',
     author='Jeroen Bertels, David Robben',
