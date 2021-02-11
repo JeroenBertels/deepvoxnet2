@@ -56,7 +56,7 @@ def create_samples():
     # Suppose we want to produce x and y samples, we must make sure that all transformers are updated (and not only the ones "below" x_path
     # There are two options:
     # Option 1: Just make sure they are grouped in one path and evaluate that path
-    samples_path = Group(2)([x_path, y_path])
+    samples_path = Group()([x_path, y_path])
     fig, axs = plt.subplots(2, 4)
     axs[0, 0].imshow(x, vmin=0, vmax=2)
     axs[1, 0].imshow(y, vmin=0, vmax=2)
@@ -69,6 +69,7 @@ def create_samples():
 
     # Option 2: Make a higher abstract Creator network and evaluate that network (this has the advantage that it only evaluates the nodes that are relevant and thus is more efficient)
     creator = Creator([x_path, y_path])
+    creator.summary()
     fig, axs = plt.subplots(2, 4)
     axs[0, 0].imshow(x, vmin=0, vmax=2)
     axs[1, 0].imshow(y, vmin=0, vmax=2)
@@ -84,6 +85,7 @@ def create_samples():
     # Finally, a Creator has notion of when your network has ran out of samples. As you can see, we ask 16 samples from the RandomCrop transformer (all the rest generate a default of 1 sample).
     # This means the creator should create us 16 samples
     creator = Creator([x_output, y_output])
+    creator.summary()
     fig, axs = plt.subplots(4, 4)
     count = 0
     for i, output in enumerate(creator.eval()):
@@ -107,9 +109,13 @@ def create_samples():
     x_output = Put(y_input)(x_path)
     y_output = y_input
     creator = Creator([x_output, y_output])
+    creator.summary()
     fig, axs = plt.subplots(4, 4)
     count = 0
     for i, output in enumerate(creator.eval()):
+        if i == 0:
+            creator.write_transformer_outputs("/Users/jberte3/Desktop/deepvoxnet2")
+
         x_sample, y_sample = output
         axs[i // 4, i % 4].imshow(x_sample[0][0, :, :, 0, 0], vmin=0, vmax=2)
         count += 1
