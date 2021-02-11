@@ -7,7 +7,7 @@ class Creator(object):
     def __init__(self, outputs):
         outputs = outputs if isinstance(outputs, list) else [outputs]
         self.outputs = Creator.deepcopy(outputs)
-        self.active_transformers, self.active_connections = self.trace(self.outputs, set_active_indices=True, reset_transformers=True)
+        self.active_transformers, self.active_connections = self.trace(self.outputs, set_active_indices=True, reset_transformers=True, set_names=True)
         self.active_input_transformers = [transformer for transformer in self.active_transformers if isinstance(transformer, _Input)]
 
     def eval(self, identifier=None):
@@ -57,7 +57,7 @@ class Creator(object):
                     
                     if set_names:
                         if connection.transformer.name is None:
-                            connection.transformer.name = "{}_{}".format(connection.transformer.__name__, len([traced_transformer for traced_transformer in traced_transformers if traced_transformer.__name__ == connection.transformer.__name__]))
+                            connection.transformer.name = "{}_{}".format(connection.transformer.__class__.__name__, len([traced_transformer for traced_transformer in traced_transformers if traced_transformer.__class__.__name__ == connection.transformer.__class__.__name__]))
                         
                     traced_transformers.append(connection.transformer)
 
@@ -80,7 +80,7 @@ class Creator(object):
         keras_models = {}
         transformers, _ = Creator.trace(output_connections)
         for transformer in transformers:
-            # Creator.reset_transformer(transformer)
+            Creator.reset_transformer(transformer)  # has to be reset (i.e. generator attributes of the transformers set back to None because generators can not be pickled)
             if isinstance(transformer, KerasModel):
                 keras_model = transformer.keras_model
                 transformer.keras_model = uuid.uuid4()
@@ -95,18 +95,18 @@ class Creator(object):
         return output_connections
 
     def summary(self):
-        print('_' * 200)
-        print('{:<50} {:<50} {:<50} {:<50}'.format('Transformer (type) (n)', '#I/O', 'Output Shape', 'Connected to'))
-        print('=' * 200)
+        print('_' * 210)
+        print('{:<50} {:<10} {:<75} {:<75}'.format('Transformer (type) (n)', '#I/O', 'Output Shape', 'Connected to'))
+        print('=' * 210)
         for transformer in self.active_transformers:
             for i, idx in enumerate(transformer.active_indices):
                 if len(transformer.connections[idx]) == 0:
-                    print('{:<50} {:<50} {:<50} {:<50}'.format("" if i > 0 else f"{transformer.name} ({type(transformer)}) ({transformer.n})", idx, transformer.output_shapes[idx], ""))
+                    print('{:<50} {:<10} {:<75} {:<75}'.format("" if i > 0 else f"{transformer.name} ({transformer.__class__.__name__}) ({transformer.n})", idx, str(transformer.output_shapes[idx]), ""))
 
                 else:
                     for idx_, connection in enumerate(transformer.connections[idx]):
-                        print('{:<50} {:<50} {:<50} {:<50}'.format("" if i > 0 else f"{transformer.name} ({type(transformer)}) ({transformer.n})", idx, transformer.output_shapes[idx], f"{connection.transformer.name}[{connection.idx}]"))
+                        print('{:<50} {:<10} {:<75} {:<75}'.format("" if i > 0 else f"{transformer.name} ({transformer.__class__.__name__}) ({transformer.n})", idx, str(transformer.output_shapes[idx]), f"{connection.transformer.name}[{connection.idx}]"))
 
-            print('_' * 200)
+            print('_' * 210)
 
         print('')

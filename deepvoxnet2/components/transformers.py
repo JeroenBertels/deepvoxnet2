@@ -122,7 +122,8 @@ class _Input(Transformer):
         super(_Input, self).__init__(**kwargs)
         self.n_resets = 0
         self.input_transformers = None
-        self.outputs.append(None)
+        self.connections.append([])
+        self.outputs.append([None] * len(output_shapes))
         assert isinstance(output_shapes, list) and all([isinstance(output_shape, tuple) and len(output_shape) == 5 for output_shape in output_shapes]), "The given output_shapes fot the _Input transformer are not in the correct format."
         self.output_shapes.append(output_shapes)
         self.active_indices.append(0)
@@ -698,7 +699,7 @@ class Crop(Transformer):
         self.coordinates = None
 
     def get_output_shape(self, idx):
-        return [tuple([output_shape_ if axis_i not in [1, 2, 3] else (self.segment_size[idx][axis_i] if isinstance(self.segment_size, list) else self.segment_size[axis_i]) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shape]
+        return [tuple([output_shape_ if axis_i not in [1, 2, 3] else (self.segment_size[idx][axis_i - 1] if isinstance(self.segment_size, list) else self.segment_size[axis_i - 1]) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shape]
 
     def _update(self, idx, connection):
         segment_size = self.segment_size[idx] if isinstance(self.segment_size, list) else self.segment_size
@@ -797,7 +798,7 @@ class Put(Transformer):
         # self.output_shape = reference_connection.transformer.output_shape  # TODO
 
     def get_output_shape(self, idx):
-        return self.reference_connection.transformer.get_output_shapes()
+        return self.reference_connection.shape
 
     def _update(self, idx, connection):
         for idx_, (reference, sample) in enumerate(zip(self.reference_connection.get(), connection[0].get())):
