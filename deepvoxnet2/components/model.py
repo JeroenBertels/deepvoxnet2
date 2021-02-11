@@ -17,26 +17,27 @@ from deepvoxnet2.components.transformers import KerasModel, _SampleInput
 
 
 class TfDataset(tf.data.Dataset, ABC):
-    def __new__(cls, sampler, creator, batch_size=None, num_parallel_calls=None, prefetch_size=0, shuffle=False):
+    def __new__(cls, sampler, creator, batch_size=None, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle=False):
         def _generator(idx):
             outputs = [output for output in copy.deepcopy(creator).eval(sampler[idx])]
-            outputs = tuple([tuple([Sample(np.concatenate([output[j][i] for output in outputs]), np.concatenate([output[j][i].affine for output in outputs])) for i in range(len(outputs[0][j]))]) for j in range(len(outputs[0]))])
+            outputs = [[Sample(np.concatenate([output[j][i] for output in outputs]), np.concatenate([output[j][i].affine for output in outputs])) for i in range(len(outputs[0][j]))] for j in range(len(outputs[0]))]
             gc.collect()
             return [output_ for output in outputs for output_ in output]
 
         def _map_fn(idx):
-            outputs = tf.py_function(_generator, [idx], [tf.dtypes.float32 for output in creator.outputs for output_ in output])
-            for output in outputs:
-                output.set_shape((None, ) * 5)
+            output_shapes = [output_shape for output_connection in creator.outputs for output_shape in output_connection.shape]
+            outputs = tf.py_function(_generator, [idx], [tf.dtypes.float32 for output in creator.outputs for _ in output])
+            for output, output_shape in zip(outputs, output_shapes):
+                output.set_shape(output_shape)
 
-            return tuple([tuple([outputs.pop(0) for j in range(len(creator.outputs[i]))]) for i in range(len(creator.outputs))])
+            return tuple([tuple([outputs.pop(0) for _ in range(len(creator.outputs[i]))]) for i in range(len(creator.outputs))])
 
         dataset = tf.data.Dataset.from_tensor_slices(list(range(len(sampler))))
         dataset = dataset.map(_map_fn, num_parallel_calls=num_parallel_calls, deterministic=shuffle)
         if batch_size is not None:
             dataset = dataset.unbatch().batch(batch_size=batch_size)
 
-        if prefetch_size > 0:
+        if prefetch_size != 0:
             dataset = dataset.prefetch(prefetch_size)
 
         return dataset

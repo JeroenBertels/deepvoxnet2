@@ -113,6 +113,9 @@ def create_samples():
     fig, axs = plt.subplots(4, 4)
     count = 0
     for i, output in enumerate(creator.eval()):
+        if i == 0:
+            creator.write_transformer_outputs("/Users/jberte3/Desktop/deepvoxnet2")
+
         x_sample, y_sample = output
         axs[i // 4, i % 4].imshow(x_sample[0][0, :, :, 0, 0], vmin=0, vmax=2)
         count += 1

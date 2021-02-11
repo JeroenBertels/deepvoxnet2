@@ -733,8 +733,8 @@ class RandomCrop(Crop):
 
 
 class GridCrop(Crop):
-    def __init__(self, reference_connection, segment_size, n=None, grid_size=None, strides=None, nonzero=False, subsample_factors=(1, 1, 1), default_value=0, prefilter=None):
-        super(GridCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, prefilter, n=n)
+    def __init__(self, reference_connection, segment_size, n=None, grid_size=None, strides=None, nonzero=False, subsample_factors=(1, 1, 1), default_value=0, prefilter=None, **kwargs):
+        super(GridCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, prefilter, n=n, **kwargs)
         self.ncrops = n
         self.grid_size = segment_size if grid_size is None else grid_size
         self.strides = self.grid_size if strides is None else strides
@@ -764,8 +764,8 @@ class GridCrop(Crop):
 
 
 class KerasModel(Transformer):
-    def __init__(self, keras_model, output_affines=None, n=1):
-        super(KerasModel, self).__init__(n=n)
+    def __init__(self, keras_model, output_affines=None, **kwargs):
+        super(KerasModel, self).__init__(**kwargs)
         self.keras_model = keras_model
         self.output_affines = output_affines if isinstance(output_affines, list) else [output_affines]
         assert len(self.output_affines) == len(self.keras_model.output_shape)
@@ -787,15 +787,15 @@ class KerasModel(Transformer):
 
 
 class Put(Transformer):
-    def __init__(self, reference_connection, caching=True, cval=np.nan, order=0, n=1):
-        super(Put, self).__init__(n=n, extra_connections=reference_connection)
+    def __init__(self, reference_connection, caching=True, cval=np.nan, order=0, keep_counts=True, **kwargs):
+        super(Put, self).__init__(extra_connections=reference_connection, **kwargs)
         self.reference_connection = reference_connection
         self.caching = caching
         self.cval = cval
         self.order = order
         self.prev_references = [None] * len(reference_connection)
         self.output_array_counts = None
-        # self.output_shape = reference_connection.transformer.output_shape  # TODO
+        self.keep_counts = keep_counts
 
     def get_output_shape(self, idx):
         return self.reference_connection.shape
@@ -807,20 +807,29 @@ class Put(Transformer):
                 T, R, Z, S = [np.round(transformation, 1) for transformation in transforms3d.affines.decompose44(backward_affine)]
                 if np.allclose(R, np.eye(3)) and np.allclose(Z, [1, 1, 1]) and np.allclose(S, [0, 0, 0]):
                     coordinates = [int(round(s // 2 - t)) for s, t in zip(sample.shape[1:4], T)]
-                    transformed_array_counts = transformations.put(np.zeros(reference.shape[1:4]), np.ones_like(sample[i, ..., 0]), coordinates=coordinates)[None, ..., None]
-                    transformed_array = np.stack([transformations.put(np.zeros(reference.shape[1:4]), sample[i, ..., j], coordinates=coordinates) for j in range(sample.shape[4])], axis=-1)[None, ...]
+                    if self.keep_counts:
+                        transformed_array_counts = transformations.put(np.zeros(reference.shape[1:4]), np.ones_like(sample[i, ..., 0]), coordinates=coordinates)[None, ..., None]
+                        transformed_array = np.stack([transformations.put(np.zeros(reference.shape[1:4]), sample[i, ..., j], coordinates=coordinates) for j in range(sample.shape[4])], axis=-1)[None, ...]
+
+                    else:
+                        self.outputs[idx][idx_][0, ...] = transformations.put(self.outputs[idx][idx_][0, ...], sample[i, ...], coordinates=coordinates)
 
                 else:
-                    transformed_array_counts = transformations.affine_deformation(np.ones_like(sample[i, ..., 0]), backward_affine, output_shape=reference.shape[1:4], cval=0, order=self.order)[None, ..., None]
-                    transformed_array = np.stack([transformations.affine_deformation(sample[i, ..., j], backward_affine, output_shape=reference.shape[1:4], cval=self.cval, order=self.order) for j in range(sample.shape[4])], axis=-1)[None, ...]
-                    if np.isnan(transformed_array).any():
-                        transformed_array = transformed_array[tuple(distance_transform_edt(np.isnan(transformed_array), return_distances=False, return_indices=True))]
+                    if self.keep_counts:
+                        transformed_array_counts = transformations.affine_deformation(np.ones_like(sample[i, ..., 0]), backward_affine, output_shape=reference.shape[1:4], cval=0, order=self.order)[None, ..., None]
+                        transformed_array = np.stack([transformations.affine_deformation(sample[i, ..., j], backward_affine, output_shape=reference.shape[1:4], cval=self.cval, order=self.order) for j in range(sample.shape[4])], axis=-1)[None, ...]
+                        if np.isnan(transformed_array).any():
+                            transformed_array = transformed_array[tuple(distance_transform_edt(np.isnan(transformed_array), return_distances=False, return_indices=True))]
 
-                self.outputs[idx][idx_][...] = self.output_array_counts[idx][idx_] / (self.output_array_counts[idx][idx_] + transformed_array_counts) * self.outputs[idx][idx_] + transformed_array_counts / (self.output_array_counts[idx][idx_] + transformed_array_counts) * transformed_array
-                self.output_array_counts[idx][idx_] += transformed_array_counts
+                    else:
+                        raise NotImplementedError
+
+                if self.keep_counts:
+                    self.outputs[idx][idx_][...] = self.output_array_counts[idx][idx_] / (self.output_array_counts[idx][idx_] + transformed_array_counts) * self.outputs[idx][idx_] + transformed_array_counts / (self.output_array_counts[idx][idx_] + transformed_array_counts) * transformed_array
+                    self.output_array_counts[idx][idx_] += transformed_array_counts
 
     def _randomize(self):
-        if self.output_array_counts is None:
+        if self.output_array_counts is None and self.keep_counts:
             self.output_array_counts = [[None] * len(self.reference_connection) for _ in self.connections]
 
         for idx, connection in enumerate(self.connections):
@@ -830,4 +839,5 @@ class Put(Transformer):
                     assert self.reference_connection[idx_].shape[0] == 1
                     self.prev_references[idx_] = self.reference_connection[idx_]
                     self.outputs[idx][idx_] = Sample(np.zeros(self.reference_connection[idx_].shape[:4] + sample.shape[4:]), self.reference_connection[idx_].affine)
-                    self.output_array_counts[idx][idx_] = np.full_like(self.outputs[idx][idx_], 1e-7)
+                    if self.keep_counts:
+                        self.output_array_counts[idx][idx_] = np.full_like(self.outputs[idx][idx_], 1e-7)
