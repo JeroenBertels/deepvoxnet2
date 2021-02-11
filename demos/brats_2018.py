@@ -6,6 +6,7 @@ from deepvoxnet2.components.mirc import Mirc, MircSampler
 from deepvoxnet2.keras.models.unet_generalized import create_generalized_unet_model
 from deepvoxnet2.components.transformers import Normalize, AffineDeformation, MircInput, ElasticDeformation, GridCrop, Flip, Put, KerasModel, RandomCrop, Group, Concat
 from deepvoxnet2.components.model import DvnModel
+from deepvoxnet2.components.creator import Creator
 from deepvoxnet2.keras.optimizers import Adam
 from deepvoxnet2.keras.losses import binary_dice_loss, binary_crossentropy
 from deepvoxnet2.keras.metrics import binary_dice_score
@@ -39,9 +40,9 @@ def train(run_name, experiment_name, fold_i=0):
 
     # similar to the demo on sample creation, let's make our processing network(s) (keep in mind that the following network could be made in different ways; we just show one way)
     # inputs (we have samplers that sample identifier objects, so we can use MircInputs here; they now what to do with the sampled identifier objects (have a look at their load method)
-    x_input_0 = MircInput(["flair"])
-    x_input_1 = MircInput(["t1"])
-    y_input = MircInput(["whole_tumor"])
+    x_input_0 = MircInput(["flair"], output_shapes=[(1, None, None, None, None)])
+    x_input_1 = MircInput(["t1"], output_shapes=[(1, None, None, None, None)])
+    y_input = MircInput(["whole_tumor"], output_shapes=[(1, None, None, None, None)])
 
     # used for training and is on the level of patches
     x_path_0, x_path_1, y_path = AffineDeformation(x_input_0, translation_window_width=(20, 20, 20), rotation_window_width=(3.14 / 10, 0, 0))(x_input_0, x_input_1, y_input)
@@ -49,8 +50,7 @@ def train(run_name, experiment_name, fold_i=0):
     x_path_0, x_path_1, y_path = RandomCrop(x_path_0, (112, 112, 96), n=1, nonzero=True)(x_path_0, x_path_1, y_path)  # x_path_0 is used as a reference volume to determine the coordinate around which to crop (here also constrained to nonzero flair voxels)
     x_path_0 = Normalize(-flair_mean, 1 / flair_std)(x_path_0)
     x_path_1 = Normalize(-t1_mean, 1 / t1_std)(x_path_1)
-    x_path = Group(2)([x_path_0, x_path_1])
-    x_path = Concat()(x_path)
+    x_path = Concat()([x_path_0, x_path_1])
     x_path, y_path = Flip((0.5, 0.5, 0))(x_path, y_path)
     x_train = keras_model_transformer(x_path)
     y_train = y_path
@@ -59,14 +59,18 @@ def train(run_name, experiment_name, fold_i=0):
     x_path_0, x_path_1, y_path = GridCrop(x_input_0, (112, 112, 96), nonzero=True)(x_input_0, x_input_1, y_input)  # notice that there is no n specified --> this will sample the complete grid
     x_path_0 = Normalize(-flair_mean, 1 / flair_std)(x_path_0)
     x_path_1 = Normalize(-t1_mean, 1 / t1_std)(x_path_1)
-    x_path = Group(2)([x_path_0, x_path_1])
-    x_path = Concat()(x_path)
+    x_path = Concat()([x_path_0, x_path_1])
     x_val = keras_model_transformer(x_path)
     y_val = y_path
 
     # used for dvn validation and is on the level of the input: in DVN framework called "dvn_*"
     x_dvn_val = Put(x_input_0)(x_val)  # x_val is on the patch level and the put transformers brings the patch back to the reference space
     y_dvn_val = y_input
+
+    # you can use Creator.summary() method to visualize your designed architecture
+    Creator([x_train, y_train]).summary()
+    Creator([x_val, y_val]).summary()
+    Creator([x_dvn_val, y_dvn_val]).summary()
 
     # we make a DvnModel, which allows to give [x], [x, y] or [x, y, sample_weight] as "outputs". Here, the x's must be after the keras_model_transformer, thus referring to the predicted y.
     # what is a DvnModel? Similar to a keras model, but including the processing pipeline. If you inspect the DvnModel code you'll see it has fit, evaluate and predict methods
@@ -108,7 +112,7 @@ def train(run_name, experiment_name, fold_i=0):
     ]
 
     # let's train :-)
-    history = dvn_model.fit(train_sampler, "train", batch_size=2, callbacks=callbacks, epochs=525, num_parallel_calls=4, prefetch_size=4)  # ideally choose the batch size as a whole multiple of the number of samples your processing pipeline produces
+    history = dvn_model.fit(train_sampler, "train", batch_size=2, callbacks=callbacks, epochs=525)  # ideally choose the batch size as a whole multiple of the number of samples your processing pipeline produces
     with open(output_structure.history_path, "wb") as f:
         pickle.dump(history.history, f)
 

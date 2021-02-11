@@ -50,7 +50,7 @@ class DvnModel(object):
             for key in outputs:
                 assert isinstance(outputs[key], list)
                 self.outputs[key] = Creator.deepcopy(outputs[key])
-                keras_model_connections = [connection for connection in Creator.get_trace(self.outputs[key])[1] if isinstance(connection.transformer, KerasModel)]
+                keras_model_connections = [connection for connection in Creator.trace(self.outputs[key])[1] if isinstance(connection.transformer, KerasModel)]
                 assert len(keras_model_connections) == 1
                 self.inputs[key] = keras_model_connections[0].transformer.connections[keras_model_connections[0].idx][0]
 
@@ -59,7 +59,7 @@ class DvnModel(object):
             for key in dvn_outputs:
                 assert isinstance(dvn_outputs[key], list)
                 self.dvn_outputs[key] = Creator.deepcopy(dvn_outputs[key])
-                keras_model_connections = [connection for connection in Creator.get_trace(self.dvn_outputs[key])[1] if isinstance(connection.transformer, KerasModel)]
+                keras_model_connections = [connection for connection in Creator.trace(self.dvn_outputs[key])[1] if isinstance(connection.transformer, KerasModel)]
                 assert len(keras_model_connections) == 1
                 self.dvn_inputs[key] = keras_model_connections[0].transformer.connections[keras_model_connections[0].idx][0]
 
@@ -144,7 +144,7 @@ class DvnModel(object):
 
     def predict_dvn(self, sampler, key, output_dirs=None, prediction_batch_size=None, save_y=False, name_tag=None):
         dvn_outputs = Creator.deepcopy(self.dvn_outputs[key])
-        keras_model_connection = [connection for connection in Creator.get_trace(dvn_outputs)[1] if isinstance(connection.transformer, KerasModel)][0]
+        keras_model_connection = [connection for connection in Creator.trace(dvn_outputs)[1] if isinstance(connection.transformer, KerasModel)][0]
         predictions = []
         for identifier_i, identifier in enumerate(sampler):
             start_time = time.time()
@@ -202,7 +202,7 @@ class DvnModel(object):
     def clear_keras_model(self):
         clear_state = False
         for output_connections in [self.outputs[key] for key in self.outputs] + [self.dvn_outputs[key] for key in self.dvn_outputs]:
-            transformers, connections = Creator.get_trace(output_connections)
+            transformers, connections = Creator.trace(output_connections)
             for transformer in transformers:
                 if isinstance(transformer, KerasModel):
                     if not clear_state:
@@ -217,7 +217,7 @@ class DvnModel(object):
     def set_keras_model(self, keras_model):
         self.keras_model = keras_model
         for output_connections in [self.outputs[key] for key in self.outputs] + [self.dvn_outputs[key] for key in self.dvn_outputs]:
-            transformers, connections = Creator.get_trace(output_connections)
+            transformers, connections = Creator.trace(output_connections)
             for transformer in transformers:
                 if isinstance(transformer, KerasModel):
                     transformer.keras_model = self.keras_model

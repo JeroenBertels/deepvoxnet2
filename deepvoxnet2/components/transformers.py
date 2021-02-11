@@ -52,7 +52,7 @@ class Transformer(object):
         else:
             input_connections = []
             for connection in connections:
-                if self.__class__.__name__ in ["Group", "Multiply", "Concat", "Mean"]:
+                if self.__class__.__name__ in ["Group", "Multiply", "Concat"]:
                     assert isinstance(connection, list)
                     self.connections.append(connection)
 
@@ -229,7 +229,7 @@ class Concat(Transformer):
         output_shapes = [list(output_shape) for output_shape in self.connections[idx][0].shape]
         for output_shape_i, output_shape in enumerate(output_shapes):
             for connection in self.connections[idx][1:]:
-                for axis_i, (output_shape_, output_shape__) in enumerate(zip(output_shape, connection.output_shapes[output_shape_i])):
+                for axis_i, (output_shape_, output_shape__) in enumerate(zip(output_shape, connection.shape[output_shape_i])):
                     if axis_i == self.axis:
                         if output_shape_ is None or output_shape__ is None:
                             output_shape[axis_i] = None
@@ -243,7 +243,8 @@ class Concat(Transformer):
         return [tuple(output_shape) for output_shape in output_shapes]
 
     def _update(self, idx, connection):
-        self.outputs[idx][0] = Sample(np.concatenate([sample for sample in connection[0]], axis=self.axis), connection[0][0].affine if self.axis != 0 else np.concatenate([sample.affine for sample in connection[0]]))
+        for idx_ in range(len(connection[0])):
+            self.outputs[idx][idx_] = Sample(np.concatenate([connection_[idx_] for connection_ in connection], axis=self.axis), connection[0][idx_].affine if self.axis != 0 else np.concatenate([connection_[idx_].affine for connection_ in connection]))
 
     def _randomize(self):
         pass
@@ -253,17 +254,10 @@ class Mean(Transformer):
     def __init__(self, axis=-1, **kwargs):
         super(Mean, self).__init__(**kwargs)
         assert axis in [0, 4, -1]
-        self.axis = axis
+        self.axis = axis if axis != -1 else 4
 
     def get_output_shape(self, idx):
-        assert all(len(self.connections[idx][0]) == len(connection) for connection in self.connections[idx]), "All input connections must have the same output length."
-        output_shapes = self.connections[idx][0].shape
-        for output_shape_i, output_shape in enumerate(output_shapes):
-            for connection in self.connections[idx][1:]:
-                for axis_i, (output_shape_, output_shape__) in enumerate(zip(output_shape, connection.output_shapes[output_shape_i])):
-                    assert output_shape_ is not None and output_shape__ is not None and output_shape_ == output_shape__, "The shapes of the shared axes should be identical and different from None."
-
-        return output_shapes
+        return [tuple([output_shape_ if axis_i != self.axis else 1 for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shape]
 
     def _update(self, idx, connection):
         for idx_, sample in enumerate(connection[0]):
@@ -306,8 +300,8 @@ class Multiply(Transformer):
     def _update(self, idx, connection):
         for idx_, sample in enumerate(connection[0]):
             array = sample
-            for i in range(1, len(connection)):
-                array = array * connection[i][idx_]
+            for connection_ in connection[1:]:
+                array = array * connection_[idx_]
 
             self.outputs[idx][idx_] = Sample(array, sample.affine)
 
@@ -390,7 +384,7 @@ class Remove(Transformer):
         super(Remove, self).__init__(**kwargs)
         self.remove_probability = remove_probability
         self.fill_value = fill_value
-        self.axis = axis
+        self.axis = axis if axis != -1 else 4
         self.remove_state = None
 
     def _update(self, idx, connection):
@@ -467,7 +461,7 @@ class Shift(Transformer):
         super(Shift, self).__init__(**kwargs)
         self.max_shift_forward = max_shift_forward
         self.max_shift_backward = max_shift_backward
-        self.axis = axis
+        self.axis = axis if axis != -1 else 4
         self.shift_state = None
 
     def _update(self, idx, connection):
@@ -495,7 +489,7 @@ class Contrast(Transformer):
         super(Contrast, self).__init__(**kwargs)
         self.mean_log_scale = mean_log_scale
         self.std_log_scale = std_log_scale
-        self.axis = axis
+        self.axis = axis if axis != -1 else 4
         self.contrast_state = None
 
     def _update(self, idx, connection):
@@ -517,7 +511,7 @@ class Extrapolate(Transformer):
         super(Extrapolate, self).__init__(**kwargs)
         self.fixed_length = fixed_length
         self.mode = mode
-        self.axis = axis
+        self.axis = axis if axis != -1 else 4
 
     def get_output_shape(self, idx):
         return [tuple([output_shape_ if axis_i != self.axis else self.fixed_length for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shape]
@@ -543,7 +537,7 @@ class Subsample(Transformer):
         self.factor = factor
         assert mode in ["mean", "nearest"]
         self.mode = mode
-        self.axis = axis
+        self.axis = axis if axis != -1 else 4
 
     def _update(self, idx, connection):
         for idx_, sample in enumerate(connection[0]):
@@ -768,10 +762,10 @@ class KerasModel(Transformer):
         super(KerasModel, self).__init__(**kwargs)
         self.keras_model = keras_model
         self.output_affines = output_affines if isinstance(output_affines, list) else [output_affines]
-        assert len(self.output_affines) == len(self.keras_model.output_shape)
+        assert len(self.output_affines) == len(self.keras_model.output_shape if isinstance(self.keras_model.output_shape, list) else [self.keras_model.output_shape])
 
     def get_output_shape(self, idx):
-        return self.keras_model.output_shape
+        return self.keras_model.output_shape if isinstance(self.keras_model.output_shape, list) else [self.keras_model.output_shape]
 
     def _update(self, idx, connection):
         y = self.keras_model.predict(connection[0].get())

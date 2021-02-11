@@ -26,7 +26,7 @@ class Creator(object):
                 for output_connection in self.outputs:
                     output_connection.eval(self.sample_id)
 
-            except StopIteration:
+            except RuntimeError:
                 break
 
             yield copy.deepcopy([output.get() for output in self.outputs])
