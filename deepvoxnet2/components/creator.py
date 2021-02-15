@@ -120,6 +120,7 @@ class Creator(object):
         if file_format not in [".nii.gz"]:
             raise ValueError
 
+        assert self.sample_id is None, "The creator is not yet updated and thus there are no transformer outputs yet."
         sample_dir = os.path.join(output_dir, str(self.sample_id))
         assert not os.path.isdir(sample_dir), "The transformer outputs have already been written to the specified directory."
         os.makedirs(sample_dir)

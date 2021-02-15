@@ -87,7 +87,7 @@ class DvnModel(object):
         self.weighted_metrics = self.dress(self.keras_model, weighted_metrics, mode="metrics")
         self.keras_model.compile(optimizer=self.optimizer, loss=self.loss, metrics=self.metrics, loss_weights=self.loss_weights, weighted_metrics=self.weighted_metrics)
 
-    def fit(self, sampler, training_key, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=None, prefetch_size=0):
+    def fit(self, sampler, training_key, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE):
         assert len(self.outputs[training_key]) >= 2, "The requested training outputs are not appropriate to use fit."
         fit_dataset = TfDataset(sampler, Creator([self.inputs[training_key], *self.outputs[training_key][1:]]), batch_size=batch_size, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size, shuffle=True)
         validation_fit_dataset = None
@@ -97,11 +97,11 @@ class DvnModel(object):
 
         return self.keras_model.fit(x=fit_dataset, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_dataset, validation_freq=validation_freq)
 
-    def evaluate(self, sampler, key, num_parallel_calls=None, prefetch_size=0):
+    def evaluate(self, sampler, key, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE):
         assert len(self.outputs[key]) >= 2, "The requested outputs are not appropriate to use evaluate."
         return self.keras_model.evaluate(x=TfDataset(sampler, Creator([self.inputs[key], *self.outputs[key][1:]]), num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size), return_dict=True)
 
-    def predict(self, sampler, key, num_parallel_calls=None, prefetch_size=0):
+    def predict(self, sampler, key, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE):
         return self.keras_model.predict(x=TfDataset(sampler, Creator(self.inputs[key]), num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size))
 
     def evaluate_dvn(self, sampler, key, output_dirs=None, prediction_batch_size=None, save_y=True, name_tag=None):
