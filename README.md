@@ -12,6 +12,7 @@ pip install -e /path/to/deepvoxnet2
 ```
 pip install git+https://github.com/JeroenBertels/deepvoxnet2
 ```
+To upgrade your installation add the ```--upgrade``` flag. 
 
 ## Acknowledgements
 Jeroen Bertels is part of [NEXIS](https://www.nexis-project.eu), a project that has received funding from the European Union's Horizon 2020 Research and Innovation Programme.
