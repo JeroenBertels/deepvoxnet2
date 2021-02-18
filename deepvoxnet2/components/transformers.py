@@ -109,7 +109,6 @@ class Transformer(object):
 
     def _calculate_output_shape_at_idx(self, idx):
         raise NotImplementedError
-        # return self.connections[idx][0].shape
 
     def _randomize(self):
         raise NotImplementedError

@@ -9,7 +9,7 @@ from deepvoxnet2.components.model import DvnModel
 from deepvoxnet2.components.creator import Creator
 from deepvoxnet2.keras.optimizers import Adam
 from deepvoxnet2.keras.losses import binary_dice_loss, binary_crossentropy
-from deepvoxnet2.keras.metrics import binary_dice_score
+from deepvoxnet2.keras.metrics import binary_dice_score, binary_accuracy, binary_true_volume, binary_pred_volume, binary_volume_difference, binary_abs_volume_difference, binary_true_positives, binary_true_negatives, binary_false_positives, binary_false_negatives
 from deepvoxnet2.keras.callbacks import LogsLogger, DvnModelEvaluator, MetricNameChanger, LearningRateScheduler, DvnModelCheckpoint
 from deepvoxnet2.factories.directory_structure import MircStructure
 
@@ -22,8 +22,8 @@ def train(run_name, experiment_name, fold_i=0):
 
     # for many training pipelines it's good practice to normalize the data; look how easy it is to get the mean and standard deviation of a certain modality when grouped in a Mirc object
     # this calculation (when no n argument is specified) often takes some time so you can better comment out with calculated value after the first run (or specify n)
-    flair_mean, flair_std = train_data.mean_and_std("flair")
-    t1_mean, t1_std = train_data.mean_and_std("t1")
+    flair_mean, flair_std = train_data.mean_and_std("flair", n=2)
+    t1_mean, t1_std = train_data.mean_and_std("t1", n=2)
 
     # building mirc samplers: here the sampler randomly samples a record out of train_data or val_data --> depending on what objects these samplers return, you must choose an appropriate Input later on when building your Dvn network/creator
     train_sampler = MircSampler(train_data, shuffle=True)
@@ -90,7 +90,7 @@ def train(run_name, experiment_name, fold_i=0):
     )
 
     # similar to keras, we can compile the model (here dicts can be used to apply different losses/metrics to different outputs of the network; or lists, when a linear combination is needed like in the example below)
-    dvn_model.compile(optimizer=Adam(lr=1e-3), loss=[binary_crossentropy, binary_dice_loss], metrics=[binary_crossentropy, binary_dice_loss, binary_dice_score])
+    dvn_model.compile(optimizer=Adam(lr=1e-3), loss=[binary_crossentropy, binary_dice_loss], metrics=[binary_crossentropy, binary_dice_loss, binary_dice_score, binary_accuracy, binary_true_volume, binary_pred_volume, binary_volume_difference, binary_abs_volume_difference, binary_true_positives, binary_true_negatives, binary_false_positives, binary_false_negatives])
 
     # typically one needs to organize everything on their local disks, e.g. a dir to save (intermediate) models, a logs directory to save intermediate log files to view via e.g. Tensorboad, some output dirs to save (intermediate) predictions, etc.
     # we have provided one way of doing so under deepvoxnet2/factories/directory_structure based on the samplers you created
