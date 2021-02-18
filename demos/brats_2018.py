@@ -46,7 +46,7 @@ def train(run_name, experiment_name, fold_i=0):
 
     # used for training and is on the level of patches
     x_path_0, x_path_1, y_path = AffineDeformation(x_input_0, translation_window_width=(20, 20, 20), rotation_window_width=(3.14 / 10, 0, 0))(x_input_0, x_input_1, y_input)
-    x_path_0, x_path_1, y_path = ElasticDeformation(x_input_0, shift=(1, 1, 1))(x_path_0, x_path_1, y_path)
+    x_path_0, x_path_1, y_path = ElasticDeformation(x_path_0, shift=(1, 1, 1))(x_path_0, x_path_1, y_path)
     x_path_0, x_path_1, y_path = RandomCrop(x_path_0, (112, 112, 96), n=1, nonzero=True)(x_path_0, x_path_1, y_path)  # x_path_0 is used as a reference volume to determine the coordinate around which to crop (here also constrained to nonzero flair voxels)
     x_path_0 = Normalize(-flair_mean, 1 / flair_std)(x_path_0)
     x_path_1 = Normalize(-t1_mean, 1 / t1_std)(x_path_1)
@@ -68,9 +68,12 @@ def train(run_name, experiment_name, fold_i=0):
     y_dvn_val = y_input
 
     # you can use Creator.summary() method to visualize your designed architecture
-    Creator([x_train, y_train]).summary()
-    Creator([x_val, y_val]).summary()
-    Creator([x_dvn_val, y_dvn_val]).summary()
+    train_creator = Creator([x_train, y_train])
+    train_creator.summary()
+    val_creator = Creator([x_val, y_val])
+    val_creator.summary()
+    dvn_val_creator = Creator([x_dvn_val, y_dvn_val])
+    dvn_val_creator.summary()
 
     # we make a DvnModel, which allows to give [x], [x, y] or [x, y, sample_weight] as "outputs". Here, the x's must be after the keras_model_transformer, thus referring to the predicted y.
     # what is a DvnModel? Similar to a keras model, but including the processing pipeline. If you inspect the DvnModel code you'll see it has fit, evaluate and predict methods
