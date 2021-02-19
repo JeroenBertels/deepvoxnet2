@@ -11,7 +11,7 @@ class Connection(object):
     def __init__(self, transformer, idx):
         self.transformer = transformer
         self.idx = idx
-        self.shape = self.get_shape()
+        self.shapes = self.get_shapes()
 
     def __len__(self):
         return len(self.get())
@@ -28,7 +28,7 @@ class Connection(object):
     def eval(self, sample_id=None):
         return self.transformer.eval(sample_id)[self.idx]
 
-    def get_shape(self):
+    def get_shapes(self):
         return [sample_shape for sample_shape in self.transformer.output_shapes[self.idx]]
 
 
@@ -191,7 +191,7 @@ class Group(Transformer):
                 idx_ += 1
 
     def _calculate_output_shape_at_idx(self, idx):
-        return [shape for connection in self.connections[idx] for shape in connection.shape]
+        return [shape for connection in self.connections[idx] for shape in connection.shapes]
 
     def _randomize(self):
         pass
@@ -208,7 +208,7 @@ class Split(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return [self.connections[idx][0].shape[i] for i in self.indices]
+        return [self.connections[idx][0].shapes[i] for i in self.indices]
 
     def _randomize(self):
         pass
@@ -226,10 +226,10 @@ class Concat(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert all(len(self.connections[idx][0]) == len(connection) for connection in self.connections[idx]), "All input connections must have the same output length."
-        output_shapes = [list(output_shape) for output_shape in self.connections[idx][0].shape]
+        output_shapes = [list(output_shape) for output_shape in self.connections[idx][0].shapes]
         for output_shape_i, output_shape in enumerate(output_shapes):
             for connection in self.connections[idx][1:]:
-                for axis_i, (output_shape_, output_shape__) in enumerate(zip(output_shape, connection.shape[output_shape_i])):
+                for axis_i, (output_shape_, output_shape__) in enumerate(zip(output_shape, connection.shapes[output_shape_i])):
                     if axis_i == self.axis:
                         if output_shape_ is None or output_shape__ is None:
                             output_shape[axis_i] = None
@@ -258,7 +258,7 @@ class Mean(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return [tuple([output_shape_ if axis_i != self.axis else 1 for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shape]
+        return [tuple([output_shape_ if axis_i != self.axis else 1 for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
 
     def _randomize(self):
         pass
@@ -278,7 +278,7 @@ class Threshold(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         pass
@@ -298,7 +298,7 @@ class Multiply(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert all(len(self.connections[idx][0]) == len(connection) for connection in self.connections[idx]), "All input connections must have the same output length."
-        output_shapes = self.connections[idx][0].shape
+        output_shapes = self.connections[idx][0].shapes
         for output_shape_i, output_shape in enumerate(output_shapes):
             for connection in self.connections[idx][1:]:
                 for axis_i, (output_shape_, output_shape__) in enumerate(zip(output_shape, connection.output_shapes[output_shape_i])):
@@ -321,7 +321,7 @@ class FillNan(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         pass
@@ -339,7 +339,7 @@ class Clip(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         pass
@@ -356,7 +356,7 @@ class Round(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         pass
@@ -374,7 +374,7 @@ class Normalize(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         pass
@@ -394,7 +394,7 @@ class WindowNormalize(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         pass
@@ -420,7 +420,7 @@ class Remove(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         shapes = [sample.shape[self.axis] for connection in self.connections for sample in connection[0] if sample is not None]
@@ -451,7 +451,7 @@ class ClassWeights(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         pass
@@ -480,7 +480,7 @@ class Recalibrate(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         pass
@@ -513,7 +513,7 @@ class Shift(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         shapes = [sample.shape[self.axis] for connection in self.connections for sample in connection[0] if sample is not None]
@@ -539,7 +539,7 @@ class Contrast(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         shapes = [sample.shape[self.axis] for connection in self.connections for sample in connection[0] if sample is not None]
@@ -564,7 +564,7 @@ class Extrapolate(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return [tuple([output_shape_ if axis_i != self.axis else self.fixed_length for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shape]
+        return [tuple([output_shape_ if axis_i != self.axis else self.fixed_length for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
 
     def _randomize(self):
         pass
@@ -600,7 +600,7 @@ class Subsample(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         pass
@@ -621,7 +621,7 @@ class Flip(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         self.flip_state = [-1 if random.random() < flip_probability else 1 for flip_probability in self.flip_probabilities]
@@ -640,7 +640,7 @@ class GaussianNoise(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         pass
@@ -667,7 +667,7 @@ class Filter(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         pass
@@ -698,7 +698,7 @@ class AffineDeformation(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
@@ -735,7 +735,7 @@ class ElasticDeformation(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shape
+        return self.connections[idx][0].shapes
 
     def _randomize(self):
         assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
@@ -769,7 +769,7 @@ class Crop(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return [tuple([output_shape_ if axis_i not in [1, 2, 3] else (self.segment_size[idx][axis_i - 1] if isinstance(self.segment_size, list) else self.segment_size[axis_i - 1]) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shape]
+        return [tuple([output_shape_ if axis_i not in [1, 2, 3] else (self.segment_size[idx][axis_i - 1] if isinstance(self.segment_size, list) else self.segment_size[axis_i - 1]) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
 
     def _randomize(self):
         if self.n_ == 0:
@@ -889,7 +889,7 @@ class Put(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.reference_connection.shape
+        return self.reference_connection.shapes
 
     def _randomize(self):
         if self.output_array_counts is None and self.keep_counts:
