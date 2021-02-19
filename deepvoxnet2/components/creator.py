@@ -14,6 +14,7 @@ class Creator(object):
         self.active_transformers, self.active_connections = self.trace(self.outputs, only_active=True, set_active_indices=True)
         self.active_input_transformers = [transformer for transformer in self.active_transformers if isinstance(transformer, _Input)]
         self.inputs = [active_connection for active_connection in self.active_connections if isinstance(active_connection.transformer, _Input)]
+        self.output_shapes = [output_connection.shapes for output_connection in self.outputs]
         self.sample_id = None
 
     def eval(self, identifier=None):
@@ -37,6 +38,9 @@ class Creator(object):
     def reset(self):
         for transformer in self.transformers:
             Creator.reset_transformer(transformer)
+
+    def get_output_shapes(self):
+        return self.output_shapes
 
     @staticmethod
     def reset_transformer(transformer):
