@@ -1,7 +1,6 @@
 import os
 import time
 import json
-import copy
 import pickle
 import gc
 import inspect
@@ -12,21 +11,24 @@ from abc import ABC
 from functools import partial
 from deepvoxnet2.components.sample import Sample
 from deepvoxnet2.components.creator import Creator
-from deepvoxnet2.components.mirc import Sampler
+from deepvoxnet2.components.mirc import Sampler, Identifier
 from deepvoxnet2.components.transformers import KerasModel, _SampleInput
 
 
 class TfDataset(tf.data.Dataset, ABC):
-    def __new__(cls, sampler, creator, batch_size=None, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle=False):
+    def __new__(cls, creator, sampler=None, batch_size=None, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle=False):
+        if sampler is None:
+            sampler = Sampler([Identifier()])
+
         def _generator(idx):
-            outputs = [output for output in copy.deepcopy(creator).eval(sampler[idx])]
+            outputs = [output for output in Creator(creator.outputs).eval(sampler[idx])]
             outputs = [[Sample(np.concatenate([output[j][i] for output in outputs]), np.concatenate([output[j][i].affine for output in outputs])) for i in range(len(outputs[0][j]))] for j in range(len(outputs[0]))]
             gc.collect()
             return [output_ for output in outputs for output_ in output]
 
         def _map_fn(idx):
-            output_shapes = [output_shape for output_connection in creator.outputs for output_shape in output_connection.shape]
             outputs = tf.py_function(_generator, [idx], [tf.dtypes.float32 for output in creator.outputs for _ in output])
+            output_shapes = [output_shape for output_shapes in creator.output_shapes for output_shape in output_shapes]
             for output, output_shape in zip(outputs, output_shapes):
                 output.set_shape(output_shape)
 
@@ -44,56 +46,56 @@ class TfDataset(tf.data.Dataset, ABC):
 
 
 class DvnModel(object):
-    def __init__(self, outputs=None, dvn_outputs=None):
-        self.outputs, self.inputs = {}, {}
-        if outputs is not None:
-            for key in outputs:
-                assert isinstance(outputs[key], list)
-                self.outputs[key] = Creator.deepcopy(outputs[key])
-                keras_model_connections = [connection for connection in Creator.trace(self.outputs[key])[1] if isinstance(connection.transformer, KerasModel)]
-                assert len(keras_model_connections) == 1
-                self.inputs[key] = keras_model_connections[0].transformer.connections[keras_model_connections[0].idx][0]
+    def __init__(self, creators=None):
+        transformers = {}
+        for key in creators:
+            for transformer in creators[key].transformers:
+                if transformer.name not in transformers:
+                    transformers[transformer.name] = transformer
 
-        self.dvn_outputs, self.dvn_inputs = {}, {}
-        if dvn_outputs is not None:
-            for key in dvn_outputs:
-                assert isinstance(dvn_outputs[key], list)
-                self.dvn_outputs[key] = Creator.deepcopy(dvn_outputs[key])
-                keras_model_connections = [connection for connection in Creator.trace(self.dvn_outputs[key])[1] if isinstance(connection.transformer, KerasModel)]
-                assert len(keras_model_connections) == 1
-                self.dvn_inputs[key] = keras_model_connections[0].transformer.connections[keras_model_connections[0].idx][0]
+                else:
+                    assert transformers[transformer.name] is transformer, "In a DvnModel all transformers must have a unique name. (You can do this by initializing the names by e.g. making first a creator with all the output connections and then using creator.outputs and use those outputs to make the separate creators.)"
 
-        self.keras_model = self.clear_keras_model()
-        self.set_keras_model(self.keras_model)
-        self.optimizer = None
-        self.loss = None
-        self.loss_weights = None
-        self.metrics = None
-        self.weighted_metrics = None
+        self.creators = creators
+        self.optimizer = {}
+        self.loss = {}
+        self.loss_weights = {}
+        self.metrics = {}
+        self.weighted_metrics = {}
 
-    def compile(self, optimizer, loss, metrics=None, loss_weights=None, weighted_metrics=None):
-        self.optimizer = tf.keras.optimizers.get(optimizer) if isinstance(optimizer, str) else optimizer
-        self.loss = self.dress(self.keras_model, loss, mode="losses")
-        self.loss_weights = self.dress(self.keras_model, loss_weights)
-        for layer_name in self.loss:
-            loss_weights = self.loss_weights.get(layer_name, [1] * len(self.loss[layer_name]))
-            assert len(loss_weights) == len(self.loss[layer_name])
-            combined_loss = partial(self.get_combined_loss, losses=self.loss[layer_name], loss_weights=loss_weights)
+    def compile(self, key, optimizer, loss, metrics=None, loss_weights=None, weighted_metrics=None):
+        assert key in self.creators[key], "There is no creator available for this key."
+        assert len(self.creators[key].outputs) >= 2, "Creators must output [x, y, sample_weight] and for compile at least [x, y]."
+        assert isinstance(self.creators[key].outputs[0].transformer, KerasModel), "To use compile, x must be the output of a KerasModel transformer."
+        self.optimizer[key] = tf.keras.optimizers.get(optimizer) if isinstance(optimizer, str) else optimizer
+        self.loss[key] = self.dress(self.creators[key].outputs[0].transformer.keras_model, loss, mode="losses")
+        self.loss_weights[key] = self.dress(self.creators[key].outputs[0].transformer.keras_model, loss_weights)
+        for layer_name in self.loss[key]:
+            loss_weights = self.loss_weights[key].get(layer_name, [1] * len(self.loss[key][layer_name]))
+            assert len(loss_weights) == len(self.loss[key][layer_name])
+            combined_loss = partial(self.get_combined_loss, losses=self.loss[key][layer_name], loss_weights=loss_weights)
             combined_loss.__name__ = "loss_{}".format(layer_name)
-            self.loss[layer_name] = [combined_loss]
-            self.loss_weights[layer_name] = [1]
+            self.loss[key][layer_name] = [combined_loss]
+            self.loss_weights[key][layer_name] = [1]
 
-        self.metrics = self.dress(self.keras_model, metrics, mode="metrics")
-        self.weighted_metrics = self.dress(self.keras_model, weighted_metrics, mode="metrics")
-        self.keras_model.compile(optimizer=self.optimizer, loss=self.loss, metrics=self.metrics, loss_weights=self.loss_weights, weighted_metrics=self.weighted_metrics)
+        self.metrics[key] = self.dress(self.creators[key].outputs[0].transformer.keras_model, metrics, mode="metrics")
+        self.weighted_metrics[key] = self.dress(self.creators[key].outputs[0].transformer.keras_model, weighted_metrics, mode="metrics")
+        self.creators[key].outputs[0].transformer.keras_model.compile(optimizer=self.optimizer[key], loss=self.loss[key], metrics=self.metrics[key], loss_weights=self.loss_weights[key], weighted_metrics=self.weighted_metrics[key])
 
-    def fit(self, sampler, training_key, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE):
-        assert len(self.outputs[training_key]) >= 2, "The requested training outputs are not appropriate to use fit."
-        fit_dataset = TfDataset(sampler, Creator([self.inputs[training_key], *self.outputs[training_key][1:]]), batch_size=batch_size, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size, shuffle=True)
+    def fit(self, key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE):
+        assert key in self.creators, "There is no creator available for this key."
+        assert len(self.creators[key].outputs) >= 2, "Creators must output [x, y, sample_weight] and to use fit at least [x, y]."
+        assert isinstance(self.creators[key].outputs[0].transformer, KerasModel), "To use fit, x must be the output of a KerasModel transformer."
+        x = self.creators[key].outputs[0]
+        fit_dataset = TfDataset(Creator([x.transfomer.connections[x.idx], *self.creators[key].outputs[1:]]), sampler=sampler, batch_size=batch_size, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size, shuffle=True)
         validation_fit_dataset = None
         if validation_sampler is not None:
-            assert len(self.outputs[validation_key]) >= 2, "The requested validation outputs are not appropriate to use fit."
-            validation_fit_dataset = TfDataset(validation_sampler, Creator([self.inputs[validation_key], *self.outputs[validation_key][1:]]), batch_size=None, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size, shuffle=False)
+            assert validation_key in self.creators, "There is no creator available for this validation_key."
+            assert len(self.creators[validation_key].outputs) >= 2, "Creators must output [x, y, sample_weight] and to use fit at least [x, y]."
+            assert isinstance(self.creators[validation_key].outputs[0].transformer, KerasModel), "To use fit, x must be the output of a KerasModel transformer."
+            assert self.creators[key].outputs[0].transformer.keras_model is self.creators[validation_key].outputs[0].transformer.keras_model, "The Keras model for training and validation must be the same."
+            validation_x = self.creators[validation_key].outputs[0]
+            validation_fit_dataset = TfDataset(Creator([validation_x.transfomer.connections[validation_x.idx], *self.creators[validation_key].outputs[1:]]), sampler=validation_sampler, batch_size=None, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size, shuffle=False)
 
         return self.keras_model.fit(x=fit_dataset, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_dataset, validation_freq=validation_freq)
 
@@ -199,34 +201,22 @@ class DvnModel(object):
 
         return loss_value
 
-    def clear_keras_model(self):
-        clear_state = False
-        for output_connections in [self.outputs[key] for key in self.outputs] + [self.dvn_outputs[key] for key in self.dvn_outputs]:
-            transformers, connections = Creator.trace(output_connections)
-            for transformer in transformers:
-                if isinstance(transformer, KerasModel):
-                    if not clear_state:
-                        self.keras_model = transformer.keras_model
-                        clear_state = True
-
-                    assert self.keras_model is transformer.keras_model
-                    transformer.keras_model = None
-
-        return self.keras_model
-
-    def set_keras_model(self, keras_model):
-        self.keras_model = keras_model
-        for output_connections in [self.outputs[key] for key in self.outputs] + [self.dvn_outputs[key] for key in self.dvn_outputs]:
-            transformers, connections = Creator.trace(output_connections)
-            for transformer in transformers:
-                if isinstance(transformer, KerasModel):
-                    transformer.keras_model = self.keras_model
-
     def save(self, file_dir):
         self.save_model(self, file_dir)
 
     @staticmethod
     def save_model(dvn_model, file_dir):
+        unique_keras_models = {}
+        keras_model = dvn_model.keras_model
+        dvn_model.keras_model = None
+        creator_keras_models = {}
+        for key in dvn_model.creator:
+            creator_keras_models[key] = dvn_model.creator[key].clear_keras_model()
+
+        unique_keras_models = {}
+        for key in
+
+
         keras_model = dvn_model.clear_keras_model()
         keras_model.save(os.path.join(file_dir, "keras_model"))
         dvn_model.keras_model = None
