@@ -47,16 +47,14 @@ class Sampler(object):
 
 
 class MircSampler(Sampler):
-    def __init__(self, mirc, mode="per_record", shuffle=False):
+    def __init__(self, mirc, mode="per_record", **kwargs):
         if mode == "per_record":
             identifiers = [Identifier(mirc, dataset_id, case_id, record_id) for dataset_id in mirc for case_id in mirc[dataset_id] for record_id in mirc[dataset_id][case_id]]
 
         else:
             raise NotImplementedError
 
-        super(MircSampler, self).__init__(identifiers, shuffle)
-        # self.mirc = mirc
-        # self.mode = mode
+        super(MircSampler, self).__init__(identifiers, **kwargs)
 
 
 class Mirc(dict):
