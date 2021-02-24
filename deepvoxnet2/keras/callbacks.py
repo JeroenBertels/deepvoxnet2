@@ -17,45 +17,57 @@ class LogsLogger(Callback):
 
 
 class MetricNameChanger(Callback):
+    def __init__(self, training_key=None, validation_key=None):
+        super(MetricNameChanger, self).__init__()
+        self.training_key = training_key
+        self.validation_key = validation_key
+
     def on_epoch_end(self, epoch, logs=None):
         if logs is not None:
             for log in logs.copy():
-                if not (log.startswith("full_") or log.startswith("dvn_") or log.startswith("val_") or log.startswith("train_")):
-                    logs["train_" + log] = logs.pop(log)
+                if log != "lr" and self.training_key is not None and not log.startswith("val_"):
+                    logs[f"{self.training_key}__" + log] = logs.pop(log)
+
+                elif log != "lr" and self.validation_key is not None and log.startswith("val_"):
+                    logs[f"{self.validation_key}__" + log[4:]] = logs.pop(log)
 
 
 class DvnModelCheckpoint(Callback):
-    def __init__(self, dvn_model, model_dir, freq, epoch_as_name_tag=False):
+    def __init__(self, dvn_model, model_dir, freq, epoch_as_name_tag=False, save_keras_models=True):
         super(DvnModelCheckpoint, self).__init__()
         self.dvn_model = dvn_model
         self.model_dir = model_dir
         self.freq = freq
         self.epoch_as_name_tag = epoch_as_name_tag
+        self.save_keras_models = save_keras_models
 
     def on_epoch_end(self, epoch, logs=None):
         if epoch > 0 and (epoch + 1) % self.freq == 0:
             model_name = "dvn_model_{:05}".format(epoch) if self.epoch_as_name_tag else "dvn_model"
-            self.dvn_model.save(os.path.join(self.model_dir, model_name))
+            self.dvn_model.save(os.path.join(self.model_dir, model_name), save_keras_models=self.save_keras_models)
 
 
 class DvnModelEvaluator(Callback):
-    def __init__(self, dvn_model, sampler, key, output_dirs=None, freq=1, prediction_batch_size=None, epoch_as_name_tag=False, name_tag=None):
+    def __init__(self, dvn_model, key, sampler, freq=1, epoch_as_name_tag=False, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False):
         super(DvnModelEvaluator, self).__init__()
         self.dvn_model = dvn_model
-        self.sampler = sampler
         self.key = key
-        self.output_dirs = output_dirs
+        self.sampler = sampler
         self.freq = freq
-        self.prediction_batch_size = prediction_batch_size
         self.epoch_as_name_tag = epoch_as_name_tag
+        self.mode = mode
+        self.output_dirs = output_dirs
         self.name_tag = name_tag
+        self.save_x = save_x
+        self.save_y = save_y
+        self.save_sample_weight = save_sample_weight
         self.history = {}
 
     def on_epoch_end(self, epoch, logs=None):
         if epoch > 0 and (epoch + 1) % self.freq == 0:
-            evaluations = self.dvn_model.evaluate_dvn(self.sampler, self.key, self.output_dirs, prediction_batch_size=self.prediction_batch_size, name_tag="{:05}".format(epoch) if self.epoch_as_name_tag else None)
+            evaluations = self.dvn_model.evaluate(self.key, self.sampler, mode=self.mode, output_dirs=self.output_dirs, name_tag="{:05}".format(epoch) if self.epoch_as_name_tag else None, save_x=self.save_x, save_y=self.save_y, save_sample_weight=self.save_sample_weight)
             for metric_name in evaluations[0]:
-                metric_name_ = metric_name if self.name_tag is None else metric_name + f"_{self.name_tag}"
+                metric_name_ = metric_name if self.name_tag is None else metric_name + f"__{self.name_tag}"
                 self.history[metric_name_] = self.history.get(metric_name_, []) + [[evaluation[metric_name] for evaluation in evaluations]]
 
         for metric_name in self.history:
