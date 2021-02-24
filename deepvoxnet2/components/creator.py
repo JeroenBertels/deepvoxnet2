@@ -2,14 +2,15 @@ import os
 import uuid
 import copy
 import pickle
+import numpy as np
 import nibabel as nib
 from deepvoxnet2.components.transformers import _Input, KerasModel
+from PIL import Image
 
 
 class Creator(object):
     def __init__(self, outputs):
-        outputs = outputs if isinstance(outputs, list) else [outputs]
-        self.outputs = Creator.deepcopy(outputs)
+        self.outputs = Creator.deepcopy(outputs if isinstance(outputs, list) else [outputs])
         self.transformers, self.connections = self.trace(self.outputs, clear_active_indices=True, set_names=True)
         self.active_transformers, self.active_connections = self.trace(self.outputs, only_active=True, set_active_indices=True)
         self.active_input_transformers = [transformer for transformer in self.active_transformers if isinstance(transformer, _Input)]
@@ -127,9 +128,6 @@ class Creator(object):
         print('')
 
     def write_transformer_outputs(self, output_dir, file_format=".nii.gz"):
-        if file_format not in [".nii.gz"]:
-            raise ValueError
-
         assert self.sample_id is not None, "The creator is not yet updated and thus there are no transformer outputs yet."
         sample_dir = os.path.join(output_dir, str(self.sample_id))
         assert not os.path.isdir(sample_dir), "The transformer outputs have already been written to the specified directory."
@@ -137,27 +135,33 @@ class Creator(object):
         for transformer in self.active_transformers:
             for idx in transformer.active_indices:
                 for idx_, sample in enumerate(transformer[idx]):
-                    if len(sample) > 1:
-                        print(f"WARNING: encountered a batch size = {len(sample)} > 1 for {transformer.name} at idx {idx} and idx_ {idx_} --> only batch element 0 is saved.")
+                    for b, sample_ in enumerate(sample):
+                        if file_format in [".nii.gz", ".nii"]:
+                            img = nib.Nifti1Image(sample_, affine=sample.affine[b])
+                            nib.save(img, os.path.join(sample_dir, f"{transformer.name}_i{idx}_s{idx_}_b{b}" + file_format))
 
-                    img = nib.Nifti1Image(sample[0], affine=sample.affine[0])
-                    nib.save(img, os.path.join(sample_dir, f"{transformer.name}_idx-{idx}_output-{idx_}" + file_format))
+                        elif file_format in [".png", ".jpg"]:
+                            assert sample_.shape[2] == 1, "Can only save 2D images as png."
+                            for f in range(sample_.shape[-1]):
+                                img = Image.fromarray(((sample_[:, :, 0, f] - np.min(sample_[..., f])) / np.max(sample_[..., f]) * 255).astype(np.uint8))
+                                img.save(os.path.join(sample_dir, f"{transformer.name}_i{idx}_s{idx_}_b{b}_f{f}" + file_format))
 
-    def clear_keras_model(self):
-        keras_model = {}
-        transformers, _ = Creator.trace(self.outputs)
-        for transformer in transformers:
+                        else:
+                            raise NotImplementedError
+
+    def clear_keras_models(self):
+        keras_models = {}
+        for transformer in self.transformers:
             if isinstance(transformer, KerasModel):
-                keras_model[transformer.name] = transformer.keras_model
+                keras_models[transformer.name] = transformer.keras_model
                 transformer.keras_model = None
 
-        return keras_model
+        return keras_models
 
-    def set_keras_model(self, keras_model):
-        transformers, _ = Creator.trace(self.outputs)
-        for transformer in transformers:
+    def set_keras_models(self, keras_models):
+        for transformer in self.transformers:
             if isinstance(transformer, KerasModel):
-                transformer.keras_model = keras_model if not isinstance(keras_model, dict) else keras_model.get(transformer.name, None)
+                transformer.keras_model = keras_models if not isinstance(keras_models, dict) else keras_models.get(transformer.name, None)
 
     def save(self, file_path):
         self.save_creator(self, file_path)
@@ -165,7 +169,7 @@ class Creator(object):
     @staticmethod
     def save_creator(creator, file_path):
         creator = Creator(creator.outputs)
-        creator.clear_keras_model()
+        creator.clear_keras_models()
         with open(file_path, "wb") as f:
             pickle.dump(creator, f)
 
