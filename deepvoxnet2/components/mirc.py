@@ -1,60 +1,7 @@
 import os
-import random
 import numpy as np
 import nibabel as nib
 from deepvoxnet2.components.sample import Sample
-
-
-class Identifier(dict):
-    def __init__(self, mirc=None, dataset_id=None, case_id=None, record_id=None, modality_id=None):
-        super(Identifier, self).__init__()
-        self.mirc = mirc
-        self.dataset_id = dataset_id
-        self["dataset_id"] = self.dataset_id
-        self.case_id = case_id
-        self["case_id"] = self.case_id
-        self.record_id = record_id
-        self["record_id"] = self.record_id
-        self.modality_id = modality_id
-        self["modality_id"] = self.modality_id
-
-    def __call__(self):
-        return self.dataset_id, self.case_id, self.record_id, self.modality_id
-
-
-class Sampler(object):
-    def __init__(self, identifiers, shuffle=False):
-        self.identifiers = identifiers
-        self.shuffle = shuffle
-        self.randomize()
-
-    def __len__(self):
-        return len(self.identifiers)
-
-    def __getitem__(self, idx):
-        return self.identifiers[idx]
-
-    def __iter__(self):
-        return iter(self.identifiers)
-
-    def __add__(self, other):
-        assert self.shuffle == other.shuffle
-        return Sampler(self.identifiers + other.identifiers, shuffle=self.shuffle)
-
-    def randomize(self):
-        if self.shuffle:
-            random.shuffle(self.identifiers)
-
-
-class MircSampler(Sampler):
-    def __init__(self, mirc, mode="per_record", **kwargs):
-        if mode == "per_record":
-            identifiers = [Identifier(mirc, dataset_id, case_id, record_id) for dataset_id in mirc for case_id in mirc[dataset_id] for record_id in mirc[dataset_id][case_id]]
-
-        else:
-            raise NotImplementedError
-
-        super(MircSampler, self).__init__(identifiers, **kwargs)
 
 
 class Mirc(dict):
