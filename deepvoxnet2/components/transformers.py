@@ -163,20 +163,28 @@ class MircInput(_MircInput):
 
 
 class _SampleInput(_Input):
-    def __init__(self, samples, **kwargs):
-        self.samples = samples if isinstance(samples, list) else [samples]
-        output_shapes = [sample.shape for sample in self.samples]
-        super(_SampleInput, self).__init__(output_shapes, **kwargs)
-        self.load()
+    def __init__(self, samples=None, output_shapes=None, **kwargs):
+        if samples is not None:
+            samples = samples if isinstance(samples, list) else [samples]
+            output_shapes = [sample.shape for sample in samples] if output_shapes is None else output_shapes
+            assert all([np.array_equal(sample.shape, output_shape) for sample, output_shape in zip(samples, output_shapes)])
+            super(_SampleInput, self).__init__(output_shapes, **kwargs)
+            for idx_, sample in enumerate(samples):
+                self.outputs[0][idx_] = sample
+
+        else:
+            assert output_shapes is not None, "When the samples are not given as constructor arguments, the output_shapes must be given (can be None, but this is necessary for the length of samples)."
+            super(_SampleInput, self).__init__(output_shapes, **kwargs)
 
     def load(self, identifier=None):
-        for idx_, sample in enumerate(self.samples):
-            self.outputs[0][idx_] = sample
+        if identifier is not None:
+            for idx_, sample in enumerate(identifier.sample if isinstance(identifier.sample, list) else [identifier.sample]):
+                self.outputs[0][idx_] = sample
 
 
 class SampleInput(_SampleInput):
-    def __new__(cls, samples, **kwargs):
-        return _SampleInput(samples, **kwargs)()
+    def __new__(cls, samples=None, output_shapes=None, **kwargs):
+        return _SampleInput(samples, output_shapes, **kwargs)()
 
 
 class Group(Transformer):
