@@ -107,8 +107,11 @@ def binary_abs_volume_difference(y_true, y_pred, sample_weight=None, threshold=0
 #     return CategoricalCrossentropy(**kwargs)(y_true, y_pred, sample_weight=sample_weight)
 
 
-def categorical_dice_score(y_true, y_pred, sample_weight=None, threshold="argmax", **kwargs):
+def categorical_dice_score(y_true, y_pred, sample_weight=None, exclude_background=True, threshold='argmax',  **kwargs):
+    if exclude_background:
+        y_true = y_true[..., 1:]
+        y_pred = y_pred[..., 1:]
     if threshold == "argmax":
         y_pred = tf.one_hot(tf.math.argmax(y_pred, axis=-1), y_pred.shape[-1])
-        
-    return generalized_dice_coeff(y_true, y_pred, **kwargs)
+        threshold = None
+    return generalized_dice_coeff(y_true, y_pred, threshold=threshold,  **kwargs)
