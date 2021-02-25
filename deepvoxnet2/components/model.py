@@ -207,10 +207,10 @@ class DvnModel(object):
                         if save_x:
                             nib.save(nib.Nifti1Image(prediction[j], prediction.affine[j]), output_path[:-7] + "__x" + ".nii.gz")
 
-                        if save_y:
+                        if save_y and len(samples) > 1:
                             nib.save(nib.Nifti1Image(samples[1][i][j], samples[1][i].affine[j]), output_path[:-7] + "__y" + ".nii.gz")
 
-                        if save_sample_weight:
+                        if save_sample_weight and len(samples) > 2:
                             nib.save(nib.Nifti1Image(samples[2][i][j], samples[2][i].affine[j]), output_path[:-7] + "__sample_weight" + ".nii.gz")
 
             predictions.append(samples)
