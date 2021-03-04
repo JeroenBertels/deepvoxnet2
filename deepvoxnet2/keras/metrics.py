@@ -111,7 +111,9 @@ def categorical_dice_score(y_true, y_pred, sample_weight=None, exclude_backgroun
     if threshold == "argmax":
         y_pred = tf.one_hot(tf.math.argmax(y_pred, axis=-1), y_pred.shape[-1])
         threshold = None
+
     if exclude_background:
         y_true = y_true[..., 1:]
         y_pred = y_pred[..., 1:]
+
     return generalized_dice_coeff(y_true, y_pred, threshold=threshold,  **kwargs)
