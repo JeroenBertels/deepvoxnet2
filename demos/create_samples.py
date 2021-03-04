@@ -2,7 +2,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from deepvoxnet2.components.creator import Creator
 from deepvoxnet2.components.sample import Sample
-from deepvoxnet2.components.transformers import AffineDeformation, Put, RandomCrop, SampleInput, GridCrop, Crop, Flip, Group
+from deepvoxnet2.components.transformers import AffineDeformation, Put, RandomCrop, SampleInput, GridCrop, Crop, Flip, Group, Buffer, Split
 
 
 def create_samples():
@@ -106,6 +106,9 @@ def create_samples():
     x_path, y_path = Flip((0.5, 0, 0))(x_path, y_path)
     y_path = Crop(y_path, (21, 21, 1))(x_path)
     # outputs
+    # Try to understand completely what the Buffer does! Experiment a bit with different buffer_sizes and drop_remainder=True/False. It basically batches the samples that arrive here.
+    # Just like with any other transformer you can hang multiple paths to the Buffer if they have to be buffered in the same way
+    x_path, y_path = Buffer(buffer_size=3, drop_remainder=False)(x_path, y_path)
     x_output = Put(y_input)(x_path)
     y_output = y_input
     creator = Creator([x_output, y_output])
@@ -121,7 +124,7 @@ def create_samples():
         count += 1
 
     plt.show()
-    print("They were {} samples from the grid cropper.".format(count))
+    print("There were {} samples from the grid cropper.".format(count))
 
     # Have a look at how gradually the entire image got put back for the random and grid crop even though for both cases the samples came from an affine transformed input! :-)
 

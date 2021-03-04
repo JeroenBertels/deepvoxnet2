@@ -187,6 +187,44 @@ class SampleInput(_SampleInput):
         return _SampleInput(samples, output_shapes, **kwargs)()
 
 
+class Buffer(Transformer):
+    def __init__(self, buffer_size=None, axis=0, drop_remainder=False, **kwargs):
+        assert "n" not in kwargs, "A Buffer does not accept and n. It just buffers so it cannot create n samples from 1 input."
+        super(Buffer, self).__init__(n=1, **kwargs)
+        self.buffer_size = buffer_size
+        assert axis in [0, 4, -1]
+        self.axis = axis if axis != -1 else 4
+        self.drop_remainder = drop_remainder
+
+    def _update_idx(self, idx):
+        if idx == self.active_indices[0]:
+            buffered_outputs = [[[sample for sample in self.connections[idx][0]]] for idx in self.active_indices]
+            while len(buffered_outputs[0]) < self.buffer_size:
+                try:
+                    sample_id = uuid.uuid4()
+                    for idx in self.active_indices:
+                        buffered_outputs[idx].append([sample for sample in self.connections[idx][0].eval(sample_id)])
+
+                except StopIteration:
+                    break
+
+            if self.drop_remainder and len(buffered_outputs[0]) < self.buffer_size:
+                raise StopIteration
+
+            else:
+                for idx in self.active_indices:
+                    for idx_ in range(len(self.outputs[idx])):
+                        self.outputs[idx][idx_] = Sample(np.concatenate([output[idx_] for output in buffered_outputs[idx]], axis=self.axis), buffered_outputs[idx][0][idx_].affine if self.axis != 0 else np.concatenate([output[idx_].affine for output in buffered_outputs[idx]]))
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        assert all([output_shape_ is not None for output_shape in self.connections[idx][0].shapes for axis_i, output_shape_ in enumerate(output_shape) if axis_i != self.axis]), "A buffer can only used on a connection with fully specified shapes (except for the concatenation axis)."
+        return [tuple([output_shape_ if axis_i != self.axis else (self.buffer_size * output_shape_ if self.drop_remainder and output_shape_ is not None else None) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
+
+    def _randomize(self):
+        pass
+
+
 class Group(Transformer):
     def __init__(self, **kwargs):
         super(Group, self).__init__(**kwargs)
