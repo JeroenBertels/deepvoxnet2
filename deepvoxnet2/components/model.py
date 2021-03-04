@@ -28,7 +28,7 @@ class TfDataset(tf.data.Dataset, ABC):
 
         def _map_fn(idx):
             outputs = tf.py_function(_generator, [idx], [tf.dtypes.float32 for output in creator.outputs for _ in output])
-            output_shapes = [output_shape for output_shapes in creator.output_shapes for output_shape in output_shapes]
+            output_shapes = [(None, output_shape[1], output_shape[2], output_shape[3], output_shape[4]) for output_shapes in creator.output_shapes for output_shape in output_shapes]  # batch size depends on how many samples the creator generates
             for output, output_shape in zip(outputs, output_shapes):
                 output.set_shape(output_shape)
 
