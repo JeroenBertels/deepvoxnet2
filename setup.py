@@ -24,6 +24,7 @@ setuptools.setup(
         'scikit-image>=0.14',
         'transforms3d>=0.3.1',
         'jupyter>=1.0',
+        'Pillow>=8.1.0',
         'pymirc @ git+https://github.com/gschramm/pymirc'
     ]
 )

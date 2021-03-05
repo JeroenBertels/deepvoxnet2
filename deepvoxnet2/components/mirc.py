@@ -2,6 +2,7 @@ import os
 import numpy as np
 import nibabel as nib
 from deepvoxnet2.components.sample import Sample
+from PIL import Image
 
 
 class Mirc(dict):
@@ -107,3 +108,19 @@ class NiftyFileModality(Modality):
     def load(self):
         nii = nib.load(self.file_path)
         return Sample(nii.get_fdata(caching="unchanged"), nii.affine)
+
+
+class ImageFileModality(Modality):
+    def __init__(self, modality_id, file_path, **kwargs):  # check documentation of Image.convert for **kwargs: e.g. mode, which can be "1" (binary), "RGB" (color), "L" grayscale
+        super(ImageFileModality, self).__init__(modality_id, os.path.dirname(file_path))
+        self.file_path = file_path
+        self.kwargs = kwargs
+
+    def load(self):
+        img = Image.open(self.file_path)
+        if self.kwargs:
+            img = img.convert(**self.kwargs)
+
+        img = np.asarray(img)
+        assert img.ndim in [2, 3], "A 2D image file can only have a maximum of three dimensions: x, y, color."
+        return Sample(img if img.ndim == 2 else img[:, :, None, :])
