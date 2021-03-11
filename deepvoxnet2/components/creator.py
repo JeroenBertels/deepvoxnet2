@@ -4,7 +4,7 @@ import copy
 import pickle
 import numpy as np
 import nibabel as nib
-from deepvoxnet2.components.transformers import _Input, KerasModel
+from deepvoxnet2.components.transformers import Connection, _Input, KerasModel
 from PIL import Image
 
 
@@ -20,7 +20,7 @@ class Creator(object):
 
     def eval(self, identifier=None):
         for transformer in self.active_transformers:
-            Creator.reset_transformer(transformer)
+            transformer.reset()
             if transformer in self.active_input_transformers:
                 transformer._input_transformers = self.active_input_transformers
                 transformer.load(identifier)
@@ -38,59 +38,14 @@ class Creator(object):
 
     def reset(self):
         for transformer in self.transformers:
-            Creator.reset_transformer(transformer)
+            transformer.reset()
 
     def get_output_shapes(self):
         return self.output_shapes
 
     @staticmethod
-    def reset_transformer(transformer):
-        transformer.n_ = 0
-        transformer.sample_id = None
-        transformer.generator = None
-        if isinstance(transformer, _Input):
-            transformer.n_resets = 0
-            transformer._input_transformers = None
-
-        return transformer
-
-    @staticmethod
     def trace(output_connections, only_active=False, clear_active_indices=False, set_active_indices=False, set_names=False, reset_transformers=False):
-        traced_transformers = []
-        traced_connections = []
-        connections = [output_connection for output_connection in output_connections]
-        while len(connections) > 0:
-            connection = connections.pop(0)
-            if connection not in traced_connections:
-                traced_connections.append(connection)
-                if connection.transformer not in traced_transformers:
-                    if clear_active_indices:
-                        connection.transformer.active_indices = []
-
-                    if reset_transformers:
-                        Creator.reset_transformer(connection.transformer)
-
-                    if set_names:
-                        if connection.transformer.name is None:
-                            connection.transformer.name = "{}_{}".format(connection.transformer.__class__.__name__, len([traced_transformer for traced_transformer in traced_transformers if traced_transformer.__class__.__name__ == connection.transformer.__class__.__name__]))
-
-                        assert connection.transformer.name not in [traced_transformer.name for traced_transformer in traced_transformers], "In a Creator you cannot use the same name for more than one Transformer."
-
-                    traced_transformers.append(connection.transformer)
-
-                if set_active_indices and connection.idx not in connection.transformer.active_indices:
-                    connection.transformer.active_indices.append(connection.idx)
-
-                for connection__ in connection.transformer.extra_connections:
-                    if connection__ not in traced_connections and connection__ not in connections:
-                        connections.append(connection__)
-
-                for idx, connection_ in enumerate(connection.transformer.connections):
-                    for connection__ in connection_:
-                        if connection__ not in traced_connections and connection__ not in connections and (not only_active or idx == connection.idx):
-                            connections.append(connection__)
-
-        return traced_transformers, traced_connections
+        return Connection.trace(output_connections, only_active=only_active, clear_active_indices=clear_active_indices, set_active_indices=set_active_indices, set_names=set_names, reset_transformers=reset_transformers)
 
     @staticmethod
     def deepcopy(output_connections):

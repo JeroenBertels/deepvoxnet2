@@ -31,6 +31,44 @@ class Connection(object):
     def get_shapes(self):
         return [sample_shape for sample_shape in self.transformer.output_shapes[self.idx]]
 
+    @staticmethod
+    def trace(connections, only_active=False, clear_active_indices=False, set_active_indices=False, set_names=False, reset_transformers=False):
+        traced_transformers = []
+        traced_connections = []
+        connections = [connection for connection in connections]
+        while len(connections) > 0:
+            connection = connections.pop(0)
+            if connection not in traced_connections:
+                traced_connections.append(connection)
+                if connection.transformer not in traced_transformers:
+                    if clear_active_indices:
+                        connection.transformer.active_indices = []
+
+                    if reset_transformers:
+                        connection.transformer.reset()
+
+                    if set_names:
+                        if connection.transformer.name is None:
+                            connection.transformer.name = "{}_{}".format(connection.transformer.__class__.__name__, len([traced_transformer for traced_transformer in traced_transformers if traced_transformer.__class__.__name__ == connection.transformer.__class__.__name__]))
+
+                        assert connection.transformer.name not in [traced_transformer.name for traced_transformer in traced_transformers], "In a transformer network you cannot use the same name for more than one Transformer."
+
+                    traced_transformers.append(connection.transformer)
+
+                if set_active_indices and connection.idx not in connection.transformer.active_indices:
+                    connection.transformer.active_indices.append(connection.idx)
+
+                for connection__ in connection.transformer.extra_connections:
+                    if connection__ not in traced_connections and connection__ not in connections:
+                        connections.append(connection__)
+
+                for idx, connection_ in enumerate(connection.transformer.connections):
+                    for connection__ in connection_:
+                        if connection__ not in traced_connections and connection__ not in connections and (not only_active or idx == connection.idx):
+                            connections.append(connection__)
+
+        return traced_transformers, traced_connections
+
 
 class Transformer(object):
     def __init__(self, n=1, extra_connections=None, name=None):
@@ -38,6 +76,8 @@ class Transformer(object):
         self.extra_connections = [] if extra_connections is None else (extra_connections if isinstance(extra_connections, list) else [extra_connections])
         self.name = name
         self.n_ = 0
+        self.n_resets = 0
+        self._input_transformers = None
         self.connections = []
         self.outputs = []
         self.output_shapes = []
@@ -78,7 +118,7 @@ class Transformer(object):
         if sample_id is None:
             sample_id = uuid.uuid4()
 
-        if self.sample_id is None or sample_id != self.sample_id:
+        if sample_id != self.sample_id:
             self.sample_id = sample_id
             if self.generator is not None and (self.n is None or self.n_ < self.n):
                 next(self.generator)
@@ -93,6 +133,13 @@ class Transformer(object):
                 next(self.generator)
 
         return self.outputs
+
+    def reset(self):
+        self.n_ = 0
+        self.sample_id = None
+        self.generator = None
+        self.n_resets = 0
+        self._input_transformers = None
 
     def _update(self):
         self.n_ = 0
@@ -117,13 +164,12 @@ class Transformer(object):
 class _Input(Transformer):
     def __init__(self, output_shapes, **kwargs):
         super(_Input, self).__init__(**kwargs)
-        self.n_resets = 0
-        self._input_transformers = None
-        self.connections.append([])
-        self.outputs.append([None] * len(output_shapes))
-        assert isinstance(output_shapes, list) and all([isinstance(output_shape, tuple) and len(output_shape) == 5 for output_shape in output_shapes]), "The given output_shapes fot the _Input transformer are not in the correct format."
-        self.output_shapes.append(output_shapes)
-        self.active_indices.append(0)
+        for i, output_shapes_ in enumerate(output_shapes):
+            assert isinstance(output_shapes_, list) and all([isinstance(output_shape, tuple) and len(output_shape) == 5 for output_shape in output_shapes_]), "The given output_shapes fot the _Input transformer are not in the correct format."
+            self.connections.append([])
+            self.outputs.append([None] * len(output_shapes_))
+            self.output_shapes.append(output_shapes_)
+            self.active_indices.append(i)
 
     def load(self, identifier=None):
         raise NotImplementedError
@@ -149,7 +195,7 @@ class _MircInput(_Input):
             output_shapes = [(None, ) * 5, ] * len(self.modality_ids)
 
         assert len(output_shapes) == len(self.modality_ids)
-        super(_MircInput, self).__init__(output_shapes, **kwargs)
+        super(_MircInput, self).__init__([output_shapes], **kwargs)
 
     def load(self, identifier=None):
         assert identifier is not None
@@ -168,13 +214,13 @@ class _SampleInput(_Input):
             samples = samples if isinstance(samples, list) else [samples]
             output_shapes = [sample.shape for sample in samples] if output_shapes is None else output_shapes
             assert all([np.array_equal(sample.shape, output_shape) for sample, output_shape in zip(samples, output_shapes)])
-            super(_SampleInput, self).__init__(output_shapes, **kwargs)
+            super(_SampleInput, self).__init__([output_shapes], **kwargs)
             for idx_, sample in enumerate(samples):
                 self.outputs[0][idx_] = sample
 
         else:
             assert output_shapes is not None, "When the samples are not given as constructor arguments, the output_shapes must be given (can be None, but this is necessary for the length of samples)."
-            super(_SampleInput, self).__init__(output_shapes, **kwargs)
+            super(_SampleInput, self).__init__([output_shapes], **kwargs)
 
     def load(self, identifier=None):
         if identifier is not None:
@@ -195,26 +241,13 @@ class Buffer(Transformer):
         assert axis in [0, 4, -1]
         self.axis = axis if axis != -1 else 4
         self.drop_remainder = drop_remainder
+        self.buffered_outputs = None
 
     def _update_idx(self, idx):
-        if idx == self.active_indices[0]:
-            buffered_outputs = [[[sample for sample in self.connections[idx][0]]] for idx in self.active_indices]
-            while self.buffer_size is None or len(buffered_outputs[0]) < self.buffer_size:
-                try:
-                    sample_id = uuid.uuid4()
-                    for idx in self.active_indices:
-                        buffered_outputs[idx].append([sample for sample in self.connections[idx][0].eval(sample_id)])
+        for idx_ in range(len(self.outputs[idx])):
+            self.outputs[idx][idx_] = Sample(np.concatenate([output[idx_] for output in self.buffered_outputs[idx]], axis=self.axis), self.buffered_outputs[idx][0][idx_].affine if self.axis != 0 else np.concatenate([output[idx_].affine for output in self.buffered_outputs[idx]]))
 
-                except StopIteration:
-                    break
-
-            if self.buffer_size is not None and self.drop_remainder and len(buffered_outputs[0]) < self.buffer_size:
-                raise StopIteration
-
-            else:
-                for idx in self.active_indices:
-                    for idx_ in range(len(self.outputs[idx])):
-                        self.outputs[idx][idx_] = Sample(np.concatenate([output[idx_] for output in buffered_outputs[idx]], axis=self.axis), buffered_outputs[idx][0][idx_].affine if self.axis != 0 else np.concatenate([output[idx_].affine for output in buffered_outputs[idx]]))
+        self.buffered_outputs[idx] = None
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -222,7 +255,22 @@ class Buffer(Transformer):
         return [tuple([output_shape_ if axis_i != self.axis else (self.buffer_size * output_shape_ if self.buffer_size is not None and self.drop_remainder and output_shape_ is not None else None) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
 
     def _randomize(self):
-        pass
+        self.buffered_outputs = [[[sample for sample in self.connections[idx][0]]] for idx in self.active_indices]
+        while self.buffer_size is None or len(self.buffered_outputs[0]) < self.buffer_size:
+            try:
+                sample_id = uuid.uuid4()
+                for idx in self.active_indices:
+                    self.buffered_outputs[idx].append([sample for sample in self.connections[idx][0].eval(sample_id)])
+
+            except RuntimeError:
+                break
+
+        if self.buffer_size is not None and self.drop_remainder and len(self.buffered_outputs[0]) < self.buffer_size:
+            raise StopIteration
+
+        else:
+            for transformer in Connection.trace([connection for connections in self.connections for connection in connections], only_active=True)[0]:
+                transformer.sample_id = self.sample_id
 
 
 class Group(Transformer):
