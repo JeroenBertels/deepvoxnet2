@@ -2,7 +2,7 @@ import random
 import uuid
 import transforms3d
 import numpy as np
-from scipy.ndimage import distance_transform_edt, gaussian_filter, uniform_filter
+from scipy.ndimage import distance_transform_edt, gaussian_filter, uniform_filter, zoom
 from deepvoxnet2.components.sample import Sample
 from deepvoxnet2.utilities import transformations
 
@@ -189,7 +189,7 @@ class SampleInput(_SampleInput):
 
 class Buffer(Transformer):
     def __init__(self, buffer_size=None, axis=0, drop_remainder=False, **kwargs):
-        assert "n" not in kwargs, "A Buffer does not accept and n. It just buffers so it cannot create n samples from 1 input."
+        assert "n" not in kwargs, "A Buffer does not accept n. It just buffers so it cannot create n samples from 1 input."
         super(Buffer, self).__init__(n=1, **kwargs)
         self.buffer_size = buffer_size
         assert axis in [0, 4, -1]
@@ -199,7 +199,7 @@ class Buffer(Transformer):
     def _update_idx(self, idx):
         if idx == self.active_indices[0]:
             buffered_outputs = [[[sample for sample in self.connections[idx][0]]] for idx in self.active_indices]
-            while len(buffered_outputs[0]) < self.buffer_size:
+            while self.buffer_size is None or len(buffered_outputs[0]) < self.buffer_size:
                 try:
                     sample_id = uuid.uuid4()
                     for idx in self.active_indices:
@@ -208,7 +208,7 @@ class Buffer(Transformer):
                 except StopIteration:
                     break
 
-            if self.drop_remainder and len(buffered_outputs[0]) < self.buffer_size:
+            if self.buffer_size is not None and self.drop_remainder and len(buffered_outputs[0]) < self.buffer_size:
                 raise StopIteration
 
             else:
@@ -219,7 +219,7 @@ class Buffer(Transformer):
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
         assert all([output_shape_ is not None for output_shape in self.connections[idx][0].shapes for axis_i, output_shape_ in enumerate(output_shape) if axis_i != self.axis]), "A buffer can only used on a connection with fully specified shapes (except for the concatenation axis)."
-        return [tuple([output_shape_ if axis_i != self.axis else (self.buffer_size * output_shape_ if self.drop_remainder and output_shape_ is not None else None) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
+        return [tuple([output_shape_ if axis_i != self.axis else (self.buffer_size * output_shape_ if self.buffer_size is not None and self.drop_remainder and output_shape_ is not None else None) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
 
     def _randomize(self):
         pass
@@ -714,6 +714,26 @@ class Filter(Transformer):
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
         return self.connections[idx][0].shapes
+
+    def _randomize(self):
+        pass
+
+
+class Resize(Transformer):
+    def __init__(self, output_shape, order=0, **kwargs):
+        super(Resize, self).__init__(**kwargs)
+        assert isinstance(output_shape, tuple) and len(output_shape) == 3, "Resize needs a shape for every spatial dimension."
+        self.output_shape = output_shape
+        self.order = order
+
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            zoom_factors = np.array([1, *[self.output_shape[i] / sample.shape[i + 1] for i in range(3)], 1])
+            self.outputs[idx][idx_] = Sample(zoom(sample, zoom_factors, order=self.order), sample.affine / zoom_factors[None, 1:])
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        return [(shape[0], *self.output_shape, shape[4]) for shape in self.connections[idx][0].shapes]
 
     def _randomize(self):
         pass
