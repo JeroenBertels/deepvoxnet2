@@ -106,7 +106,7 @@ def create_samples():
     x_path, y_path = Flip((0.5, 0, 0))(x_path, y_path)
     y_path = Crop(y_path, (21, 21, 1))(x_path)
     # outputs
-    # Try to understand completely what the Buffer does! Experiment a bit with different buffer_sizes and drop_remainder=True/False. It basically batches the samples that arrive here.
+    # Try to understand completely what the Buffer does! Experiment a bit with different buffer_sizes (also try None) and drop_remainder=True/False. It basically batches the samples that arrive here.
     # Just like with any other transformer you can hang multiple paths to the Buffer if they have to be buffered in the same way
     x_path, y_path = Buffer(buffer_size=3, drop_remainder=False)(x_path, y_path)
     x_output = Put(y_input)(x_path)

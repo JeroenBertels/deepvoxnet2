@@ -255,7 +255,7 @@ class Buffer(Transformer):
         return [tuple([output_shape_ if axis_i != self.axis else (self.buffer_size * output_shape_ if self.buffer_size is not None and self.drop_remainder and output_shape_ is not None else None) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
 
     def _randomize(self):
-        self.buffered_outputs = [[[sample for sample in self.connections[idx][0]]] for idx in self.active_indices]
+        self.buffered_outputs = [[[sample for sample in self.connections[idx][0]]] if idx in self.active_indices else None for idx in range(len(self.outputs))]
         while self.buffer_size is None or len(self.buffered_outputs[0]) < self.buffer_size:
             try:
                 sample_id = uuid.uuid4()
