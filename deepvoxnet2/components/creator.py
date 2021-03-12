@@ -22,7 +22,6 @@ class Creator(object):
         for transformer in self.active_transformers:
             transformer.reset()
             if transformer in self.active_input_transformers:
-                transformer._input_transformers = self.active_input_transformers
                 transformer.load(identifier)
 
         while True:
@@ -31,7 +30,7 @@ class Creator(object):
                 for output_connection in self.outputs:
                     output_connection.eval(self.sample_id)
 
-            except RuntimeError:
+            except (StopIteration, RuntimeError):
                 break
 
             yield [[sample.copy() for sample in output] for output in self.outputs]

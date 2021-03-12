@@ -19,7 +19,7 @@ def create_samples():
 
     # inputs
     x_input = x_path = SampleInput(Sample(x))  # Sample converts x into a 5D array (batch, x, y, z, features) with an affine attribute (here just np.eye)
-    y_input = y_path = SampleInput(Sample(y))
+    y_input = y_path = SampleInput(Sample(y), n=None)
 
     # processing
     x_path, y_path = AffineDeformation(x_path, translation_window_width=(10, 10, 0), rotation_window_width=(3.14 / 10, 0, 0))(x_path, y_path)
@@ -99,7 +99,7 @@ def create_samples():
     # Suppose we use a GridCrop instead of a RandomCrop with no n specified --> The GridCrop will create a number of samples as to complete the entire grid.
     # inputs
     x_input = x_path = SampleInput(Sample(x))
-    y_input = y_path = SampleInput(Sample(y))
+    y_input = y_path = SampleInput(Sample(y), n=None)
     # processing
     x_path, y_path = AffineDeformation(x_path, translation_window_width=(10, 10, 0), rotation_window_width=(0, 0, 0))(x_path, y_path)
     x_path, y_path = GridCrop(x_path, (27, 27, 1), strides=(21, 21, 1), nonzero=True)(x_path, y_path)

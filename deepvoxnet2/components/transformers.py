@@ -76,8 +76,6 @@ class Transformer(object):
         self.extra_connections = [] if extra_connections is None else (extra_connections if isinstance(extra_connections, list) else [extra_connections])
         self.name = name
         self.n_ = 0
-        self.n_resets = 0
-        self._input_transformers = None
         self.connections = []
         self.outputs = []
         self.output_shapes = []
@@ -120,17 +118,19 @@ class Transformer(object):
 
         if sample_id != self.sample_id:
             self.sample_id = sample_id
-            if self.generator is not None and (self.n is None or self.n_ < self.n):
-                next(self.generator)
+            if self.generator is None or self.n_ == self.n:
+                if not isinstance(self, _Input):
+                    for connections in self.connections + [self.extra_connections]:
+                        for connection in connections:
+                            if len(connection.transformer.active_indices) > 0:
+                                connection.transformer.eval(self.sample_id)
 
-            else:
-                for connections in self.connections + [self.extra_connections]:
-                    for connection in connections:
-                        if len(connection.transformer.active_indices) > 0:
-                            connection.transformer.eval(self.sample_id)
+                elif self.n_ == self.n:
+                    raise StopIteration
 
                 self.generator = self._update()
-                next(self.generator)
+
+            next(self.generator)
 
         return self.outputs
 
@@ -138,8 +138,6 @@ class Transformer(object):
         self.n_ = 0
         self.sample_id = None
         self.generator = None
-        self.n_resets = 0
-        self._input_transformers = None
 
     def _update(self):
         self.n_ = 0
@@ -181,11 +179,7 @@ class _Input(Transformer):
         return self.output_shapes[idx]
 
     def _randomize(self):
-        if self.n_ == 0:
-            self.n_resets += 1
-
-        if self._input_transformers is not None and all([transformer.n_resets > transformer.n for transformer in self._input_transformers]):
-            raise StopIteration
+        pass
 
 
 class _MircInput(_Input):
@@ -262,7 +256,7 @@ class Buffer(Transformer):
                 for idx in self.active_indices:
                     self.buffered_outputs[idx].append([sample for sample in self.connections[idx][0].eval(sample_id)])
 
-            except RuntimeError:
+            except (StopIteration, RuntimeError):
                 break
 
         if self.buffer_size is not None and self.drop_remainder and len(self.buffered_outputs[0]) < self.buffer_size:
