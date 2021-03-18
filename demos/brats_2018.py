@@ -43,7 +43,7 @@ def train(run_name, experiment_name, fold_i=0):
     # inputs (we have samplers that sample identifier objects, so we can use MircInputs here; they now what to do with the sampled identifier objects (have a look at their load method)
     x_input_0 = MircInput(["flair"], output_shapes=[(1, None, None, None, 1)])
     x_input_1 = MircInput(["t1"], output_shapes=[(1, None, None, None, 1)])
-    y_input = MircInput(["whole_tumor"], output_shapes=[(1, None, None, None, 1)])
+    y_input = MircInput(["whole_tumor"], output_shapes=[(1, None, None, None, 1)], n=None)
 
     # used for training and is on the level of patches
     x_path_0, x_path_1, y_path = AffineDeformation(x_input_0, translation_window_width=(20, 20, 20), rotation_window_width=(3.14 / 10, 0, 0))(x_input_0, x_input_1, y_input)
@@ -65,7 +65,7 @@ def train(run_name, experiment_name, fold_i=0):
     y_val = y_path
 
     # used for validation of the full images and thus is on the level of the input
-    x_full_val = Put(x_input_0)(x_val)  # x_val is on the patch level and the put transformers brings the patch back to the reference space
+    x_full_val = Put(y_input)(x_val)  # x_val is on the patch level and the put transformers brings the patch back to the reference space; have a look why y_input is used (with n=None) and think about why this is
     y_full_val = y_input
 
     # you can use Creator.summary() method to visualize your designed architecture

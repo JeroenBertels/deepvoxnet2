@@ -359,7 +359,7 @@ class Threshold(Transformer):
         self.upper_threshold = upper_threshold
 
     def _update_idx(self, idx):
-        for idx_, sample in enumerate(self.connections[0]):
+        for idx_, sample in enumerate(self.connections[idx][0]):
             affine = sample.affine
             array = (sample > self.lower_threshold) * (sample < self.upper_threshold)
             self.outputs[idx][idx_] = Sample(array, affine)
