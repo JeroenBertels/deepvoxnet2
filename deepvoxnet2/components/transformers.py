@@ -389,7 +389,7 @@ class Multiply(Transformer):
         output_shapes = self.connections[idx][0].shapes
         for output_shape_i, output_shape in enumerate(output_shapes):
             for connection in self.connections[idx][1:]:
-                for axis_i, (output_shape_, output_shape__) in enumerate(zip(output_shape, connection.output_shapes[output_shape_i])):
+                for axis_i, (output_shape_, output_shape__) in enumerate(zip(output_shape, connection.shapes[output_shape_i])):
                     assert output_shape_ is not None and output_shape__ is not None and output_shape_ == output_shape__, "The shapes of the shared axes should be identical and different from None."
 
         return output_shapes
@@ -950,14 +950,18 @@ class KerasModel(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.keras_model.output_shape if isinstance(self.keras_model.output_shape, list) else [self.keras_model.output_shape]
+        output_shapes = self.keras_model.output_shape if isinstance(self.keras_model.output_shape, list) else [self.keras_model.output_shape]
+        for idx_, output_shape in enumerate(output_shapes):
+            output_shapes[idx_] = (output_shape[0] or self.connections[idx][0].shapes[idx_][0], output_shape[1], output_shape[2], output_shape[3], output_shape[4])
+
+        return output_shapes
 
     def _randomize(self):
         pass
 
 
 class Put(Transformer):
-    def __init__(self, reference_connection, caching=True, cval=np.nan, order=0, keep_counts=True, **kwargs):
+    def __init__(self, reference_connection, caching=True, cval=0, order=0, keep_counts=False, **kwargs):
         super(Put, self).__init__(extra_connections=reference_connection, **kwargs)
         self.reference_connection = reference_connection
         self.caching = caching

@@ -5,7 +5,7 @@ from deepvoxnet2 import DEMO_DIR
 from deepvoxnet2.components.mirc import Mirc
 from deepvoxnet2.components.sampler import MircSampler
 from deepvoxnet2.keras.models.unet_generalized import create_generalized_unet_model
-from deepvoxnet2.components.transformers import Normalize, AffineDeformation, MircInput, ElasticDeformation, GridCrop, Flip, Put, KerasModel, RandomCrop, Group, Concat
+from deepvoxnet2.components.transformers import Normalize, AffineDeformation, MircInput, ElasticDeformation, GridCrop, Flip, Put, KerasModel, RandomCrop, Group, Concat, Multiply, Threshold, Buffer
 from deepvoxnet2.components.model import DvnModel
 from deepvoxnet2.components.creator import Creator
 from deepvoxnet2.keras.optimizers import Adam
@@ -48,7 +48,7 @@ def train(run_name, experiment_name, fold_i=0):
     # used for training and is on the level of patches
     x_path_0, x_path_1, y_path = AffineDeformation(x_input_0, translation_window_width=(20, 20, 20), rotation_window_width=(3.14 / 10, 0, 0))(x_input_0, x_input_1, y_input)
     x_path_0, x_path_1, y_path = ElasticDeformation(x_path_0, shift=(1, 1, 1))(x_path_0, x_path_1, y_path)
-    x_path_0, x_path_1, y_path = RandomCrop(x_path_0, (112, 112, 96), n=1, nonzero=True)(x_path_0, x_path_1, y_path)  # x_path_0 is used as a reference volume to determine the coordinate around which to crop (here also constrained to nonzero flair voxels)
+    x_path_0, x_path_1, y_path = GridCrop(x_path_0, (112, 112, 96), n=1, nonzero=True)(x_path_0, x_path_1, y_path)  # x_path_0 is used as a reference volume to determine the coordinate around which to crop (here also constrained to nonzero flair voxels)
     x_path_0 = Normalize(-flair_mean, 1 / flair_std)(x_path_0)
     x_path_1 = Normalize(-t1_mean, 1 / t1_std)(x_path_1)
     x_path = Concat()([x_path_0, x_path_1])
@@ -65,7 +65,9 @@ def train(run_name, experiment_name, fold_i=0):
     y_val = y_path
 
     # used for validation of the full images and thus is on the level of the input
-    x_full_val = Put(y_input)(x_val)  # x_val is on the patch level and the put transformers brings the patch back to the reference space; have a look why y_input is used (with n=None) and think about why this is
+    x_path = Multiply()([x_val, Threshold(-flair_mean / flair_std)(x_path_0)])
+    x_path = Buffer()(x_path)
+    x_full_val = Put(y_input)(x_path)  # x_val is on the patch level and the put transformers brings the patch back to the reference space; have a look why y_input is used (with n=None) and think about why this is
     y_full_val = y_input
 
     # you can use Creator.summary() method to visualize your designed architecture

@@ -178,7 +178,7 @@ def crop(I, S_size, coordinates=None, subsample_factors=None, default_value=0, p
         idx_S[i] = slice(start_S, end_S + 1)
 
     S[tuple(idx_S)] = I[tuple(idx_I)]
-    if np.isnan(S).any():
+    if np.isnan(default_value):
         S = S[tuple(distance_transform_edt(np.isnan(S), return_distances=False, return_indices=True))]
 
     return S
