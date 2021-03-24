@@ -488,6 +488,29 @@ class WindowNormalize(Transformer):
         pass
 
 
+class IntensityTransform(Transformer):
+    def __init__(self, mean_shift=0, std_shift=0, mean_scale=1, std_scale=0, **kwargs):
+        super(IntensityTransform, self).__init__(**kwargs)
+        self.mean_shift = mean_shift
+        self.std_shift = std_shift
+        self.mean_scale = mean_scale
+        self.std_scale = std_scale
+        self.shift = None
+        self.scale = None
+
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            self.outputs[idx][idx_] = Sample((sample + self.shift) * self.scale, sample.affine)
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        return self.connections[idx][0].shapes
+
+    def _randomize(self):
+        self.shift = np.random.normal(self.mean_shift, self.std_shift)
+        self.scale = np.random.normal(self.mean_scale, self.std_scale)
+
+
 class Remove(Transformer):
     def __init__(self, remove_probability, fill_value, axis=-1, **kwargs):
         super(Remove, self).__init__(**kwargs)
@@ -720,7 +743,6 @@ class GaussianNoise(Transformer):
         super(GaussianNoise, self).__init__(**kwargs)
         self.mean = mean
         self.std = std
-        self.gaussian_noise = None
 
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
