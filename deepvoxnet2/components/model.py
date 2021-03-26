@@ -170,7 +170,7 @@ class DvnModel(object):
                 evaluation[loss_name] = loss(samples[1][i], samples[0][i]).numpy().mean().item() if len(samples) == 2 else loss(samples[1][i], samples[0][i], sample_weight=samples[2][i]).numpy().mean().item()
                 total_loss_value += evaluation[loss_name] * self.losses_weights[key][i]
 
-            evaluation[f"{key}__loss"] = total_loss_value
+            evaluation[f"{key}__loss__combined"] = total_loss_value
             for i, metric in enumerate(self.metrics[key]):
                 for metric_ in metric:
                     metric_name = f"{key}__{metric_.__name__}"
