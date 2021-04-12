@@ -56,7 +56,7 @@ def resample(input_nii, output_zooms, order=3, prefilter=True, reference_nii=Non
     order: int, str
         Order of the interpolation that will be used. See supported orders in NumPy's zoom function (order=0, 1, 2, 3). If you choose order='mean' instead, than it will be downsampling with a moving average window that gets the effective output zooms as close as possible to the requested output zooms.
     prefilter: bool
-        Use gaussian prefilter?
+        Use gaussian prefilter when downsampling (https://stackoverflow.com/questions/35340197/box-filter-size-in-relation-to-gaussian-filter-sigma).
     reference_nii: nib.Nifti1Image
         E.g. when doing upsampling back to an original image space we want to make sure the image sizes are consistent. By giving a reference Nifti image, we crop or pad with zeros where necessary.
 
@@ -72,7 +72,7 @@ def resample(input_nii, output_zooms, order=3, prefilter=True, reference_nii=Non
     input_zooms = input_nii.header.get_zooms()
     assert len(input_zooms) == len(output_zooms), "Number of dimensions mismatch."
     assert np.allclose(input_zooms[:3], np.linalg.norm(input_nii.affine[:3, :3], 2, axis=0)), "Inconsistency (we only support voxel size = voxel distance) in affine and zooms (spatial) of input Nifti image."
-    input_array = input_nii.get_data()
+    input_array = input_nii.get_fdata()
     output_zooms = [input_zoom if output_zoom is None else output_zoom for input_zoom, output_zoom in zip(input_zooms, output_zooms)]
     if order == "mean":
         assert all([4 / 3 * output_zoom >= input_zoom for output_zoom, input_zoom in zip(output_zooms, input_zooms)]), "This function with order='mean' only supports downsampling by an integer factor (input zooms: {}).".format(input_zooms)
@@ -84,13 +84,13 @@ def resample(input_nii, output_zooms, order=3, prefilter=True, reference_nii=Non
         assert isinstance(order, int), "When order != 'mean', it must be an integer (see scipy.ndimage.zoom)."
         zoom_factors = [input_zoom / output_zoom for input_zoom, output_zoom in zip(input_zooms, output_zooms)]
         if prefilter:
-            input_array = gaussian_filter(input_array, [zoom_factor / 2 if zoom_factor > 1 else 0 for zoom_factor in zoom_factors])
+            input_array = gaussian_filter(input_array, [np.sqrt(((1 / zoom_factor)**2 - 1) / 12) if zoom_factor < 1 else 0 for zoom_factor in zoom_factors], mode="nearest")
 
-        output_array = zoom(input_array, zoom_factors, order=order, mode="reflect")
+        output_array = zoom(input_array, zoom_factors, order=order, mode="nearest")
 
     if reference_nii is not None:
         assert output_zooms == list(reference_nii.header.get_zooms()), "The output zooms are not equal to the reference zooms."
-        output_array_ = np.zeros_like(reference_nii.get_data())
+        output_array_ = np.zeros_like(reference_nii.get_fdata())
         output_array_[tuple([slice(min(s, s_)) for s, s_ in zip(output_array.shape, output_array_.shape)])] = output_array[tuple([slice(min(s, s_)) for s, s_ in zip(output_array.shape, output_array_.shape)])]
         output_array = output_array_
 
