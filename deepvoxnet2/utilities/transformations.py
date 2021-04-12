@@ -1,8 +1,13 @@
+import os
 import numpy as np
 import nibabel as nib
+import SimpleITK as sitk
+from tempfile import mkdtemp
+from shutil import rmtree
 from scipy.ndimage import zoom, gaussian_filter, uniform_filter, distance_transform_edt
 from scipy.spatial.transform import Rotation
 from pymirc.image_operations import aff_transform, backward_3d_warp, random_deformation_field
+from .conversions import nii_to_sitk, sitk_to_nii
 
 
 def downsample_array(input_array, window_sizes):
@@ -40,25 +45,25 @@ def downsample_array(input_array, window_sizes):
 
 def resample(input_nii, output_zooms, order=3, prefilter=True, reference_nii=None):
     """
-    This function resamples a Nifty image to the desired zooms.
+    This function resamples a Nifti image to the desired zooms.
 
     Parameters
     ----------
-    input_nii: nib.Nifty1Image
-        The input Nifty image to be resampled.
+    input_nii: nib.Nifti1Image
+        The input Nifti image to be resampled.
     output_zooms: tuple, list
-        The desired output zooms. It must be a tuple or list of same length as the number of dimensions in the original Nifty image. None can be used to specify that a certain dimension does not need to be resampled.
+        The desired output zooms. It must be a tuple or list of same length as the number of dimensions in the original Nifti image. None can be used to specify that a certain dimension does not need to be resampled.
     order: int, str
         Order of the interpolation that will be used. See supported orders in NumPy's zoom function (order=0, 1, 2, 3). If you choose order='mean' instead, than it will be downsampling with a moving average window that gets the effective output zooms as close as possible to the requested output zooms.
     prefilter: bool
         Use gaussian prefilter?
-    reference_nii: nib.Nifty1Image
-        E.g. when doing upsampling back to an original image space we want to make sure the image sizes are consistent. By giving a reference Nifty image, we crop or pad with zeros where necessary.
+    reference_nii: nib.Nifti1Image
+        E.g. when doing upsampling back to an original image space we want to make sure the image sizes are consistent. By giving a reference Nifti image, we crop or pad with zeros where necessary.
 
     Returns
     -------
-    output_nii: nib.Nifty1Image
-        Resampled version of the original Nifty image.
+    output_nii: nib.Nifti1Image
+        Resampled version of the original Nifti image.
 
     See Also
     --------
@@ -66,7 +71,7 @@ def resample(input_nii, output_zooms, order=3, prefilter=True, reference_nii=Non
     """
     input_zooms = input_nii.header.get_zooms()
     assert len(input_zooms) == len(output_zooms), "Number of dimensions mismatch."
-    assert np.allclose(input_zooms[:3], np.linalg.norm(input_nii.affine[:3, :3], 2, axis=0)), "Inconsistency (we only support voxel size = voxel distance) in affine and zooms (spatial) of input Nifty image."
+    assert np.allclose(input_zooms[:3], np.linalg.norm(input_nii.affine[:3, :3], 2, axis=0)), "Inconsistency (we only support voxel size = voxel distance) in affine and zooms (spatial) of input Nifti image."
     input_array = input_nii.get_data()
     output_zooms = [input_zoom if output_zoom is None else output_zoom for input_zoom, output_zoom in zip(input_zooms, output_zooms)]
     if order == "mean":
@@ -79,7 +84,7 @@ def resample(input_nii, output_zooms, order=3, prefilter=True, reference_nii=Non
         assert isinstance(order, int), "When order != 'mean', it must be an integer (see scipy.ndimage.zoom)."
         zoom_factors = [input_zoom / output_zoom for input_zoom, output_zoom in zip(input_zooms, output_zooms)]
         if prefilter:
-            input_array = gaussian_filter(input_array, [zoom_factor if zoom_factor > 1 else 0 for zoom_factor in zoom_factors])
+            input_array = gaussian_filter(input_array, [zoom_factor / 2 if zoom_factor > 1 else 0 for zoom_factor in zoom_factors])
 
         output_array = zoom(input_array, zoom_factors, order=order, mode="reflect")
 
@@ -306,3 +311,165 @@ def get_deformation_field(I_shape, shift=(2, 2, 2), nsize=(30, 30, 30), npad=(5,
 
 def elastic_deformation(I, deformation_field, cval=0, order=1):
     return backward_3d_warp(I, deformation_field[..., 0], deformation_field[..., 1], deformation_field[..., 2], trilin=order, cval=cval)
+
+
+def orthogonalize(input_nii, invalid_value):
+    """
+    Orthogonalize by having a new z-axis that is orthogonal to the x and y axis. Keeps the dimensions of the image.
+
+    Parameters
+    ----------
+    input_nii: nib.Nifti1Image
+        Input image.
+    invalid_value: float
+        Outside image values.
+
+    Returns
+    -------
+    output_nii: nib.Nifti1Image
+        Orthogonalized input image.
+    """
+    image = nii_to_sitk(input_nii)
+    direction_matrix = np.array(image.GetDirection()).reshape((3, 3))
+    z_direction = direction_matrix[:, 2]
+    new_z_direction = np.cross(direction_matrix[:, 0], direction_matrix[:, 1])
+    new_z_spacing = np.dot(z_direction, new_z_direction) * image.GetSpacing()[2]
+    new_direction_matrix = np.array(direction_matrix)
+    new_direction_matrix[:, 2] = new_z_direction
+    resampleImageFilter = sitk.ResampleImageFilter()
+    resampleImageFilter.SetOutputDirection(tuple(new_direction_matrix.flatten()))
+    resampleImageFilter.SetOutputOrigin(image.GetOrigin())
+    resampleImageFilter.SetOutputSpacing(image.GetSpacing()[:2] + (new_z_spacing,))
+    resampleImageFilter.SetSize(image.GetSize())
+    resampleImageFilter.SetDefaultPixelValue(invalid_value)
+    image = resampleImageFilter.Execute(image)
+    output_nii = sitk_to_nii(image)
+    return output_nii
+
+
+def registration_quality(fixed_array, moved_array, mask_array=None):
+    """
+    Checking registration quality of two arrays, optionally using a mask.
+
+    Parameters
+    ----------
+    fixed_array: np.ndarray
+        First array.
+    moved_array: np.ndarray
+        Second array.
+    mask_array: np.ndarray
+        Mask array (optional).
+
+    Returns
+    -------
+    correlation_coefficient: float
+        Correlation coefficient of the two, optionally masked, arrays.
+
+    See Also
+    --------
+    np.corrcoef: The NumPy function that is used under the hood.
+    """
+    if mask_array is not None:
+        fixed_array = fixed_array[mask_array]
+        moved_array = moved_array[mask_array]
+
+    correlation_coefficient = np.corrcoef(fixed_array.flatten(), moved_array.flatten())[0, 1]
+    return correlation_coefficient
+
+
+def move(moving_nii, fixed_nii=None, transform_parameter_map=None, fixed_nii_mask=None, moving_nii_mask=None, parameter_map=None, initial_transform_parameter_map=None):
+    """
+    Function to move a 'moving image'. When a 'fixed image' is specified, this function is an actual registration. Otherwise, it will be simply applying a transformation to the image.
+    To install Simple ITK with Simple Elastix there are two options:
+    1) Following the installation instructions from https://simpleelastix.readthedocs.io/index.html with some small tweaks:
+        $ git clone https://github.com/SuperElastix/SimpleElastix
+        $ mkdir build
+        $ cd build
+        $ cmake -DCMAKE_CXX_COMPILER:STRING=/usr/bin/clang++ -DCMAKE_C_COMPILER:STRING=/usr/bin/clang -DWRAP_JAVA:BOOL=OFF -DWRAP_LUA:BOOL=OFF -DWRAP_R:BOOL=OFF -DWRAP_RUBY:BOOL=OFF -DWRAP_TCL:BOOL=OFF -DSimpleITK_PYTHON_USE_VIRTUALENV:BOOL=OFF ../SimpleElastix/SuperBuild
+        $ make -j4
+        Then activate your virtual environment and do the following (make sure there is not yet any Simple ITK version installed in this environment!)
+        $ {BUILD_DIRECTORY}/SimpleITK-build/Wrapping/Python
+        $ python Packaging/setup.py install
+    2) Simply installing the simpleitk-elastix package via PIP in your virtual environment:
+        $ pip install simpleitk-elastix
+
+    Parameters
+    ----------
+    moving_nii: nib.Nifti1Image
+        'moving image' Nifti.
+    fixed_nii: None, nib.Nifti1Image
+       'fixed image' Nifti. When specified, a registration is done.
+    transform_parameter_map: None, dict, list of dicts
+        A dictionary, or list of dictionaries, with the transformation parameter map(s) to be used to move the 'moving image'. When specified, a simple move of the 'moving image' will be done.
+    fixed_nii_mask: None, nib.Nifti1Image
+        'fixed image mask' Nifti. Only useful when doing a registration.
+    moving_nii_mask: None, nib.Nifti1Image
+        'moving image mask' Nifti. Only useful when doing a registration.
+    parameter_map: None, str, dict, sitk.ParameterMap
+        The type of registration that needs to be performed.
+    initial_transform_parameter_map: None, sitk.ParameterMap
+        Optional initial parameter map to be used.
+
+    Returns
+    -------
+    moved_nii: nib.Nifti1Image
+        'moved image' Nifti.
+    transform_parameter_map: dict
+        The transformation parameter map that was used. In case of a requested registration this is the resulting transformation for the registration. Otherwise, this is simply the inputted transformation parameter map.
+
+    See Also
+    --------
+    sitk.ElastixImageFilter: Class that is used under the hood to perform a registration.
+    sitk.TransformixImageFilter: Class that is used under the hood to perform a move.
+    """
+    assert hasattr(sitk, "ElastixImageFilter"), "Please also install Simple Elastix (see documentation of this move function for installation instructions)."
+    if fixed_nii is not None:
+        assert transform_parameter_map is None, "When a fixed image is specified a registration is done and no transformation map will be used."
+        elastix_image_filter = sitk.ElastixImageFilter()
+        if parameter_map is None or parameter_map in ["default", "elastic"]:
+            parameter_map = "default"
+
+        elif parameter_map in ["translation", "rigid", "affine", "bspline"]:
+            elastix_image_filter.SetParameterMap(sitk.GetDefaultParameterMap(parameter_map))
+
+        elif isinstance(parameter_map, (dict, sitk.ParameterMap)):
+            elastix_image_filter.SetParameterMap(parameter_map)
+
+        else:
+            raise NotImplementedError
+
+        elastix_image_filter.SetFixedImage(sitk.Cast(nii_to_sitk(fixed_nii), sitk.sitkFloat32))
+        if fixed_nii_mask is not None:
+            elastix_image_filter.SetFixedMask(sitk.Cast(nii_to_sitk(fixed_nii_mask), sitk.sitkUInt8))
+
+        if moving_nii_mask is not None:
+            elastix_image_filter.SetMovingMask(sitk.Cast(nii_to_sitk(moving_nii_mask), sitk.sitkUInt8))
+
+        if initial_transform_parameter_map is not None:
+            tmpdir = mkdtemp()
+            sitk.WriteParameterFile(initial_transform_parameter_map, os.path.join(tmpdir, "initial_transform_parameter_map.txt"))
+            elastix_image_filter.SetInitialTransformParameterFileName(os.path.join(tmpdir, "initial_transform_parameter_map.txt"))
+
+        image_filter = elastix_image_filter
+
+    else:
+        assert transform_parameter_map is not None and parameter_map is None and fixed_nii_mask is None and moving_nii_mask is None and initial_transform_parameter_map is None, "When no fixed image is specified only a transformation map will be used."
+        transformix_image_filter = sitk.TransformixImageFilter()
+        transformix_image_filter.SetTransformParameterMap(transform_parameter_map)
+        image_filter = transformix_image_filter
+
+    image_filter.SetMovingImage(sitk.Cast(nii_to_sitk(moving_nii), sitk.sitkFloat32))
+    try:
+        image_filter.Execute()
+        transform_parameter_map = image_filter.GetTransformParameterMap()
+        moved_nii = sitk_to_nii(image_filter.GetResultImage())
+
+    except RuntimeError:
+        moved_nii = None
+        transform_parameter_map = None
+        print("WARNING: transformation unsuccessful")
+
+    if initial_transform_parameter_map is not None:
+        rmtree(tmpdir)
+
+    return moved_nii, transform_parameter_map

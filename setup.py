@@ -25,6 +25,11 @@ setuptools.setup(
         'transforms3d>=0.3.1',
         'jupyter>=1.0',
         'Pillow>=8.1.0',
+        'simpleitk-elastix>=2.0.0',
+        'pandas>=1.2',
+        'sklearn>=0.0',
+        'xlrd>=2.0',
+        'openpyxl>=3.0',
         'pymirc @ git+https://github.com/gschramm/pymirc'
     ]
 )
