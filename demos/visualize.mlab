@@ -57,7 +57,7 @@ pixdim[5] : 1
 pixdim[6] : 1
 pixdim[7] : 1
 qform_code : 0
-qoffset_x : 0
+qoffset_x : -0
 qoffset_y : 239
 qoffset_z : 0
 quatern_b : 0
@@ -70,8 +70,8 @@ slice_code :
 slice_duration : 0
 slice_end : 0
 slice_start : 0
-srow_x : -1 -0 -0 0
-srow_y : -0 -1 -0 239
+srow_x : -1 0 0 -0
+srow_y : 0 -1 0 239
 srow_z : 0 0 1 0
 toffset : 0
 vox_offset : 352
@@ -95,20 +95,66 @@ module itkImageFileReader {
   }
   fields  {
     instanceName = itkImageFileReader1
-    fileDataType = "unsigned int8"
+    fileDataType = float
     autoDetermineDataType = TRUE
     correctSubVoxelShift = TRUE
     fileDimension = 3
-    info = " Could not create IO object for file /usr/local/avalok/data/jberte3/Git/deepvoxnet2/demos/brats_2018/runs/unet/case_8/record_0/Validation/adam_ce-sd_Round_0_Fold_0/dvn_val.nii.gz
-The file doesn't exist. 
-Filename = /usr/local/avalok/data/jberte3/Git/deepvoxnet2/demos/brats_2018/runs/unet/case_8/record_0/Validation/adam_ce-sd_Round_0_Fold_0/dvn_val.nii.gz
- Loaded data may be undefined."
-    numDims = 0
+    info = "Loading okay."
+    numDims = 3
     fileType = TypeNotApplicable
-    componentType = ""
-    pixelType = UNKNOWNPIXELTYPE
-    loaderType = ""
-    outputMetaDataStr = ""
+    componentType = float
+    pixelType = SCALAR
+    loaderType = NiftiImageIO
+    outputMetaDataStr = "ITK_FileNotes : 
+aux_file : 
+bitpix : 32
+cal_max : 0
+cal_min : 0
+datatype : 16
+descrip : 
+dim[0] : 4
+dim[1] : 240
+dim[2] : 240
+dim[3] : 155
+dim[4] : 1
+dim[5] : 1
+dim[6] : 1
+dim[7] : 1
+dim_info : 
+intent_code : 0
+intent_name : 
+intent_p1 : 0
+intent_p2 : 0
+intent_p3 : 0
+pixdim[0] : 1
+pixdim[1] : 1
+pixdim[2] : 1
+pixdim[3] : 1
+pixdim[4] : 1
+pixdim[5] : 1
+pixdim[6] : 1
+pixdim[7] : 1
+qform_code : 0
+qoffset_x : -0
+qoffset_y : 239
+qoffset_z : 0
+quatern_b : 0
+quatern_c : 0
+quatern_d : 1
+scl_inter : 0
+scl_slope : 1
+sform_code : 2
+slice_code : 
+slice_duration : 0
+slice_end : 0
+slice_start : 0
+srow_x : -1 -0 -0 -0
+srow_y : -0 -1 -0 239
+srow_z : 0 0 1 0
+toffset : 0
+vox_offset : 352
+xyzt_units : 
+"
     suppressErrorPosting = FALSE
     unresolvedFileName = ""
   }
@@ -119,7 +165,7 @@ module SynchroView2D {
     moduleGroupName = ""
     windows  {
       window _default {
-        geometry = "1293 76 804 400"
+        geometry = "1334 144 804 400"
         sizeHint = "804 400"
         wasOpen = yes
       }
@@ -136,15 +182,15 @@ module SynchroView2D {
     disconnectOnHide = TRUE
     snapToCenter1 = FALSE
     snapToCenter2 = FALSE
-    slice1 = 0
+    slice1 = 115
     timepoint1 = 0
     filterMode = FILTER_LINEAR
-    slice2 = 0
+    slice2 = 115
     timepoint2 = 0
-    lut1w = 809
-    lut1c = 404.5
-    lut2w = 0.99999988079071
-    lut2c = 0.499999940395355
+    lut1w = 508
+    lut1c = 254
+    lut2w = 1
+    lut2c = 0.5
     annotationColor = "0.899999976158142 0.899999976158142 0.899999976158142"
     borderOn = FALSE
     drawCurrentPos = FALSE
@@ -160,7 +206,7 @@ module RunPythonScript {
     showNetworkPanel = true
     windows  {
       window _default {
-        geometry = "1200 532 1205 437"
+        geometry = "1295 624 1205 437"
         sizeHint = "651 304"
         wasOpen = yes
       }
@@ -224,10 +270,10 @@ CTX = ctx # ctx is the network's context, not RunPythonScript's"
     code = "*import os
 
 
-DEMO_DIR = "/usr/local/avalok/data/jberte3/Git/deepvoxnet2/demos"
+DEMO_DIR = "/usr/local/micapollo01/MIC/DATA/STAFF/jberte3/data/phd/git/deepvoxnet2/demos"
 
 dataset_id = "brats_2018"
-case_id = "case_8"
+case_id = "case_9"
 record_id = "record_0"
 
 run_name = "unet"
@@ -235,10 +281,10 @@ experiment_name = "adam_ce-sd"
 round_i = 0
 fold_i = 0
 
-key = "val"
+key = "full_val"
 
 ctx.field("itkImageFileReader.fileName").value = os.path.join(DEMO_DIR, dataset_id, case_id, "FLAIR.nii.gz")
-ctx.field("itkImageFileReader1.fileName").value = os.path.join(DEMO_DIR, dataset_id, "runs", run_name, case_id, record_id, "Validation", "{}_Round_{}_Fold_{}".format(experiment_name, round_i, fold_i), "dvn_{}.nii.gz".format(key))
+ctx.field("itkImageFileReader1.fileName").value = os.path.join(DEMO_DIR, dataset_id, "runs", run_name, case_id, record_id, "Validation", f"{experiment_name}_Round_{round_i}_Fold_{fold_i}", f"{key}__s0__b0__x.nii.gz")
 *"
     finalizeCode = ""
     showFields = FALSE
