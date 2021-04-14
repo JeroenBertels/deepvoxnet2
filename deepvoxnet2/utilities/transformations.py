@@ -84,7 +84,7 @@ def resample(input_nii, output_zooms, order=3, prefilter=True, reference_nii=Non
         assert isinstance(order, int), "When order != 'mean', it must be an integer (see scipy.ndimage.zoom)."
         zoom_factors = [input_zoom / output_zoom for input_zoom, output_zoom in zip(input_zooms, output_zooms)]
         if prefilter:
-            input_array = gaussian_filter(input_array, [np.sqrt(((1 / zoom_factor)**2 - 1) / 12) if zoom_factor < 1 else 0 for zoom_factor in zoom_factors], mode="nearest")
+            input_array = gaussian_filter(input_array.astype(np.float32), [np.sqrt(((1 / zoom_factor)**2 - 1) / 12) if zoom_factor < 1 else 0 for zoom_factor in zoom_factors], mode="nearest")
 
         output_array = zoom(input_array, zoom_factors, order=order, mode="nearest")
 
@@ -144,10 +144,10 @@ def crop(I, S_size, coordinates=None, subsample_factors=None, default_value=0, p
     if prefilter is not None:
         assert prefilter in ["uniform", "gaussian"]
         if prefilter == "gaussian":
-            I = gaussian_filter(I, [s_f if s_f > 1 else 0 for s_f in subsample_factors], mode="nearest")
+            I = gaussian_filter(I.astype(np.float32), [s_f if s_f > 1 else 0 for s_f in subsample_factors], mode="nearest")
 
         elif prefilter == "uniform":
-            I = uniform_filter(I, subsample_factors, mode="nearest")
+            I = uniform_filter(I.astype(np.float32), subsample_factors, mode="nearest")
 
     S_size = tuple(S_size) + tuple(I.shape[len(S_size):])
     S = np.full(S_size, fill_value=default_value, dtype=np.float32)
@@ -259,10 +259,10 @@ def put(I, S, coordinates=None, subsample_factors=None):
     return I
 
 
-def get_affine_matrix(I_shape, voxel_size=(1, 1, 1), reflection=(1, 1, 1), shear=(0, 0, 0), rotation=(0, 0, 0), translation=(0, 0, 0), scaling=(1, 1, 1)):
+def get_affine_matrix(I_shape, voxel_size=(1, 1, 1), reflection=(1, 1, 1), shear=(0, 0, 0), rotation=(0, 0, 0), translation=(0, 0, 0), scaling=(1, 1, 1), return_forward_affine=False):
     """
     Apply a certain deformation to an image, using the center of the image as origin for the scaling and rotation, and afterwards an optional translation as well.
-    ---->   Therefor voxel space has its origin at the corner of the image (x = y (= z) = 0) and the units of the axes are the pixels/voxels.
+    ---->   Therefor voxel space has its origin at the corner of the image (x = y = z = 0) and the units of the axes are the pixels/voxels.
             In world space the origin is at the center of the image and the axes are scaled according to the voxel size. It is there that the transformation is defined.
 
           --------- p_v voxel space p_v' <--------
@@ -295,7 +295,9 @@ def get_affine_matrix(I_shape, voxel_size=(1, 1, 1), reflection=(1, 1, 1), shear
     Sw[:-1, :-1] = np.diag(scaling)
     Tw[:-1, -1] = np.array(translation)
     affine = np.linalg.inv(T2c) @ np.linalg.inv(S2w) @ Tw @ Sw @ Rw @ SHw @ RFw @ S2w @ T2c
-    affine = np.linalg.inv(affine)
+    if not return_forward_affine:
+        affine = np.linalg.inv(affine)
+
     return np.round(affine, 5)
 
 
