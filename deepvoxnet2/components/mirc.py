@@ -100,6 +100,9 @@ class NiftyModality(Modality):
         return Sample(self.nifty.get_fdata(caching="unchanged"), self.nifty.affine)
 
 
+NiftiModality = NiftyModality
+
+
 class NiftyFileModality(Modality):
     def __init__(self, modality_id, file_path):
         super(NiftyFileModality, self).__init__(modality_id, os.path.dirname(file_path))
@@ -108,6 +111,9 @@ class NiftyFileModality(Modality):
     def load(self):
         nii = nib.load(self.file_path)
         return Sample(nii.get_fdata(caching="unchanged"), nii.affine)
+
+
+NiftiFileModality = NiftyFileModality
 
 
 class ImageFileModality(Modality):
