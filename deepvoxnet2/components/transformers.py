@@ -352,6 +352,36 @@ class Mean(Transformer):
         pass
 
 
+class Resample(Transformer):
+    def __init__(self, voxel_sizes, order=1, prefilter=True, **kwargs):
+        super(Resample, self).__init__(**kwargs)
+        assert len(voxel_sizes) == 3, "The Resample Transformer is a spatial resampler."
+        self.voxel_sizes = voxel_sizes
+        assert order in [0, 1, 2, 3], "Scipy's zoom is used internally. Please refer to that documentation."
+        self.order = order
+        self.prefilter = prefilter
+
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            affine = sample.affine.copy()
+            input_zooms = np.linalg.norm(affine[:, :3, :3], 2, axis=1)
+            assert np.all(input_zooms == input_zooms[:1, :])
+            zoom_factors = [input_zoom / output_zoom for input_zoom, output_zoom in zip(input_zooms[0], self.voxel_sizes)]
+            if self.prefilter:
+                sample = gaussian_filter(sample, [0] + [np.sqrt(((1 / zoom_factor) ** 2 - 1) / 12) if zoom_factor < 1 else 0 for zoom_factor in zoom_factors] + [0], mode="nearest")
+
+            sample = zoom(sample, [1] + zoom_factors + [1], order=self.order, mode="nearest")
+            affine[:, :3, :3] = affine[:, :3, :3] / zoom_factors
+            self.outputs[idx][idx_] = Sample(sample, affine)
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        return [(input_shape[0], None, None, None, input_shape[4]) for input_shape in self.connections[idx][0].shapes]
+
+    def _randomize(self):
+        pass
+
+
 class Threshold(Transformer):
     def __init__(self, lower_threshold=0, upper_threshold=np.inf, **kwargs):
         super(Threshold, self).__init__(**kwargs)
