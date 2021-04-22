@@ -16,14 +16,14 @@ class Sample(np.ndarray):
     @staticmethod
     def aff_to_144(affine):
         if affine is None:
-            return np.stack([np.eye(4)])
+            return np.stack([np.eye(4, dtype=np.float32)])
 
         elif affine.ndim == 2:
-            return np.stack([affine])
+            return np.stack([np.array(affine, dtype=np.float32)])
 
         else:
             assert affine.ndim == 3, "Affines cannot have more than 3 dimensions."
-            return np.round(affine, 2)
+            return np.array(affine, dtype=np.float32)
 
     @staticmethod
     def nd_to_5d(array):
