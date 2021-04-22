@@ -12,7 +12,7 @@ from deepvoxnet2.components.sample import Sample
 from deepvoxnet2.components.creator import Creator
 from deepvoxnet2.components.sampler import Sampler, Identifier
 from deepvoxnet2.components.transformers import KerasModel
-from deepvoxnet2.keras.callbacks import MetricNameChanger
+from deepvoxnet2.keras.callbacks import MetricNameChanger, LogsLogger
 
 
 class TfDataset(tf.data.Dataset, ABC):
@@ -130,7 +130,7 @@ class DvnModel(object):
             self.optimizer[key] = optimizer
             self.outputs[key][0].transformer.keras_model.compile(optimizer=self.optimizer[key], loss=self.losses[key], metrics=self.metrics[key], loss_weights=self.losses_weights[key], weighted_metrics=self.weighted_metrics[key])
 
-    def fit(self, key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, verbose=1):
+    def fit(self, key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, verbose=1, logs_dir=None):
         assert key in self.outputs, "There are no outputs available for this key."
         assert len(self.outputs[key]) >= 2, "Outputs must be in the format [x/y_, y, sample_weight] and to use fit at least [x/y_, y] must be available."
         assert isinstance(self.outputs[key][0].transformer, KerasModel), "To use fit, x/y_ must be the output of a KerasModel transformer."
@@ -149,6 +149,9 @@ class DvnModel(object):
 
         else:
             callbacks.insert(0, MetricNameChanger(training_key=key, validation_key=validation_key))
+
+        if logs_dir is not None:
+            callbacks.append(LogsLogger(logs_dir))
 
         return self.outputs[key][0].transformer.keras_model.fit(x=fit_dataset, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_dataset, validation_freq=validation_freq, verbose=verbose)
 
