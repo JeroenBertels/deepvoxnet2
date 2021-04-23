@@ -366,7 +366,7 @@ class Resample(Transformer):
             affine = sample.affine.copy()
             input_zooms = np.linalg.norm(affine[:, :3, :3], 2, axis=1)
             assert np.all(input_zooms == input_zooms[:1, :])
-            zoom_factors = [input_zoom / output_zoom for input_zoom, output_zoom in zip(input_zooms[0], self.voxel_sizes)]
+            zoom_factors = [1 if output_zoom is None else input_zoom / output_zoom for input_zoom, output_zoom in zip(input_zooms[0], self.voxel_sizes)]
             if self.prefilter:
                 sample = gaussian_filter(sample, [0] + [np.sqrt(((1 / zoom_factor) ** 2 - 1) / 12) if zoom_factor < 1 else 0 for zoom_factor in zoom_factors] + [0], mode="nearest")
 
@@ -376,7 +376,7 @@ class Resample(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return [(input_shape[0], None, None, None, input_shape[4]) for input_shape in self.connections[idx][0].shapes]
+        return [(input_shape[0], *[input_shape[i + 1] if self.voxel_sizes[i] is None else None for i in range(3)], input_shape[4]) for input_shape in self.connections[idx][0].shapes]
 
     def _randomize(self):
         pass
