@@ -25,16 +25,16 @@ class Mirc(dict):
         self[dataset.dataset_id] = dataset
 
     def get_dataset_ids(self):
-        return [dataset_id for dataset_id in self]
+        return sorted([dataset_id for dataset_id in self])
 
     def get_case_ids(self):
-        return list(set([case_id for dataset_id in self for case_id in self[dataset_id]]))
+        return sorted(set([case_id for dataset_id in self for case_id in self[dataset_id]]))
 
     def get_record_ids(self):
-        return list(set([record_id for dataset_id in self for case_id in self[dataset_id] for record_id in self[dataset_id][case_id]]))
+        return sorted(set([record_id for dataset_id in self for case_id in self[dataset_id] for record_id in self[dataset_id][case_id]]))
 
     def get_modality_ids(self):
-        return list(set([modality_id for dataset_id in self for case_id in self[dataset_id] for record_id in self[dataset_id][case_id] for modality_id in self[dataset_id][case_id][record_id]]))
+        return sorted(set([modality_id for dataset_id in self for case_id in self[dataset_id] for record_id in self[dataset_id][case_id] for modality_id in self[dataset_id][case_id][record_id]]))
 
     def mean_and_std(self, modality_id, n=None, clipping=(-np.inf, np.inf), return_histogram=False):
         assert modality_id in self.get_modality_ids(), "The requested modality_id is not present in this Mirc object."
