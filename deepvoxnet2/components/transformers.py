@@ -986,10 +986,10 @@ class GridCrop(Crop):
 
 class KerasModel(Transformer):
     def __init__(self, keras_model, output_affines=None, **kwargs):
-        super(KerasModel, self).__init__(**kwargs)
         self.keras_model = keras_model
-        self.output_affines = output_affines if isinstance(output_affines, list) else [output_affines]
-        assert len(self.output_affines) == len(self.keras_model.output_shape if isinstance(self.keras_model.output_shape, list) else [self.keras_model.output_shape])
+        super(KerasModel, self).__init__(**kwargs)
+        self.output_affines = output_affines if isinstance(output_affines, list) else [output_affines] * len(self.output_shapes[0])
+        assert len(self.output_affines) == len(self.output_shapes[0])
 
     def _update_idx(self, idx):
         y = self.keras_model.predict(self.connections[idx][0].get())
