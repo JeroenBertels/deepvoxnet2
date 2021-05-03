@@ -25,7 +25,7 @@ setuptools.setup(
         'transforms3d>=0.3.1',
         'jupyter>=1.0',
         'Pillow>=8.1.0',
-        'simpleitk-elastix',
+        # 'simpleitk-elastix',
         'pandas>=1.2',
         'sklearn',
         'xlrd>=2.0',
