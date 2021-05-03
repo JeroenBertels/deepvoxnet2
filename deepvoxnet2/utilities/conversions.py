@@ -4,7 +4,12 @@ import pymirc
 import transforms3d
 import numpy as np
 import nibabel as nib
-import SimpleITK as sitk
+try:
+    import SimpleITK as sitk
+
+except ModuleNotFoundError:
+    pass
+
 from pydicom import dcmread
 from tempfile import mkdtemp
 from shutil import rmtree

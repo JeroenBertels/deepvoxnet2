@@ -1,7 +1,12 @@
 import os
 import numpy as np
 import nibabel as nib
-import SimpleITK as sitk
+try:
+    import SimpleITK as sitk
+
+except ModuleNotFoundError:
+    pass
+
 from tempfile import mkdtemp
 from shutil import rmtree
 from scipy.ndimage import zoom, gaussian_filter, uniform_filter, distance_transform_edt
