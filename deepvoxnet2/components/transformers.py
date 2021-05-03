@@ -1004,7 +1004,7 @@ class KerasModel(Transformer):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
         output_shapes = self.keras_model.output_shape if isinstance(self.keras_model.output_shape, list) else [self.keras_model.output_shape]
         for idx_, output_shape in enumerate(output_shapes):
-            output_shapes[idx_] = (output_shape[0] or self.connections[idx][0].shapes[idx_][0], output_shape[1], output_shape[2], output_shape[3], output_shape[4])
+            output_shapes[idx_] = (output_shape[0] or self.connections[idx][0].shapes[0][0], output_shape[1], output_shape[2], output_shape[3], output_shape[4])
 
         return output_shapes
 
