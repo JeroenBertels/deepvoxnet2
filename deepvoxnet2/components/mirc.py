@@ -36,7 +36,7 @@ class Mirc(dict):
     def get_modality_ids(self):
         return sorted(set([modality_id for dataset_id in self for case_id in self[dataset_id] for record_id in self[dataset_id][case_id] for modality_id in self[dataset_id][case_id][record_id]]))
 
-    def mean_and_std(self, modality_id, n=None, clipping=(-np.inf, np.inf), return_histogram=False):
+    def mean_and_std(self, modality_id, n=None, clipping=(-np.inf, np.inf), return_histogram=False, fillna=None, exclude_clipping=True):
         assert modality_id in self.get_modality_ids(), "The requested modality_id is not present in this Mirc object."
         count, values = 0, []
         for dataset_id in self:
@@ -46,7 +46,16 @@ class Mirc(dict):
                         modality = np.clip(self[dataset_id][case_id][record_id][modality_id].load(), *clipping)
                         modality = modality[modality != clipping[0]]
                         modality = modality[modality != clipping[1]]
-                        values += list(modality[~np.isnan(modality)])
+                        if fillna is not None:
+                            modality[np.isnan(modality)] = fillna
+
+                        else:
+                            modality = modality[np.logical_not(np.isnan(modality))]
+
+                        if exclude_clipping:
+                            modality = modality[(modality != clipping[0]) * (modality != clipping[1])]
+
+                        values += list(modality)
                         count += 1
 
         if return_histogram:
@@ -55,26 +64,32 @@ class Mirc(dict):
         else:
             return np.mean(values, dtype=np.float64), np.std(values, dtype=np.float64)
 
-    def inspect(self, image_modality_ids=None, metadata_modality_ids=None, **kwargs):
+    def inspect(self, modality_ids=None, check_affines_and_shapes=True, ns=None, clippings=(-np.inf, np.inf), fillnas=None, exclude_clippings=True):
+        modality_ids = modality_ids if isinstance(modality_ids, list) else [modality_ids]
+        ns = ns if isinstance(ns, list) else [ns] * len(modality_ids)
+        clippings = clippings if isinstance(clippings, list) else [clippings] * len(modality_ids)
+        fillnas = fillnas if isinstance(fillnas, list) else [fillnas] * len(modality_ids)
+        exclude_clippings = exclude_clippings if isinstance(exclude_clippings, list) else [exclude_clippings] * len(modality_ids)
+        assert len(modality_ids) == len(ns) == len(clippings) == len(fillnas) == len(exclude_clippings), "Inconsistent input arguments."
         dataset_ids = self.get_dataset_ids()
         print(f"Total number of different dataset ids: {len(dataset_ids)}")
         case_ids = self.get_case_ids()
         print(f"Total number of different case ids: {len(case_ids)}")
         record_ids = self.get_record_ids()
         print(f"Total number of different record ids: {len(record_ids)}")
-        modality_ids = self.get_modality_ids()
+        all_modality_ids = self.get_modality_ids()
         print(f"Total number of different modality ids: {len(modality_ids)}")
-        if image_modality_ids is not None:
-            assert all([image_modality_id in modality_ids for image_modality_id in image_modality_ids]), "Some of the requested modality_ids are not present in this Mirc object."
+        assert all([modality_id in all_modality_ids for modality_id in modality_ids]), "Some of the requested modality_ids are not present in this Mirc object."
+        if check_affines_and_shapes:
             img_sizes = []
             voxel_sizes = []
             for dataset_id in dataset_ids:
                 for case_id in self[dataset_id]:
                     for record_id in self[dataset_id][case_id]:
-                        reference_modality = self[dataset_id][case_id][record_id][image_modality_ids[0]].load()
-                        for image_modality_id in image_modality_ids:
-                            modality = self[dataset_id][case_id][record_id][image_modality_id].load()
-                            assert np.allclose(modality.affine, reference_modality.affine), f"Affine of {dataset_id}-{case_id}-{record_id}-{image_modality_id} is not equal to the reference from {image_modality_ids[0]}."
+                        reference_modality = self[dataset_id][case_id][record_id][modality_ids[0]].load()
+                        for i, modality_id in enumerate(modality_ids):
+                            modality = self[dataset_id][case_id][record_id][modality_id].load()
+                            assert np.allclose(modality.affine, reference_modality.affine), f"Affine of {dataset_id}-{case_id}-{record_id}-{modality_id} is not equal to the reference from {modality_ids[0]}."
                             assert np.array_equal(reference_modality.shape[1:4], modality.shape[1:4])
                             img_sizes.append(modality.shape[1:4])
                             voxel_sizes.append([s.round(2) for s in np.linalg.norm(modality.affine[0][:3, :3], 2, axis=0)])
@@ -83,47 +98,33 @@ class Mirc(dict):
             for i in range(3):
                 img_sizes_dim_i = list(zip(*img_sizes))[i]
                 axs[0, i].hist(img_sizes_dim_i)
-                axs[0, i].set_title(f"image size dim {i} (# voxels)")
+                axs[0, i].set_title(f"modality shape dim {i} (# voxels)")
                 voxel_sizes_dim_i = list(zip(*voxel_sizes))[i]
                 axs[1, i].hist(voxel_sizes_dim_i)
                 axs[1, i].set_title(f"voxel size dim {i} (mm)")
-                axs[2, i].hist([i * j for i, j in zip(img_sizes_dim_i, voxel_sizes_dim_i)])
-                axs[2, i].set_title(f"image size dim {i} (mm)")
+                counts, bins = np.histogram([i * j for i, j in zip(img_sizes_dim_i, voxel_sizes_dim_i)])
+                axs[2, i].bar(bins[:-1], counts, width=np.array(bins[1:] - bins[:-1]), align="edge")
+                axs[2, i].set_title(f"modality shape dim {i} (mm)")
 
-            plt.show()
-            n_cols = min(len(image_modality_ids), 4)
-            n_rows = int(np.ceil(len(image_modality_ids) / n_cols))
-            fig, axs = plt.subplots(n_rows, n_cols, figsize=(n_cols * 3, n_rows * 3))
-            for i, image_modality_id in enumerate(image_modality_ids):
-                mean, std, (counts, bins) = self.mean_and_std(image_modality_id, return_histogram=True, **kwargs)
-                print(f"Mean and standard deviation of '{image_modality_id}': ({mean}, {std})")
-                if n_rows == 1:
-                    axs[i].bar((bins[:-1] + bins[1:]) / 2, counts)
-                    axs[i].set_title(f"{image_modality_id} (n={np.sum(counts)})")
-
-                else:
-                    axs[i // 4, i % 4].bar((bins[:-1] + bins[1:]) / 2, counts)
-                    axs[i // 4, i % 4].set_title(f"{image_modality_id} (n={np.sum(counts)})")
-
+            plt.suptitle(" + ".join(dataset_ids))
             plt.show()
 
-        if metadata_modality_ids is not None:
-            assert all([metadata_modality_id in modality_ids for metadata_modality_id in metadata_modality_ids]), "Some of the requested modality_ids are not present in this Mirc object."
-            n_cols = min(len(metadata_modality_ids), 4)
-            n_rows = int(np.ceil(len(metadata_modality_ids) / n_cols))
-            fig, axs = plt.subplots(n_rows, n_cols, figsize=(n_cols * 3, n_rows * 3))
-            for i, metadata_modality_id in enumerate(metadata_modality_ids):
-                mean, std, (counts, bins) = self.mean_and_std(metadata_modality_id, return_histogram=True)
-                print(f"Mean and standard deviation of '{metadata_modality_id}': ({mean}, {std})")
-                if n_rows == 1:
-                    axs[i].bar((bins[:-1] + bins[1:]) / 2, counts)
-                    axs[i].set_title(f"{metadata_modality_id} (n={np.sum(counts)})")
+        n_cols = min(len(modality_ids), 4)
+        n_rows = int(np.ceil(len(modality_ids) / n_cols))
+        fig, axs = plt.subplots(n_rows, n_cols, figsize=(n_cols * 3, n_rows * 3))
+        for i, modality_id in enumerate(modality_ids):
+            mean, std, (counts, bins) = self.mean_and_std(modality_id, return_histogram=True, n=ns[i], clipping=clippings[i], fillna=fillnas[i], exclude_clipping=exclude_clippings[i])
+            print(f"Mean and standard deviation of '{modality_id}': ({mean}, {std})")
+            if n_rows == 1:
+                axs[i].bar(bins[:-1], counts, width=np.array(bins[1:] - bins[:-1]), align="edge")
+                axs[i].set_title(f"{modality_id} (n={np.sum(counts)})")
 
-                else:
-                    axs[i // 4, i % 4].bar((bins[:-1] + bins[1:]) / 2, counts)
-                    axs[i // 4, i % 4].set_title(f"{metadata_modality_id} (n={np.sum(counts)})")
+            else:
+                axs[i // 4, i % 4].bar(bins[:-1], counts, width=np.array(bins[1:] - bins[:-1]), align="edge")
+                axs[i // 4, i % 4].set_title(f"{modality_id} (n={np.sum(counts)})")
 
-            plt.show()
+        plt.suptitle(" + ".join(dataset_ids))
+        plt.show()
 
 
 class Dataset(dict):
