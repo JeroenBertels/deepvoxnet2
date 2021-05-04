@@ -1035,21 +1035,22 @@ class Put(Transformer):
                         transformed_array = np.stack([transformations.put(np.zeros(reference.shape[1:4]), sample[i, ..., j], coordinates=coordinates) for j in range(sample.shape[4])], axis=-1)[None, ...]
 
                     else:
-                        self.outputs[idx][idx_][0, ...] = transformations.put(self.outputs[idx][idx_][0, ...], sample[i, ...], coordinates=coordinates)
+                        transformed_array = transformations.put(self.outputs[idx][idx_][0, ...], sample[i, ...], coordinates=coordinates)[None, ...]
 
                 else:
+                    transformed_array = np.stack([transformations.affine_deformation(sample[i, ..., j], backward_affine, output_shape=reference.shape[1:4], cval=self.cval, order=self.order) for j in range(sample.shape[4])], axis=-1)[None, ...]
                     if self.keep_counts:
                         transformed_array_counts = transformations.affine_deformation(np.ones_like(sample[i, ..., 0]), backward_affine, output_shape=reference.shape[1:4], cval=0, order=self.order)[None, ..., None]
-                        transformed_array = np.stack([transformations.affine_deformation(sample[i, ..., j], backward_affine, output_shape=reference.shape[1:4], cval=self.cval, order=self.order) for j in range(sample.shape[4])], axis=-1)[None, ...]
-                        if np.isnan(transformed_array).any():
-                            transformed_array = transformed_array[tuple(distance_transform_edt(np.isnan(transformed_array), return_distances=False, return_indices=True))]
 
-                    else:
-                        raise NotImplementedError
+                if np.isnan(transformed_array).any():
+                    transformed_array = transformed_array[tuple(distance_transform_edt(np.isnan(transformed_array), return_distances=False, return_indices=True))]
 
                 if self.keep_counts:
                     self.outputs[idx][idx_][...] = self.output_array_counts[idx][idx_] / (self.output_array_counts[idx][idx_] + transformed_array_counts) * self.outputs[idx][idx_] + transformed_array_counts / (self.output_array_counts[idx][idx_] + transformed_array_counts) * transformed_array
                     self.output_array_counts[idx][idx_] += transformed_array_counts
+
+                else:
+                    self.outputs[idx][idx_][...] = transformed_array
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."

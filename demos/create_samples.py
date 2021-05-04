@@ -109,7 +109,7 @@ def create_samples():
     # Try to understand completely what the Buffer does! Experiment a bit with different buffer_sizes (also try None) and drop_remainder=True/False. It basically batches the samples that arrive here.
     # Just like with any other transformer you can hang multiple paths to the Buffer if they have to be buffered in the same way
     x_path, y_path = Buffer(buffer_size=3, drop_remainder=False)(x_path, y_path)
-    x_output = Put(y_input)(x_path)
+    x_output = Put(y_input, keep_counts=True)(x_path)
     y_output = y_input
     creator = Creator([x_output, y_output])
     creator.summary()
