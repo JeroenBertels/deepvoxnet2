@@ -38,6 +38,7 @@ class Mirc(dict):
 
     def mean_and_std(self, modality_id, n=None, clipping=(-np.inf, np.inf), return_histogram=False, fillna=None, exclude_clipping=True):
         assert modality_id in self.get_modality_ids(), "The requested modality_id is not present in this Mirc object."
+        checkna = False
         count, values = 0, []
         for dataset_id in self:
             for case_id in self[dataset_id]:
@@ -46,6 +47,9 @@ class Mirc(dict):
                         modality = np.clip(self[dataset_id][case_id][record_id][modality_id].load(), *clipping)
                         modality = modality[modality != clipping[0]]
                         modality = modality[modality != clipping[1]]
+                        if np.isnan(modality).any():
+                            checkna = True
+
                         if fillna is not None:
                             modality[np.isnan(modality)] = fillna
 
@@ -57,6 +61,9 @@ class Mirc(dict):
 
                         values += list(modality)
                         count += 1
+
+        if checkna:
+            print(f"WARNING: NaNs encountered in {modality_id}!")
 
         if return_histogram:
             return np.mean(values, dtype=np.float64), np.std(values, dtype=np.float64), np.histogram(values)
