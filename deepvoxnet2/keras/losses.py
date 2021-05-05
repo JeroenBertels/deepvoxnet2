@@ -1,22 +1,22 @@
 from functools import partial
-from tensorflow.keras.losses import BinaryCrossentropy, CategoricalCrossentropy
 from deepvoxnet2.keras.metrics import categorical_dice_score, binary_dice_score
+from tensorflow.python.keras import backend as K
 
 
-def binary_crossentropy(y_true, y_pred, sample_weight=None, **kwargs):
-    return BinaryCrossentropy(**kwargs)(y_true, y_pred, sample_weight=sample_weight)
+def binary_crossentropy(y_true, y_pred, from_logits=False, **kwargs):
+    return K.mean(K.binary_crossentropy(y_true, y_pred, from_logits=from_logits), axis=-1, keepdims=True)
 
 
-def binary_dice_loss(y_true, y_pred, sample_weight=None, threshold=None, **kwargs):
-    return 1 - binary_dice_score(y_true, y_pred, sample_weight=sample_weight, threshold=threshold, **kwargs)
+def binary_dice_loss(y_true, y_pred, threshold=None, **kwargs):
+    return 1 - binary_dice_score(y_true, y_pred, threshold=threshold, **kwargs)
 
 
-def categorical_crossentropy(y_true, y_pred, sample_weight=None, **kwargs):
-    return CategoricalCrossentropy(**kwargs)(y_true, y_pred, sample_weight=sample_weight)
+def categorical_crossentropy(y_true, y_pred, from_logits=False, **kwargs):
+    return K.expand_dims(K.categorical_crossentropy(y_true, y_pred, from_logits=from_logits))
 
 
-def categorical_dice_loss(y_true, y_pred, sample_weight=None, threshold=None, **kwargs):
-    return 1 - categorical_dice_score(y_true, y_true * y_pred, sample_weight=sample_weight, threshold=threshold, **kwargs)
+def categorical_dice_loss(y_true, y_pred, threshold=None, **kwargs):
+    return 1 - categorical_dice_score(y_true, y_true * y_pred, threshold=threshold, **kwargs)
 
 
 def get_loss(loss_name, **kwargs):
