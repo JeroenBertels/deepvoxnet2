@@ -130,7 +130,7 @@ class DvnModel(object):
             self.optimizer[key] = optimizer
             self.outputs[key][0].transformer.keras_model.compile(optimizer=self.optimizer[key], loss=self.losses[key], metrics=self.metrics[key], loss_weights=self.losses_weights[key], weighted_metrics=self.weighted_metrics[key])
 
-    def fit(self, key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, verbose=1, logs_dir=None):
+    def fit(self, key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, verbose=1, logs_dir=None, initial_epoch=0):
         assert key in self.outputs, "There are no outputs available for this key."
         assert len(self.outputs[key]) >= 2, "Outputs must be in the format [x/y_, y, sample_weight] and to use fit at least [x/y_, y] must be available."
         assert isinstance(self.outputs[key][0].transformer, KerasModel), "To use fit, x/y_ must be the output of a KerasModel transformer."
@@ -145,15 +145,13 @@ class DvnModel(object):
             validation_fit_dataset = TfDataset(Creator([*self.outputs[validation_key][0].transformer.connections[self.outputs[validation_key][0].idx], *self.outputs[validation_key][1:]]), sampler=validation_sampler, batch_size=batch_size, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size)
 
         if callbacks is None:
-            callbacks = [MetricNameChanger(training_key=key, validation_key=validation_key)]
+            callbacks = []
 
-        else:
-            callbacks.insert(0, MetricNameChanger(training_key=key, validation_key=validation_key))
-
+        callbacks.insert(0, MetricNameChanger(training_key=key, validation_key=validation_key))
         if logs_dir is not None:
             callbacks.append(LogsLogger(logs_dir))
 
-        return self.outputs[key][0].transformer.keras_model.fit(x=fit_dataset, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_dataset, validation_freq=validation_freq, verbose=verbose)
+        return self.outputs[key][0].transformer.keras_model.fit(x=fit_dataset, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_dataset, validation_freq=validation_freq, verbose=verbose, initial_epoch=initial_epoch)
 
     def evaluate(self, key, sampler, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False):
         assert mode in ["all", "last"], "Will we only keep the last generated output (i.e. last) or everything (i.e. all)?"
@@ -170,7 +168,7 @@ class DvnModel(object):
             total_loss_value = 0
             for i, loss in enumerate(self.losses[key]):
                 loss_name = f"{key}__{loss.__name__}"
-                evaluation[loss_name] = loss(samples[1][i], samples[0][i]).numpy().mean().item() if len(samples) == 2 else loss(samples[1][i], samples[0][i], sample_weight=samples[2][i]).numpy().mean().item()
+                evaluation[loss_name] = loss(samples[1][i], samples[0][i]).numpy().mean().item() if len(samples) == 2 else (loss(samples[1][i], samples[0][i]).numpy() * samples[2][i]).mean().item()
                 total_loss_value += evaluation[loss_name] * self.losses_weights[key][i]
 
             evaluation[f"{key}__loss__combined"] = total_loss_value
@@ -183,7 +181,7 @@ class DvnModel(object):
                 for i, weighted_metric in enumerate(self.weighted_metrics[key]):
                     for weighted_metric_ in weighted_metric:
                         weighted_metric_name = f"{key}__weighted_{weighted_metric_.__name__}"
-                        evaluation[weighted_metric_name] = weighted_metric_(samples[1][i], samples[0][i], sample_weight=samples[2][i]).numpy().mean().item()
+                        evaluation[weighted_metric_name] = (weighted_metric_(samples[1][i], samples[0][i]).numpy() * samples[2][i]).mean().item()
 
             evaluations.append(evaluation)
             print("Evaluated {} with {} in {:.0f} s: \n{}".format(identifier(), key, time.time() - start_time, json.dumps(evaluation, indent=2)))
@@ -266,9 +264,9 @@ class DvnModel(object):
         return dvn_model
 
     @staticmethod
-    def get_combined_loss(y_true, y_pred, sample_weight=None, losses=None, loss_weights=None):
+    def get_combined_loss(y_true, y_pred, losses=None, loss_weights=None):
         loss_value = 0
         for loss, loss_weight in zip(losses, loss_weights):
-            loss_value += loss(y_true, y_pred, sample_weight=sample_weight) * loss_weight
+            loss_value += loss(y_true, y_pred) * loss_weight
 
         return loss_value
