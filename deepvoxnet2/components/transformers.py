@@ -337,7 +337,7 @@ class Concat(Transformer):
 class Mean(Transformer):
     def __init__(self, axis=-1, **kwargs):
         super(Mean, self).__init__(**kwargs)
-        assert axis in [0, 4, -1]
+        assert axis in [4, -1]
         self.axis = axis if axis != -1 else 4
 
     def _update_idx(self, idx):
@@ -834,7 +834,7 @@ class Resize(Transformer):
 
 
 class AffineDeformation(Transformer):
-    def __init__(self, reference_connection, voxel_size=(1, 1, 1), shear_window_width=(0, 0, 0), rotation_window_width=(0, 0, 0), translation_window_width=(0, 0, 0), scaling_window_width=(0, 0, 0), cval=0, order=1, **kwargs):
+    def __init__(self, reference_connection, voxel_size=(1, 1, 1), shear_window_width=(0, 0, 0), rotation_window_width=(0, 0, 0), translation_window_width=(0, 0, 0), scaling_window_width=(0, 0, 0), cval=0, order=1, width_as_std=False, **kwargs):
         super(AffineDeformation, self).__init__(extra_connections=reference_connection, **kwargs)
         self.reference_connection = reference_connection
         self.voxel_size = voxel_size
@@ -844,6 +844,8 @@ class AffineDeformation(Transformer):
         self.scaling_window_width = scaling_window_width
         self.cval = cval
         self.order = order
+        self.width_as_std = width_as_std if isinstance(width_as_std, (tuple, list)) else (width_as_std,) * 4
+        assert len(self.width_as_std) == 4, "When specifying width_as_std as a tuple/list it must be of length 4 (shear, rotation, translation, scaling)"
         self.backward_affine = None
 
     def _update_idx(self, idx):
@@ -865,10 +867,10 @@ class AffineDeformation(Transformer):
         self.backward_affine = transformations.get_affine_matrix(
             I_shape=self.reference_connection[0].shape[1:4],
             voxel_size=self.voxel_size,
-            shear=[random.uniform(-w, w) for w in self.shear_window_width],
-            rotation=[random.uniform(-w, w) for w in self.rotation_window_width],
-            translation=[random.uniform(-w, w) for w in self.translation_window_width],
-            scaling=[1 + random.uniform(-w, w) for w in self.scaling_window_width],
+            shear=[np.random.normal(0, w) if self.width_as_std[0] else random.uniform(-w, w) for w in self.shear_window_width],
+            rotation=[np.random.normal(0, w) if self.width_as_std[1] else random.uniform(-w, w) for w in self.rotation_window_width],
+            translation=[np.random.normal(0, w) if self.width_as_std[2] else random.uniform(-w, w) for w in self.translation_window_width],
+            scaling=[1 + (np.random.normal(0, w) if self.width_as_std[3] else random.uniform(-w, w)) for w in self.scaling_window_width],
         )
 
 
@@ -945,12 +947,12 @@ class RandomCrop(Crop):
     def _randomize(self):
         if self.n_ == 0:
             assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
+            self.coordinates = []
             if self.nonzero:
-                coordinates = list(zip(*np.nonzero(np.any(self.reference_connection[0] != 0, axis=(0, -1)))))
-                self.coordinates = [tuple(random.choice(coordinates)) for _ in range(self.n)]
+                self.coordinates += list(zip(*np.nonzero(np.any(self.reference_connection[0] != 0, axis=(0, -1)))))
 
-            else:
-                self.coordinates = [tuple([random.choice(range(self.reference_connection[0].shape[i])) for i in range(1, 4)]) for _ in range(self.n)]
+            if len(self.coordinates) == 0:
+                self.coordinates += [tuple([random.choice(range(self.reference_connection[0].shape[i])) for i in range(1, 4)]) for _ in range(self.n)]
 
 
 class GridCrop(Crop):
@@ -1027,12 +1029,13 @@ class Put(Transformer):
         for idx_, (reference, sample) in enumerate(zip(self.reference_connection.get(), self.connections[idx][0].get())):
             for i in range(sample.shape[0]):
                 backward_affine = np.linalg.inv(sample.affine[i]) @ reference.affine[0]
-                T, R, Z, S = [np.round(transformation, 1) for transformation in transforms3d.affines.decompose44(backward_affine)]
+                T, R, Z, S = [np.round(transformation, 2) for transformation in transforms3d.affines.decompose44(backward_affine)]
                 if np.allclose(R, np.eye(3)) and np.allclose(Z, [1, 1, 1]) and np.allclose(S, [0, 0, 0]):
                     coordinates = [int(round(s // 2 - t)) for s, t in zip(sample.shape[1:4], T)]
                     if self.keep_counts:
-                        transformed_array_counts = transformations.put(np.zeros(reference.shape[1:4]), np.ones_like(sample[i, ..., 0]), coordinates=coordinates)[None, ..., None]
-                        transformed_array = np.stack([transformations.put(np.zeros(reference.shape[1:4]), sample[i, ..., j], coordinates=coordinates) for j in range(sample.shape[4])], axis=-1)[None, ...]
+                        transformed_array = transformations.put(np.zeros(self.outputs[idx][idx_].shape[1:]), sample[i, ...], coordinates=coordinates)[None, ...]
+                        transformed_array_counts = transformations.put(np.zeros(self.output_array_counts[idx][idx_].shape[1:4]), np.ones_like(sample[i, ..., 0]), coordinates=coordinates)[None, ..., None]
+                        # transformed_array = np.stack([transformations.put(np.zeros(reference.shape[1:4]), sample[i, ..., j], coordinates=coordinates) for j in range(sample.shape[4])], axis=-1)[None, ...]
 
                     else:
                         transformed_array = transformations.put(self.outputs[idx][idx_][0, ...], sample[i, ...], coordinates=coordinates)[None, ...]
@@ -1042,15 +1045,14 @@ class Put(Transformer):
                     if self.keep_counts:
                         transformed_array_counts = transformations.affine_deformation(np.ones_like(sample[i, ..., 0]), backward_affine, output_shape=reference.shape[1:4], cval=0, order=self.order)[None, ..., None]
 
-                if np.isnan(transformed_array).any():
-                    transformed_array = transformed_array[tuple(distance_transform_edt(np.isnan(transformed_array), return_distances=False, return_indices=True))]
-
                 if self.keep_counts:
-                    self.outputs[idx][idx_][...] = self.output_array_counts[idx][idx_] / (self.output_array_counts[idx][idx_] + transformed_array_counts) * self.outputs[idx][idx_] + transformed_array_counts / (self.output_array_counts[idx][idx_] + transformed_array_counts) * transformed_array
+                    transformed_array = self.output_array_counts[idx][idx_] / (self.output_array_counts[idx][idx_] + transformed_array_counts) * self.outputs[idx][idx_] + transformed_array_counts / (self.output_array_counts[idx][idx_] + transformed_array_counts) * transformed_array
                     self.output_array_counts[idx][idx_] += transformed_array_counts
 
-                else:
-                    self.outputs[idx][idx_][...] = transformed_array
+                self.outputs[idx][idx_][transformed_array != self.cval] = transformed_array[transformed_array != self.cval]
+
+            if np.isnan(self.outputs[idx][idx_]).any():
+                self.outputs[idx][idx_][...] = self.outputs[idx][idx_][tuple(distance_transform_edt(np.isnan(self.outputs[idx][idx_]), return_distances=False, return_indices=True))]
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -1061,11 +1063,11 @@ class Put(Transformer):
             self.output_array_counts = [[None] * len(self.reference_connection) for _ in self.connections]
 
         for idx, connection in enumerate(self.connections):
-            assert len(connection[0]) == len(self.reference_connection)
+            assert len(connection[0]) == len(self.reference_connection), "The length of the connection to be put must be equal to the length of the reference connection."
             for idx_, sample in enumerate(connection[0]):
                 if not self.caching or self.prev_references[idx_] is not self.reference_connection[idx_]:
-                    assert self.reference_connection[idx_].shape[0] == 1
+                    assert self.reference_connection[idx_].shape[0] == 1, "The batch dimension of a reference sample must be 1."
                     self.prev_references[idx_] = self.reference_connection[idx_]
-                    self.outputs[idx][idx_] = Sample(np.zeros(self.reference_connection[idx_].shape[:4] + sample.shape[4:]), self.reference_connection[idx_].affine)
+                    self.outputs[idx][idx_] = Sample(np.full(self.reference_connection[idx_].shape[:4] + sample.shape[4:], self.cval), self.reference_connection[idx_].affine)
                     if self.keep_counts:
-                        self.output_array_counts[idx][idx_] = np.full_like(self.outputs[idx][idx_], 1e-7)
+                        self.output_array_counts[idx][idx_] = np.full(self.reference_connection[idx_].shape[:4] + (1,), 1e-7)
