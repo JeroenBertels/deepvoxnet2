@@ -20,12 +20,6 @@ def binary_dice_score(y_true, y_pred, sample_weight=None, threshold=0.5, **kwarg
     return generalized_dice_coeff(y_true, y_pred, threshold=threshold, **kwargs)
 
 
-def get_binary_dice_score(threshold=0.5, **kwargs):
-    metric = partial(binary_dice_score, threshold=threshold, **kwargs)
-    metric.__name__ = "binary_dice_score"
-    return metric
-
-
 def binary_true_positives(y_true, y_pred, sample_weight=None, threshold=0.5, **kwargs):
     if sample_weight is not None:
         raise NotImplementedError
@@ -108,3 +102,45 @@ def categorical_dice_score(y_true, y_pred, sample_weight=None, exclude_backgroun
         y_pred = y_pred[..., 1:]
 
     return generalized_dice_coeff(y_true, y_pred, threshold=threshold,  **kwargs)
+
+
+def get_metric(metric_name, **kwargs):
+    if metric_name == "binary_accuracy":
+        metric = binary_accuracy
+
+    elif metric_name == "binary_dice_score":
+        metric = binary_dice_score
+
+    elif metric_name == "binary_true_positives":
+        metric = binary_true_positives
+
+    elif metric_name == "binary_true_negatives":
+        metric = binary_true_negatives
+
+    elif metric_name == "binary_false_positives":
+        metric = binary_false_positives
+
+    elif metric_name == "binary_false_negatives":
+        metric = binary_false_negatives
+
+    elif metric_name == "binary_true_volume":
+        metric = binary_true_volume
+
+    elif metric_name == "binary_pred_volume":
+        metric = binary_pred_volume
+
+    elif metric_name == "binary_volume_difference":
+        metric = binary_volume_difference
+
+    elif metric_name == "binary_abs_volume_difference":
+        metric = binary_abs_volume_difference
+
+    elif metric_name == "categorical_dice_score":
+        metric = categorical_dice_score
+
+    else:
+        raise ValueError("The requested metric is unknown.")
+
+    metric = partial(metric, **kwargs)
+    metric.__name__ = metric_name
+    return metric
