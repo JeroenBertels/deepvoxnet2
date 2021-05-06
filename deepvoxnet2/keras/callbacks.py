@@ -17,7 +17,6 @@ class DvnHistory(History):
                     self.history = pickle.load(f)
 
     def on_epoch_end(self, epoch, logs=None):
-        print(self.history["epoch"], epoch)
         logs = logs or {}
         self.history["epoch"] = self.history["epoch"][:epoch] + [epoch]
         for k, v in logs.items():
