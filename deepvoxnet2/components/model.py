@@ -12,7 +12,7 @@ from deepvoxnet2.components.sample import Sample
 from deepvoxnet2.components.creator import Creator
 from deepvoxnet2.components.sampler import Sampler, Identifier
 from deepvoxnet2.components.transformers import KerasModel
-from deepvoxnet2.keras.callbacks import MetricNameChanger, LogsLogger
+from deepvoxnet2.keras.callbacks import MetricNameChanger, LogsLogger, DvnHistory
 
 
 class TfDataset(tf.data.Dataset, ABC):
@@ -149,7 +149,7 @@ class DvnModel(object):
 
         callbacks.insert(0, MetricNameChanger(training_key=key, validation_key=validation_key))
         if logs_dir is not None:
-            callbacks.append(LogsLogger(logs_dir))
+            callbacks += [LogsLogger(logs_dir), DvnHistory(logs_dir)]
 
         return self.outputs[key][0].transformer.keras_model.fit(x=fit_dataset, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_dataset, validation_freq=validation_freq, verbose=verbose, initial_epoch=initial_epoch)
 

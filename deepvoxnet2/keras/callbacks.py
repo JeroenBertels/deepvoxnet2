@@ -5,6 +5,30 @@ import tensorflow as tf
 from tensorflow.keras.callbacks import Callback, LearningRateScheduler, History
 
 
+class DvnHistory(History):
+    def __init__(self, logs_dir=None):
+        super(DvnHistory, self).__init__()
+        self.history = {"epoch": []}
+        self.logs_path = None
+        if logs_dir is not None:
+            self.logs_path = os.path.join(logs_dir, "history.pkl")
+            if os.path.isfile(self.logs_path):
+                with open(self.logs_path, "rb") as f:
+                    self.history = pickle.load(f)
+
+    def on_epoch_end(self, epoch, logs=None):
+        print(self.history["epoch"], epoch)
+        logs = logs or {}
+        self.history["epoch"] = self.history["epoch"][:epoch] + [epoch]
+        for k, v in logs.items():
+            self.history[k] = self.history.get(k, [])[:epoch] + [v]
+
+        self.model.history = self
+        if self.logs_path is not None:
+            with open(self.logs_path, "wb") as f:
+                pickle.dump(self.history, f)
+
+
 class LogsLogger(Callback):
     def __init__(self, logs_dir):
         super(LogsLogger, self).__init__()
@@ -26,10 +50,10 @@ class MetricNameChanger(Callback):
     def on_epoch_end(self, epoch, logs=None):
         if logs is not None:
             for log in logs.copy():
-                if log != "lr" and self.training_key is not None and not log.startswith("val_"):
+                if log != "lr" and log != "epoch" and self.training_key is not None and not log.startswith("val_"):
                     logs[f"{self.training_key}__" + log] = logs.pop(log)
 
-                elif log != "lr" and self.validation_key is not None and log.startswith("val_"):
+                elif log != "lr" and log != "epoch" and self.validation_key is not None and log.startswith("val_"):
                     logs[f"{self.validation_key}__" + log[4:]] = logs.pop(log)
 
 
@@ -49,7 +73,7 @@ class DvnModelCheckpoint(Callback):
 
 
 class DvnModelEvaluator(Callback):
-    def __init__(self, dvn_model, key, sampler, freq=1, epoch_as_name_tag=False, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False, history_path=None):
+    def __init__(self, dvn_model, key, sampler, freq=1, epoch_as_name_tag=False, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False, logs_dir=None):
         super(DvnModelEvaluator, self).__init__()
         self.dvn_model = dvn_model
         self.key = key
@@ -63,10 +87,12 @@ class DvnModelEvaluator(Callback):
         self.save_y = save_y
         self.save_sample_weight = save_sample_weight
         self.history = {}
-        self.history_path = history_path
-        if self.history_path is not None and os.path.isfile(self.history_path):
-            with open(self.history_path, "rb") as f:
-                self.history = pickle.load(f)
+        self.logs_path = None
+        if logs_dir is not None:
+            self.logs_path = os.path.join(logs_dir, f"{self.key}__history.pkl" if self.name_tag is None else f"{self.key}__history__{self.name_tag}.pkl")
+            if os.path.isfile(self.logs_path):
+                with open(self.logs_path, "rb") as f:
+                    self.history = pickle.load(f)
 
     def on_epoch_end(self, epoch, logs=None):
         if (epoch + 1) % self.freq == 0:
@@ -82,6 +108,6 @@ class DvnModelEvaluator(Callback):
             assert metric_name not in logs
             logs[metric_name] = np.mean(self.history[metric_name][-1])
 
-        if self.history_path is not None:
-            with open(self.history_path, "rb") as f:
+        if self.logs_path is not None:
+            with open(self.logs_path, "wb") as f:
                 pickle.dump(self.history, f)
