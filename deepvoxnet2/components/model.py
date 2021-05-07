@@ -16,26 +16,34 @@ from deepvoxnet2.keras.callbacks import MetricNameChanger, LogsLogger, DvnHistor
 
 
 class TfDataset(tf.data.Dataset, ABC):
-    def __new__(cls, creator, sampler=None, batch_size=None, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False):
+    def __new__(cls, creator, sampler=None, batch_size=None, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, repeat=1):
         if sampler is None:
             sampler = Sampler([Identifier()])
 
-        def _generator(idx):
+        def _generator_fn(idx):
             outputs = [output for output in Creator(creator.outputs).eval(sampler[idx])]
-            outputs = [[Sample(np.concatenate([output[j][i] for output in outputs]), np.concatenate([output[j][i].affine for output in outputs])) for i in range(len(outputs[0][j]))] for j in range(len(outputs[0]))]
+            if len(outputs) > 0:
+                outputs = [[Sample(np.concatenate([output[j][i] for output in outputs]), np.concatenate([output[j][i].affine for output in outputs])) for i in range(len(outputs[0][j]))] for j in range(len(outputs[0]))]
+
+            else:
+                outputs = [[np.full((1, output_shape[1] or 1, output_shape[2] or 1, output_shape[3] or 1, output_shape[4] or 1), 1234567890, dtype=np.float32) for output_shape in output_shapes] for output_shapes in creator.output_shapes]
+
             gc.collect()
             return [output_ for output in outputs for output_ in output]
 
         def _map_fn(idx):
-            outputs = tf.py_function(_generator, [idx], [tf.dtypes.float32 for output in creator.outputs for _ in output])
+            outputs = tf.py_function(_generator_fn, [idx], [tf.dtypes.float32 for output in creator.outputs for _ in output])
             output_shapes = [(None, output_shape[1], output_shape[2], output_shape[3], output_shape[4]) for output_shapes in creator.output_shapes for output_shape in output_shapes]  # batch size depends on how many samples the creator generates
             for output, output_shape in zip(outputs, output_shapes):
                 output.set_shape(output_shape)
 
             return tuple([tuple([outputs.pop(0) for _ in range(len(creator.outputs[i]))]) for i in range(len(creator.outputs))])
 
-        dataset = tf.data.Dataset.from_tensor_slices(list(range(len(sampler))))
-        dataset = dataset.map(_map_fn, num_parallel_calls=num_parallel_calls, deterministic=sampler.shuffle)
+        def _filter_fn(*x):
+            return tf.math.reduce_any(tf.not_equal(x[0][0], 1234567890))
+
+        dataset = tf.data.Dataset.from_tensor_slices(list(range(len(sampler)))).repeat(repeat)
+        dataset = dataset.map(_map_fn, num_parallel_calls=num_parallel_calls, deterministic=sampler.shuffle).filter(_filter_fn)
         if batch_size is not None:
             dataset = dataset.unbatch()
 
@@ -130,19 +138,19 @@ class DvnModel(object):
             self.optimizer[key] = optimizer
             self.outputs[key][0].transformer.keras_model.compile(optimizer=self.optimizer[key], loss=self.losses[key], metrics=self.metrics[key], loss_weights=self.losses_weights[key], weighted_metrics=self.weighted_metrics[key])
 
-    def fit(self, key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, verbose=1, logs_dir=None, initial_epoch=0):
+    def fit(self, key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, verbose=1, logs_dir=None, initial_epoch=0, steps_per_epoch=None):
         assert key in self.outputs, "There are no outputs available for this key."
         assert len(self.outputs[key]) >= 2, "Outputs must be in the format [x/y_, y, sample_weight] and to use fit at least [x/y_, y] must be available."
         assert isinstance(self.outputs[key][0].transformer, KerasModel), "To use fit, x/y_ must be the output of a KerasModel transformer."
         assert self.optimizer[key] is not None and len(self.losses[key]) > 0, "To use fit, these outputs must have been compiled with an optimizer and losses first."
-        fit_dataset = TfDataset(Creator([*self.outputs[key][0].transformer.connections[self.outputs[key][0].idx], *self.outputs[key][1:]]), sampler=sampler, batch_size=batch_size, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size, shuffle_samples=shuffle_samples)
+        fit_dataset = TfDataset(Creator([*self.outputs[key][0].transformer.connections[self.outputs[key][0].idx], *self.outputs[key][1:]]), sampler=sampler, batch_size=batch_size, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size, shuffle_samples=shuffle_samples, repeat=1 if steps_per_epoch is None else None)
         validation_fit_dataset = None
         if validation_sampler is not None:
             assert validation_key in self.outputs, "There are no outputs available for this validation_key."
             assert len(self.outputs[validation_key]) >= 2, "Outputs must be in the format [x, y/y_, sample_weight] and to use fit at least [x, y/y_] must be available."
             assert isinstance(self.outputs[validation_key][0].transformer, KerasModel), "To use fit, x/y_ must be the output of a KerasModel transformer."
             assert self.outputs[key][0].transformer.keras_model is self.outputs[validation_key][0].transformer.keras_model, "The Keras model for training and validation must be the same."
-            validation_fit_dataset = TfDataset(Creator([*self.outputs[validation_key][0].transformer.connections[self.outputs[validation_key][0].idx], *self.outputs[validation_key][1:]]), sampler=validation_sampler, batch_size=batch_size, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size)
+            validation_fit_dataset = TfDataset(Creator([*self.outputs[validation_key][0].transformer.connections[self.outputs[validation_key][0].idx], *self.outputs[validation_key][1:]]), sampler=validation_sampler, batch_size=batch_size, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size, shuffle_samples=shuffle_samples, repeat=1 if steps_per_epoch is None else None)
 
         if callbacks is None:
             callbacks = []
@@ -151,7 +159,7 @@ class DvnModel(object):
         if logs_dir is not None:
             callbacks += [LogsLogger(logs_dir), DvnHistory(logs_dir)]
 
-        return self.outputs[key][0].transformer.keras_model.fit(x=fit_dataset, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_dataset, validation_freq=validation_freq, verbose=verbose, initial_epoch=initial_epoch)
+        return self.outputs[key][0].transformer.keras_model.fit(x=fit_dataset, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_dataset, validation_freq=validation_freq, verbose=verbose, initial_epoch=initial_epoch, steps_per_epoch=steps_per_epoch)
 
     def evaluate(self, key, sampler, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False):
         assert mode in ["all", "last"], "Will we only keep the last generated output (i.e. last) or everything (i.e. all)?"
