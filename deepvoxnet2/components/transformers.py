@@ -420,7 +420,7 @@ class Multiply(Transformer):
         for output_shape_i, output_shape in enumerate(output_shapes):
             for connection in self.connections[idx][1:]:
                 for axis_i, (output_shape_, output_shape__) in enumerate(zip(output_shape, connection.shapes[output_shape_i])):
-                    assert output_shape_ is not None and output_shape__ is not None and output_shape_ == output_shape__, "The shapes of the shared axes should be identical and different from None."
+                    assert output_shape_ is not None or output_shape__ is not None or output_shape_ == output_shape__, "The shapes of the shared axes should be identical and different from None."
 
         return output_shapes
 
@@ -853,7 +853,12 @@ class AffineDeformation(Transformer):
             transformed_sample = np.zeros_like(sample)
             for batch_i in range(len(sample)):
                 for feature_i in range(sample.shape[-1]):
-                    transformed_sample[batch_i, ..., feature_i] = transformations.affine_deformation(sample[batch_i, ..., feature_i], self.backward_affine, cval=self.cval, order=self.order)
+                    transformed_sample[batch_i, ..., feature_i] = transformations.affine_deformation(
+                        sample[batch_i, ..., feature_i],
+                        self.backward_affine,
+                        cval=self.cval[idx] if isinstance(self.cval, (tuple, list)) else self.cval,
+                        order=self.order[idx] if isinstance(self.order, (tuple, list)) else self.order
+                    )
 
             transformed_affine = Sample.update_affine(sample.affine, transformation_matrix=self.backward_affine)
             self.outputs[idx][idx_] = Sample(transformed_sample, transformed_affine)
@@ -891,7 +896,12 @@ class ElasticDeformation(Transformer):
             transformed_sample = np.zeros_like(sample)
             for batch_i in range(len(sample)):
                 for feature_i in range(sample.shape[-1]):
-                    transformed_sample[batch_i, ..., feature_i] = transformations.elastic_deformation(sample[batch_i, ..., feature_i], self.deformation_field, cval=self.cval, order=self.order)
+                    transformed_sample[batch_i, ..., feature_i] = transformations.elastic_deformation(
+                        sample[batch_i, ..., feature_i],
+                        self.deformation_field,
+                        cval=self.cval[idx] if isinstance(self.cval, (tuple, list)) else self.cval,
+                        order=self.order[idx] if isinstance(self.order, (tuple, list)) else self.order
+                    )
 
             self.outputs[idx][idx_] = Sample(transformed_sample, sample.affine)
 
@@ -913,6 +923,7 @@ class ElasticDeformation(Transformer):
 class Crop(Transformer):
     def __init__(self, reference_connection, segment_size, subsample_factors=(1, 1, 1), default_value=0, prefilter=None, **kwargs):
         super(Crop, self).__init__(extra_connections=reference_connection, **kwargs)
+        self.ncrops = self.n
         self.segment_size = segment_size
         self.reference_connection = reference_connection
         self.subsample_factors = subsample_factors
@@ -925,7 +936,14 @@ class Crop(Transformer):
         subsample_factors = self.subsample_factors[idx] if isinstance(self.subsample_factors, list) else self.subsample_factors
         backward_affine = Sample.update_affine(translation=self.coordinates[self.n_]) @ Sample.update_affine(scaling=subsample_factors[:3]) @ Sample.update_affine(translation=[-(segment_size_ // 2) for segment_size_ in segment_size[:3]])
         for idx_, sample in enumerate(self.connections[idx][0]):
-            transformed_sample = transformations.crop(sample, (len(sample),) + segment_size, (None,) + self.coordinates[self.n_] + (None,) * (len(segment_size) - len(self.coordinates[self.n_])), (1,) + subsample_factors, self.default_value, self.prefilter)
+            transformed_sample = transformations.crop(
+                sample,
+                (len(sample),) + segment_size,
+                (None,) + self.coordinates[self.n_] + (None,) * (len(segment_size) - len(self.coordinates[self.n_])),
+                (1,) + subsample_factors,
+                self.default_value[idx] if isinstance(self.default_value, (tuple, list)) else self.default_value,
+                self.prefilter[idx] if isinstance(self.prefilter, (tuple, list)) else self.prefilter
+            )
             transformed_affine = Sample.update_affine(sample.affine, transformation_matrix=backward_affine)
             self.outputs[idx][idx_] = Sample(transformed_sample, transformed_affine)
 
@@ -947,18 +965,24 @@ class RandomCrop(Crop):
     def _randomize(self):
         if self.n_ == 0:
             assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
-            self.coordinates = []
             if self.nonzero:
-                self.coordinates += list(zip(*np.nonzero(np.any(self.reference_connection[0] != 0, axis=(0, -1)))))
+                self.coordinates = list(zip(*np.nonzero(np.any(self.reference_connection[0] != 0, axis=(0, -1)))))
+                if len(self.coordinates) > 0 and self.ncrops is not None:
+                    self.coordinates = [random.choice(self.coordinates) for _ in range(self.ncrops)]
 
-            if len(self.coordinates) == 0:
-                self.coordinates += [tuple([random.choice(range(self.reference_connection[0].shape[i])) for i in range(1, 4)]) for _ in range(self.n)]
+            else:
+                self.coordinates = [tuple([random.choice(range(self.reference_connection[0].shape[i])) for i in range(1, 4)]) for _ in range(np.prod(self.reference_connection[0].shape[1:4]) if self.ncrops is None else self.ncrops)]
+
+            if len(self.coordinates) > 0:
+                self.n = len(self.coordinates)
+
+            else:
+                raise StopIteration
 
 
 class GridCrop(Crop):
     def __init__(self, reference_connection, segment_size, n=None, grid_size=None, strides=None, nonzero=False, subsample_factors=(1, 1, 1), default_value=0, prefilter=None, **kwargs):
         super(GridCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, prefilter, n=n, **kwargs)
-        self.ncrops = n
         self.grid_size = segment_size if grid_size is None else grid_size
         self.strides = self.grid_size if strides is None else strides
         self.nonzero = nonzero
@@ -979,11 +1003,14 @@ class GridCrop(Crop):
                         else:
                             self.coordinates.append((x + self.grid_size[0] // 2, y + self.grid_size[1] // 2, z + self.grid_size[2] // 2))
 
-            if self.ncrops is None:
+            if len(self.coordinates) > 0:
+                if self.ncrops is not None:
+                    self.coordinates = [random.choice(self.coordinates) for _ in range(self.ncrops)]
+
                 self.n = len(self.coordinates)
 
             else:
-                self.coordinates = [random.choice(self.coordinates) for _ in range(self.n)]
+                raise StopIteration
 
 
 class KerasModel(Transformer):
