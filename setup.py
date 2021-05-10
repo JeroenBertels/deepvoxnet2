@@ -3,7 +3,7 @@ import setuptools
 
 setuptools.setup(
     name='deepvoxnet2',
-    version='2.5.3',
+    version='2.5.4',
     description='Deep learning processing framework for Keras.',
     url='https://github.com/JeroenBertels/deepvoxnet2',
     author='Jeroen Bertels, David Robben',
@@ -13,9 +13,9 @@ setuptools.setup(
     zip_safe=False,
     python_requires='>=3.6, <3.9',
     install_requires=[
-        'tensorflow>=2.4',
+        'tensorflow>=2.3',
         'tensorflow-addons>=0.11',
-        'tensorflow-probability>=0.12',
+        'tensorflow-probability>=0.11,<0.12',
         'numpy>=1.15,<1.19',
         'scipy>=1.5',
         'nibabel>=3.1',
