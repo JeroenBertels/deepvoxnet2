@@ -100,13 +100,13 @@ class DvnModelEvaluator(Callback):
                 metric_name_ = metric_name if self.name_tag is None else metric_name + f"__{self.name_tag}"
                 self.history[metric_name_] = self.history.get(metric_name_, [])[:(epoch + 1) // self.freq - 1] + [[evaluation[metric_name] for evaluation in evaluations]]
 
+            if self.logs_path is not None:
+                with open(self.logs_path, "wb") as f:
+                    pickle.dump(self.history, f)
+
         for metric_name in self.history:
             if logs is None:
                 logs = {}
 
             assert metric_name not in logs
             logs[metric_name] = np.mean(self.history[metric_name][-1])
-
-        if self.logs_path is not None:
-            with open(self.logs_path, "wb") as f:
-                pickle.dump(self.history, f)
