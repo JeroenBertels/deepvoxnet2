@@ -1,6 +1,34 @@
-from functools import partial
 import tensorflow as tf
+from functools import partial
 from pymirc.metrics.tf_metrics import generalized_dice_coeff
+
+
+def mean_squared_error(y_true, y_pred):
+    return tf.math.squared_difference(y_true, y_pred)
+
+
+def mean_absolute_error(y_true, y_pred):
+    return tf.math.abs(y_pred - y_true)
+
+
+def median_absolute_error(y_true, y_pred):
+    v = tf.reshape(tf.math.abs(y_pred - y_true), [-1])
+    l = v.get_shape()[0]
+    mid = l // 2 + 1
+    val = tf.nn.top_k(v, mid).values
+    if l % 2 == 1:
+        mae = val[-1]
+
+    else:
+        mae = 0.5 * (val[-1] + val[-2])
+
+    return tf.reshape(mae, [1] * 5)
+
+
+def coefficient_of_determination(y_true, y_pred):
+    ss_res = tf.reduce_sum(tf.math.square(y_true - y_pred), keepdims=True)
+    ss_tot = tf.reduce_sum(tf.math.square(y_true - tf.reduce_mean(y_true)), keepdims=True)
+    return (1 - ss_res / (ss_tot + tf.keras.backend.epsilon()))
 
 
 def binary_accuracy(y_true, y_pred, threshold=0.5, **kwargs):
