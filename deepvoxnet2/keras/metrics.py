@@ -4,19 +4,19 @@ from functools import partial
 from pymirc.metrics.tf_metrics import generalized_dice_coeff
 
 
-def mean_squared_error(y_true, y_pred):
+def mean_squared_error(y_true, y_pred, **kwargs):
     return tf.math.squared_difference(y_true, y_pred)
 
 
-def mean_absolute_error(y_true, y_pred):
+def mean_absolute_error(y_true, y_pred, **kwargs):
     return tf.math.abs(y_pred - y_true)
 
 
-def median_absolute_error(y_true, y_pred):
-    return tfp.stats.percentile(tf.math.abs(y_pred - y_true), 50, interpolation='midpoint', keepdims=True)
+def median_absolute_error(y_true, y_pred, percentile=50, interpolation='midpoint', **kwargs):
+    return tfp.stats.percentile(tf.math.abs(y_pred - y_true), percentile=percentile, interpolation=interpolation, keepdims=True)
 
 
-def coefficient_of_determination(y_true, y_pred):
+def coefficient_of_determination(y_true, y_pred, **kwargs):
     ss_res = tf.reduce_sum(tf.math.square(y_true - y_pred), keepdims=True)
     ss_tot = tf.reduce_sum(tf.math.square(y_true - tf.reduce_mean(y_true)), keepdims=True)
     return 1 - ss_res / (ss_tot + tf.keras.backend.epsilon())
@@ -100,8 +100,20 @@ def categorical_dice_score(y_true, y_pred, exclude_background=True, threshold='a
     return generalized_dice_coeff(y_true, y_pred, keepdims=True, threshold=threshold,  **kwargs)
 
 
-def get_metric(metric_name, **kwargs):
-    if metric_name == "binary_accuracy":
+def get_metric(metric_name, custom_metric_name=None, **kwargs):
+    if metric_name == "mean_squared_error":
+        metric = mean_squared_error
+
+    elif metric_name == "mean_absolute_error":
+        metric = mean_absolute_error
+
+    elif metric_name == "median_absolute_error":
+        metric = median_absolute_error
+
+    elif metric_name == "coefficient_of_determination":
+        metric = coefficient_of_determination
+
+    elif metric_name == "binary_accuracy":
         metric = binary_accuracy
 
     elif metric_name == "binary_dice_score":
@@ -138,5 +150,5 @@ def get_metric(metric_name, **kwargs):
         raise ValueError("The requested metric is unknown.")
 
     metric = partial(metric, **kwargs)
-    metric.__name__ = metric_name
+    metric.__name__ = metric_name if custom_metric_name is None else custom_metric_name
     return metric
