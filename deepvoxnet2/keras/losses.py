@@ -19,7 +19,7 @@ def categorical_dice_loss(y_true, y_pred, threshold=None, **kwargs):
     return 1 - categorical_dice_score(y_true, y_true * y_pred, threshold=threshold, **kwargs)
 
 
-def get_loss(loss_name, **kwargs):
+def get_loss(loss_name, custom_loss_name=None, **kwargs):
     if loss_name == "binary_crossentropy":
         loss = binary_crossentropy
 
@@ -36,5 +36,5 @@ def get_loss(loss_name, **kwargs):
         raise ValueError("The requested loss is unknown.")
 
     loss = partial(loss, **kwargs)
-    loss.__name__ = loss_name
+    loss.__name__ = loss_name if custom_loss_name is None else custom_loss_name
     return loss
