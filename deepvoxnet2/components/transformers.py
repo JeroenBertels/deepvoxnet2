@@ -2,7 +2,7 @@ import random
 import uuid
 import transforms3d
 import numpy as np
-from scipy.ndimage import distance_transform_edt, gaussian_filter, uniform_filter, zoom
+import scipy.ndimage
 from deepvoxnet2.components.sample import Sample
 from deepvoxnet2.utilities import transformations
 
@@ -368,9 +368,9 @@ class Resample(Transformer):
             assert np.all(input_zooms == input_zooms[:1, :])
             zoom_factors = [1 if output_zoom is None else input_zoom / output_zoom for input_zoom, output_zoom in zip(input_zooms[0], self.voxel_sizes)]
             if self.prefilter:
-                sample = gaussian_filter(sample, [0] + [np.sqrt(((1 / zoom_factor) ** 2 - 1) / 12) if zoom_factor < 1 else 0 for zoom_factor in zoom_factors] + [0], mode="nearest")
+                sample = scipy.ndimage.gaussian_filter(sample, [0] + [np.sqrt(((1 / zoom_factor) ** 2 - 1) / 12) if zoom_factor < 1 else 0 for zoom_factor in zoom_factors] + [0], mode="nearest")
 
-            sample = zoom(sample, [1] + zoom_factors + [1], order=self.order, mode="nearest")
+            sample = scipy.ndimage.zoom(sample, [1] + zoom_factors + [1], order=self.order, mode="nearest")
             affine[:, :3, :3] = affine[:, :3, :3] / zoom_factors
             self.outputs[idx][idx_] = Sample(sample, affine)
 
@@ -569,6 +569,43 @@ class Remove(Transformer):
         self.remove_sate = [random.random() < self.remove_probability for _ in range(shapes[0])]
 
 
+class RemoveBorder(Transformer):
+    def __init__(self, remove_widths, fill_value=0, limit_to_fraction_of_input_shape=0.5, **kwargs):
+        super(RemoveBorder, self).__init__(**kwargs)
+        if not isinstance(remove_widths, (tuple, list)):
+            remove_widths = [(remove_widths,) * 2] * 3
+
+        assert len(remove_widths) == 3, "A remove width must be specified for each spatial axis."
+        self.remove_widths = [remove_widths_ if isinstance(remove_widths_, (tuple, list)) else (remove_widths_,) * 2 for remove_widths_ in remove_widths]
+        self.fill_value = fill_value
+        self.limit_to_fraction_of_input_shape = limit_to_fraction_of_input_shape
+        self.remove_state = None
+
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            removed_array = sample.copy()
+            fill_value = self.fill_value[idx] if isinstance(self.fill_value, (tuple, list)) else self.fill_value
+            removed_array[:, :self.remove_state[0][0], ...] = fill_value
+            removed_array[:, -self.remove_state[0][1]:, ...] = fill_value
+            removed_array[:, :, :self.remove_state[1][0], ...] = fill_value
+            removed_array[:, :, -self.remove_state[1][1]:, ...] = fill_value
+            removed_array[..., :self.remove_state[2][0], :] = fill_value
+            removed_array[..., -self.remove_state[2][1]:, :] = fill_value
+            self.outputs[idx][idx_] = removed_array
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        return self.connections[idx][0].shapes
+
+    def _randomize(self):
+        shapes = [sample.shape for connection in self.connections for sample in connection[0]]
+        assert all([shapes[0][i] == shape[i] for shape in shapes for i in range(1, 4)])
+        self.remove_state = [(
+            random.randint(0, min(remove_widths_[0], int(self.limit_to_fraction_of_input_shape * shapes[0][i + 1]))),
+            random.randint(0, min(remove_widths_[1], int(self.limit_to_fraction_of_input_shape * shapes[0][i + 1])))
+        ) for i, remove_widths_ in enumerate(self.remove_widths)]
+
+
 class ClassWeights(Transformer):
     def __init__(self, class_weights_dict, one_hot=False, **kwargs):
         super(ClassWeights, self).__init__(**kwargs)
@@ -628,29 +665,20 @@ class Recalibrate(Transformer):
 
 
 class Shift(Transformer):
-    """
-    TODO: If axis in [1, 2, 3] modify affine
-    """
-    def __init__(self, max_shift_forward, max_shift_backward, axis=-1, **kwargs):
+    def __init__(self, max_shift_forward, max_shift_backward, axis=-1, order=0, mode="nearest", **kwargs):
         super(Shift, self).__init__(**kwargs)
         self.max_shift_forward = max_shift_forward
         self.max_shift_backward = max_shift_backward
+        assert axis in [-1, 4], "Currently Shift only supports shifting in the final/feature dimension."
         self.axis = axis if axis != -1 else 4
+        self.order = order
+        self.mode = mode
         self.shift_state = None
 
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
-            shifted_array = sample.copy()
-            shifted_array = np.moveaxis(shifted_array, self.axis, 0)
-            if self.shift_state < 0:
-                shifted_array[:self.shift_state, ...] = shifted_array[-self.shift_state:, ...]
-                shifted_array[self.shift_state:, ...] = shifted_array[-1:, ...]
-
-            elif self.shift_state > 0:
-                shifted_array[self.shift_state:, ...] = shifted_array[:-self.shift_state, ...]
-                shifted_array[:self.shift_state, ...] = shifted_array[:1, ...]
-
-            self.outputs[idx][idx_] = Sample(np.moveaxis(shifted_array, 0, self.axis), sample.affine)
+            shifted_array = scipy.ndimage.shift(sample, shift=[self.shift_state if i == self.axis else 0 for i in range(5)], order=self.order, mode=self.mode)
+            self.outputs[idx][idx_] = Sample(shifted_array, sample.affine)
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -659,7 +687,7 @@ class Shift(Transformer):
     def _randomize(self):
         shapes = [sample.shape[self.axis] for connection in self.connections for sample in connection[0] if sample is not None]
         assert all([shapes[0] == shape and shape > self.max_shift_forward and shape > self.max_shift_backward for shape in shapes])
-        self.shift_state = int(np.round(random.uniform(-self.max_shift_forward, self.max_shift_backward)))
+        self.shift_state = random.randint(-self.max_shift_forward, self.max_shift_backward)
 
 
 class Contrast(Transformer):
@@ -798,10 +826,10 @@ class Filter(Transformer):
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
             if self.method == "uniform":
-                filtered_array = uniform_filter(sample, self.filter_size, mode=self.mode, cval=self.cval)
+                filtered_array = scipy.ndimage.uniform_filter(sample, self.filter_size, mode=self.mode, cval=self.cval)
 
             else:
-                filtered_array = gaussian_filter(sample, [s_f if s_f > 1 else 0 for s_f in self.filter_size], mode=self.mode, cval=self.cval)
+                filtered_array = scipy.ndimage.gaussian_filter(sample, [s_f if s_f > 1 else 0 for s_f in self.filter_size], mode=self.mode, cval=self.cval)
 
             self.outputs[idx][idx_] = Sample(filtered_array, sample.affine)
 
@@ -823,7 +851,7 @@ class Resize(Transformer):
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
             zoom_factors = np.array([1, *[self.output_shape[i] / sample.shape[i + 1] for i in range(3)], 1])
-            self.outputs[idx][idx_] = Sample(zoom(sample, zoom_factors, order=self.order), sample.affine / zoom_factors[None, 1:])
+            self.outputs[idx][idx_] = Sample(scipy.ndimage.zoom(sample, zoom_factors, order=self.order), sample.affine / zoom_factors[None, 1:])
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -834,7 +862,7 @@ class Resize(Transformer):
 
 
 class AffineDeformation(Transformer):
-    def __init__(self, reference_connection, voxel_size=(1, 1, 1), shear_window_width=(0, 0, 0), rotation_window_width=(0, 0, 0), translation_window_width=(0, 0, 0), scaling_window_width=(0, 0, 0), cval=0, order=1, width_as_std=False, **kwargs):
+    def __init__(self, reference_connection, voxel_size=(1, 1, 1), shear_window_width=(0, 0, 0), rotation_window_width=(0, 0, 0), translation_window_width=(0, 0, 0), scaling_window_width=(0, 0, 0), cval=0, order=1, width_as_std=False, transform_probability=1, **kwargs):
         super(AffineDeformation, self).__init__(extra_connections=reference_connection, **kwargs)
         self.reference_connection = reference_connection
         self.voxel_size = voxel_size
@@ -846,22 +874,27 @@ class AffineDeformation(Transformer):
         self.order = order
         self.width_as_std = width_as_std if isinstance(width_as_std, (tuple, list)) else (width_as_std,) * 4
         assert len(self.width_as_std) == 4, "When specifying width_as_std as a tuple/list it must be of length 4 (shear, rotation, translation, scaling)"
+        self.transform_probability = transform_probability
         self.backward_affine = None
 
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
-            transformed_sample = np.zeros_like(sample)
-            for batch_i in range(len(sample)):
-                for feature_i in range(sample.shape[-1]):
-                    transformed_sample[batch_i, ..., feature_i] = transformations.affine_deformation(
-                        sample[batch_i, ..., feature_i],
-                        self.backward_affine,
-                        cval=self.cval[idx] if isinstance(self.cval, (tuple, list)) else self.cval,
-                        order=self.order[idx] if isinstance(self.order, (tuple, list)) else self.order
-                    )
+            if self.backward_affine is not None:
+                transformed_sample = np.zeros_like(sample)
+                for batch_i in range(len(sample)):
+                    for feature_i in range(sample.shape[-1]):
+                        transformed_sample[batch_i, ..., feature_i] = transformations.affine_deformation(
+                            sample[batch_i, ..., feature_i],
+                            self.backward_affine,
+                            cval=self.cval[idx] if isinstance(self.cval, (tuple, list)) else self.cval,
+                            order=self.order[idx] if isinstance(self.order, (tuple, list)) else self.order
+                        )
 
-            transformed_affine = Sample.update_affine(sample.affine, transformation_matrix=self.backward_affine)
-            self.outputs[idx][idx_] = Sample(transformed_sample, transformed_affine)
+                transformed_affine = Sample.update_affine(sample.affine, transformation_matrix=self.backward_affine)
+                self.outputs[idx][idx_] = Sample(transformed_sample, transformed_affine)
+
+            else:
+                self.outputs[idx][idx_] = sample.copy()
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -869,14 +902,18 @@ class AffineDeformation(Transformer):
 
     def _randomize(self):
         assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
-        self.backward_affine = transformations.get_affine_matrix(
-            I_shape=self.reference_connection[0].shape[1:4],
-            voxel_size=self.voxel_size,
-            shear=[np.random.normal(0, w) if self.width_as_std[0] else random.uniform(-w, w) for w in self.shear_window_width],
-            rotation=[np.random.normal(0, w) if self.width_as_std[1] else random.uniform(-w, w) for w in self.rotation_window_width],
-            translation=[np.random.normal(0, w) if self.width_as_std[2] else random.uniform(-w, w) for w in self.translation_window_width],
-            scaling=[1 + (np.random.normal(0, w) if self.width_as_std[3] else random.uniform(-w, w)) for w in self.scaling_window_width],
-        )
+        if random.random() < self.transform_probability:
+            self.backward_affine = transformations.get_affine_matrix(
+                I_shape=self.reference_connection[0].shape[1:4],
+                voxel_size=self.voxel_size,
+                shear=[np.random.normal(0, w) if self.width_as_std[0] else random.uniform(-w, w) for w in self.shear_window_width],
+                rotation=[np.random.normal(0, w) if self.width_as_std[1] else random.uniform(-w, w) for w in self.rotation_window_width],
+                translation=[np.random.normal(0, w) if self.width_as_std[2] else random.uniform(-w, w) for w in self.translation_window_width],
+                scaling=[1 + (np.random.normal(0, w) if self.width_as_std[3] else random.uniform(-w, w)) for w in self.scaling_window_width],
+            )
+
+        else:
+            self.backward_affine = None
 
 
 class ElasticDeformation(Transformer):
@@ -1079,7 +1116,7 @@ class Put(Transformer):
                 self.outputs[idx][idx_][transformed_array != self.cval] = transformed_array[transformed_array != self.cval]
 
             if np.isnan(self.outputs[idx][idx_]).any():
-                self.outputs[idx][idx_][...] = self.outputs[idx][idx_][tuple(distance_transform_edt(np.isnan(self.outputs[idx][idx_]), return_distances=False, return_indices=True))]
+                self.outputs[idx][idx_][...] = self.outputs[idx][idx_][tuple(scipy.ndimage.distance_transform_edt(np.isnan(self.outputs[idx][idx_]), return_distances=False, return_indices=True))]
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
