@@ -6,7 +6,24 @@ from PIL import Image
 from matplotlib import pyplot as plt
 
 
-class Mirc(dict):
+class SortedDict(dict):
+    def __init__(self):
+        super(SortedDict, self).__init__()
+
+    def __iter__(self):
+        return iter(sorted(super(SortedDict, self).__iter__()))
+
+    def items(self):
+        return iter((k, self[k]) for k in self)
+
+    def keys(self):
+        return list(self)
+
+    def values(self):
+        return [self[k] for k in self]
+
+
+class Mirc(SortedDict):
     def __init__(self):
         super(Mirc, self).__init__()
 
@@ -25,7 +42,7 @@ class Mirc(dict):
         self[dataset.dataset_id] = dataset
 
     def get_dataset_ids(self):
-        return sorted([dataset_id for dataset_id in self])
+        return [dataset_id for dataset_id in self]
 
     def get_case_ids(self):
         return sorted(set([case_id for dataset_id in self for case_id in self[dataset_id]]))
@@ -134,7 +151,7 @@ class Mirc(dict):
         plt.show()
 
 
-class Dataset(dict):
+class Dataset(SortedDict):
     def __init__(self, dataset_id=None, dataset_dir=None):
         super(Dataset, self).__init__()
         self.dataset_id = dataset_id
@@ -145,7 +162,7 @@ class Dataset(dict):
         self[case.case_id] = case
 
 
-class Case(dict):
+class Case(SortedDict):
     def __init__(self, case_id=None, case_dir=None):
         super(Case, self).__init__()
         self.case_id = case_id
@@ -156,7 +173,7 @@ class Case(dict):
         self[record.record_id] = record
 
 
-class Record(dict):
+class Record(SortedDict):
     def __init__(self, record_id=None, record_dir=None):
         super(Record, self).__init__()
         self.record_id = record_id

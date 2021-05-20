@@ -60,7 +60,7 @@ class Sampler(object):
 class MircSampler(Sampler):
     def __init__(self, mirc, mode="per_record", **kwargs):
         if mode == "per_record":
-            identifiers = [MircIdentifier(mirc, dataset_id, case_id, record_id) for dataset_id in sorted(mirc.keys()) for case_id in sorted(mirc[dataset_id].keys()) for record_id in sorted(mirc[dataset_id][case_id].keys())]
+            identifiers = [MircIdentifier(mirc, dataset_id, case_id, record_id) for dataset_id in mirc for case_id in mirc[dataset_id] for record_id in mirc[dataset_id][case_id]]
 
         else:
             raise NotImplementedError
