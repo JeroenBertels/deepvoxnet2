@@ -689,69 +689,17 @@ class RemoveBorder(Transformer):
 
 
 class ClassWeights(Transformer):
-    def __init__(self, class_weights_dict, one_hot=False, logs_dir=None, target_priors=None, use_voxel_count=False, **kwargs):
+    def __init__(self, class_weights_dict, one_hot=False, **kwargs):
         super(ClassWeights, self).__init__(**kwargs)
         self.class_weights_dict = class_weights_dict
         self.one_hot = one_hot
-        self.logs_dir = logs_dir
-        if target_priors is not None:
-            assert logs_dir is not None, "When target priors are specified one should use logs_dir (in combination with the LogClassCounts transformer."
-            if not (one_hot and use_voxel_count):
-                total = 0
-                for class_ in target_priors:
-                    assert class_ in self.class_weights_dict
-                    total += target_priors[class_]
-
-                assert total == 1, "The class priors should sum up to 1."
-
-            self.target_priors = target_priors
-
-        elif logs_dir is not None:
-            self.target_priors = {class_: 1 / len(self.class_weights_dict) for class_ in self.class_weights_dict}
-
-        else:
-            self.target_priors = target_priors
-
-        self.use_voxel_count = use_voxel_count
+        k = np.array(list(class_weights_dict.keys()))
+        v = np.array(list(class_weights_dict.values()))
+        self.mapping_array = np.zeros(np.max(k) + 1, dtype=np.float32)
+        self.mapping_array[k] = v
 
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
-            if self.logs_dir is not None and os.path.isfile(os.path.join(self.logs_dir, f'class_counts_i{idx}_s{idx_}.txt')):
-                while True:
-                    try:
-                        with open(os.path.join(self.logs_dir, f'class_counts_i{idx}_s{idx_}.txt'), "r") as f:
-                            class_counts_dict = json.load(f)
-
-                        total_count = class_counts_dict["voxel_count"] if self.use_voxel_count else np.sum([class_counts_dict[str(class_)] for class_ in self.class_weights_dict])
-                        class_priors_dict = {class_: class_counts_dict[str(class_)] / total_count for class_ in self.class_weights_dict}
-                        lsoe = np.zeros((len(class_priors_dict), len(class_priors_dict)))
-                        for i, class_i in enumerate(class_priors_dict):
-                            for j, class_j in enumerate(class_priors_dict):
-                                if i == j:
-                                    lsoe[i, j] = (1 - self.target_priors[class_i]) * class_priors_dict[class_j]
-
-                                else:
-                                    lsoe[i, j] = -self.target_priors[class_i] * class_priors_dict[class_j]
-
-                        a = lsoe
-                        b = np.zeros(len(lsoe))
-                        a[0, :] = [class_priors_dict[class_] for class_ in class_priors_dict]
-                        b[0] = 1
-                        solution = np.linalg.solve(a, b)
-                        # solution = [self.class_weights_dict[next(iter(self.class_weights_dict))]] + [s for s in np.linalg.solve(lsoe[1:, 1:], -lsoe[1:, 0] * self.class_weights_dict[next(iter(self.class_weights_dict))])]
-                        class_weights_dict = {class_: solution[i] for i, class_ in enumerate(class_priors_dict)}
-                        break
-
-                    except:
-                        pass
-
-            else:
-                class_weights_dict = self.class_weights_dict
-
-            k = np.array(list(class_weights_dict.keys()))
-            v = np.array(list(class_weights_dict.values()))
-            mapping_array = np.zeros(np.max(k) + 1, dtype=np.float32)
-            mapping_array[k] = v
             if self.one_hot:
                 assert sample.shape[-1] > 1
                 sample = Sample(np.argmax(sample, axis=-1)[..., None], sample.affine)
@@ -759,7 +707,7 @@ class ClassWeights(Transformer):
             else:
                 sample = np.round(sample).astype(int)
 
-            self.outputs[idx][idx_] = Sample(mapping_array[sample], sample.affine)
+            self.outputs[idx][idx_] = Sample(self.mapping_array[sample], sample.affine)
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -770,69 +718,22 @@ class ClassWeights(Transformer):
 
 
 class Recalibrate(Transformer):
-    def __init__(self, source_priors, target_priors, source_priors_logs_dir=None, target_priors_logs_dir=None, use_voxel_count=False, **kwargs):
+    def __init__(self, source_priors, target_priors, **kwargs):
         super(Recalibrate, self).__init__(**kwargs)
-        if not isinstance(source_priors, dict):
-            if not isinstance(source_priors, list):
-                source_priors = [1 - source_priors, source_priors]
-
-            source_priors = {i: sp for i, sp in enumerate(source_priors)}
-
-        self.source_priors = source_priors
-        if not isinstance(target_priors, dict):
-            if not isinstance(target_priors, list):
-                target_priors = [1 - target_priors, target_priors]
-
-            target_priors = {i: tp for i, tp in enumerate(target_priors)}
-
-        self.target_priors = target_priors
+        self.source_priors = source_priors if isinstance(source_priors, list) else [source_priors]
+        self.target_priors = target_priors if isinstance(target_priors, list) else [target_priors]
         assert len(self.source_priors) == len(self.target_priors)
-        self.source_priors_logs_dir = source_priors_logs_dir
-        self.target_priors_logs_dir = target_priors_logs_dir
-        self.use_voxel_count = use_voxel_count
 
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
-            if self.source_priors_logs_dir is not None and os.path.isfile(os.path.join(self.source_priors_logs_dir, f'class_counts_i{idx}_s{idx_}.txt')):
-                while True:
-                    try:
-                        with open(os.path.join(self.source_priors_logs_dir, f'class_counts_i{idx}_s{idx_}.txt'), "r") as f:
-                            source_class_counts_dict = json.load(f)
-
-                        total_count = source_class_counts_dict["voxel_count"] if self.use_voxel_count else np.sum([source_class_counts_dict[str(class_)] for class_ in self.source_priors])
-                        source_class_priors_dict = {class_: source_class_counts_dict[str(class_)] / total_count for class_ in self.source_priors}
-                        break
-
-                    except:
-                        pass
-
-            else:
-                source_class_priors_dict = self.source_priors
-
-            if self.target_priors_logs_dir is not None and os.path.isfile(os.path.join(self.target_priors_logs_dir, f'class_counts_i{idx}_s{idx_}.txt')):
-                while True:
-                    try:
-                        with open(os.path.join(self.target_priors_logs_dir, f'class_counts_i{idx}_s{idx_}.txt'), "r") as f:
-                            target_class_counts_dict = json.load(f)
-
-                        total_count = target_class_counts_dict["voxel_count"] if self.use_voxel_count else np.sum([target_class_counts_dict[str(class_)] for class_ in self.source_priors])
-                        target_class_priors_dict = {class_: target_class_counts_dict[str(class_)] / total_count for class_ in self.target_priors}
-                        break
-
-                    except:
-                        pass
-
-            else:
-                target_class_priors_dict = self.target_priors
-
+            assert sample.shape[-1] == len(self.source_priors)
             if sample.shape[-1] == 1:
-                assert len(source_class_priors_dict) == 2 and len(target_class_priors_dict) == 2
-                tp, sp = target_class_priors_dict[1], source_class_priors_dict[1]
+                tp, sp = self.target_priors[0], self.source_priors[0]
                 recalibrated_sample = tp / sp * sample / (tp / sp * sample + (1 - tp) / (1 - sp) * (1 - sample))
 
             else:
                 assert np.max(sample) <= 1
-                tp, sp = np.array([target_class_priors_dict[class_] for class_ in self.target_priors]), np.array([source_class_priors_dict[class_] for class_ in self.source_priors])
+                tp, sp = np.array(self.target_priors), np.array(self.source_priors)
                 recalibrated_sample = tp / sp * sample / np.sum(tp / sp * sample, axis=-1, keepdims=True)
 
             self.outputs[idx][idx_] = Sample(recalibrated_sample, sample.affine)
