@@ -21,7 +21,11 @@ class TfDataset(tf.data.Dataset, ABC):
             sampler = Sampler([Identifier()])
 
         def _generator_fn(idx):
-            outputs = [output for output in Creator(creator.outputs).eval(sampler[idx])]
+            identifier = sampler[idx]
+            if idx == len(sampler) - 1:
+                sampler.randomize()
+
+            outputs = [output for output in Creator(creator.outputs).eval(identifier)]
             if len(outputs) > 0:
                 outputs = [[Sample(np.concatenate([output[j][i] for output in outputs]), np.concatenate([output[j][i].affine for output in outputs])) for i in range(len(outputs[0][j]))] for j in range(len(outputs[0]))]
 
@@ -43,7 +47,7 @@ class TfDataset(tf.data.Dataset, ABC):
             return tf.math.reduce_any(tf.not_equal(x[0][0], 1234567890))
 
         dataset = tf.data.Dataset.from_tensor_slices(list(range(len(sampler)))).repeat(repeat)
-        dataset = dataset.map(_map_fn, num_parallel_calls=num_parallel_calls, deterministic=sampler.shuffle).filter(_filter_fn)
+        dataset = dataset.map(_map_fn, num_parallel_calls=num_parallel_calls, deterministic=True).filter(_filter_fn)
         if batch_size is not None:
             dataset = dataset.unbatch()
 
