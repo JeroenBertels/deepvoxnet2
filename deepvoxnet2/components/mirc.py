@@ -136,6 +136,7 @@ class Mirc(SortedDict):
         n_cols = min(len(modality_ids), 4)
         n_rows = int(np.ceil(len(modality_ids) / n_cols))
         fig, axs = plt.subplots(n_rows, n_cols, figsize=(n_cols * 3, n_rows * 3))
+        axs = [axs] if n_rows * n_cols == 1 else axs
         for i, modality_id in enumerate(modality_ids):
             mean, std, (counts, bins) = self.mean_and_std(modality_id, return_histogram=True, n=ns[i], clipping=clippings[i], fillna=fillnas[i], exclude_clipping=exclude_clippings[i])
             print(f"Mean and standard deviation of '{modality_id}': ({mean}, {std})")
