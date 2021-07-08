@@ -1,3 +1,5 @@
+import os
+import json
 import random
 import uuid
 import transforms3d
@@ -357,7 +359,7 @@ class Resample(Transformer):
         super(Resample, self).__init__(**kwargs)
         assert len(voxel_sizes) == 3, "The Resample Transformer is a spatial resampler."
         self.voxel_sizes = voxel_sizes
-        assert order in [0, 1, 2, 3], "Scipy's zoom is used internally. Please refer to that documentation."
+        assert all([order_ in [0, 1, 2, 3] for order_ in (order if isinstance(order, (tuple, list)) else [order])]), "Scipy's zoom is used internally. Please refer to that documentation."
         self.order = order
         self.prefilter = prefilter
 
@@ -367,10 +369,15 @@ class Resample(Transformer):
             input_zooms = np.linalg.norm(affine[:, :3, :3], 2, axis=1)
             assert np.all(input_zooms == input_zooms[:1, :])
             zoom_factors = [1 if output_zoom is None else input_zoom / output_zoom for input_zoom, output_zoom in zip(input_zooms[0], self.voxel_sizes)]
-            if self.prefilter:
+            if self.prefilter[idx] if isinstance(self.prefilter, (tuple, list)) else self.prefilter:
                 sample = scipy.ndimage.gaussian_filter(sample, [0] + [np.sqrt(((1 / zoom_factor) ** 2 - 1) / 12) if zoom_factor < 1 else 0 for zoom_factor in zoom_factors] + [0], mode="nearest")
 
-            sample = scipy.ndimage.zoom(sample, [1] + zoom_factors + [1], order=self.order, mode="nearest")
+            sample = scipy.ndimage.zoom(
+                sample,
+                [1] + zoom_factors + [1],
+                order=self.order[idx] if isinstance(self.order, (tuple, list)) else self.order,
+                mode="nearest"
+            )
             affine[:, :3, :3] = affine[:, :3, :3] / zoom_factors
             self.outputs[idx][idx_] = Sample(sample, affine)
 
@@ -428,6 +435,32 @@ class Multiply(Transformer):
         pass
 
 
+class Sum(Transformer):
+    def __init__(self, **kwargs):
+        super(Sum, self).__init__(**kwargs)
+
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            array = sample
+            for connection in self.connections[idx][1:]:
+                array = array + connection[idx_]
+
+            self.outputs[idx][idx_] = Sample(array, sample.affine)
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert all(len(self.connections[idx][0]) == len(connection) for connection in self.connections[idx]), "All input connections must have the same output length."
+        output_shapes = self.connections[idx][0].shapes
+        for output_shape_i, output_shape in enumerate(output_shapes):
+            for connection in self.connections[idx][1:]:
+                for axis_i, (output_shape_, output_shape__) in enumerate(zip(output_shape, connection.shapes[output_shape_i])):
+                    assert output_shape_ is not None or output_shape__ is not None or output_shape_ == output_shape__, "The shapes of the shared axes should be identical and different from None."
+
+        return output_shapes
+
+    def _randomize(self):
+        pass
+
+
 class FillNan(Transformer):
     def __init__(self, fill_value, **kwargs):
         super(FillNan, self).__init__(**kwargs)
@@ -454,6 +487,55 @@ class Clip(Transformer):
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
             self.outputs[idx][idx_] = Sample(np.clip(sample, self.lower_clip, self.higher_clip), sample.affine)
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        return self.connections[idx][0].shapes
+
+    def _randomize(self):
+        pass
+
+
+class LogClassCounts(Transformer):
+    def __init__(self, logs_dir, class_values_dict, one_hot=False, **kwargs):
+        super(LogClassCounts, self).__init__(**kwargs)
+        self.logs_dir = logs_dir
+        self.class_values_dict = class_values_dict
+        self.one_hot = one_hot
+
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            self.outputs[idx][idx_] = sample
+            if os.path.isdir(self.logs_dir):
+                file_path = os.path.join(self.logs_dir, f"class_counts_i{idx}_s{idx_}.txt")
+                if os.path.isfile(file_path):
+                    while True:
+                        try:
+                            with open(file_path, "r") as f:
+                                class_counts_dict = json.load(f)
+
+                            class_counts_dict["voxel_count"] += float(np.prod(sample.shape[:4]))
+                            for class_ in self.class_values_dict:
+                                class_counts_dict[str(class_)] += float(np.sum((sample[..., class_] if self.one_hot else sample) == self.class_values_dict[class_]).item())
+
+                            break
+
+                        except:
+                            pass
+
+                else:
+                    class_counts_dict["voxel_count"] = float(np.prod(sample.shape[:4]))
+                    class_counts_dict = {str(class_): float(np.sum((sample[..., class_] if self.one_hot else sample) == self.class_values_dict[class_]).item()) for class_ in self.class_values_dict}
+
+                while True:
+                    try:
+                        with open(file_path, "w") as f:
+                            json.dump(class_counts_dict, f, indent=2)
+
+                        break
+
+                    except:
+                        pass
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -607,17 +689,69 @@ class RemoveBorder(Transformer):
 
 
 class ClassWeights(Transformer):
-    def __init__(self, class_weights_dict, one_hot=False, **kwargs):
+    def __init__(self, class_weights_dict, one_hot=False, logs_dir=None, target_priors=None, use_voxel_count=False, **kwargs):
         super(ClassWeights, self).__init__(**kwargs)
         self.class_weights_dict = class_weights_dict
         self.one_hot = one_hot
-        k = np.array(list(class_weights_dict.keys()))
-        v = np.array(list(class_weights_dict.values()))
-        self.mapping_array = np.zeros(np.max(k) + 1, dtype=np.float32)
-        self.mapping_array[k] = v
+        self.logs_dir = logs_dir
+        if target_priors is not None:
+            assert logs_dir is not None, "When target priors are specified one should use logs_dir (in combination with the LogClassCounts transformer."
+            if not (one_hot and use_voxel_count):
+                total = 0
+                for class_ in target_priors:
+                    assert class_ in self.class_weights_dict
+                    total += target_priors[class_]
+
+                assert total == 1, "The class priors should sum up to 1."
+
+            self.target_priors = target_priors
+
+        elif logs_dir is not None:
+            self.target_priors = {class_: 1 / len(self.class_weights_dict) for class_ in self.class_weights_dict}
+
+        else:
+            self.target_priors = target_priors
+
+        self.use_voxel_count = use_voxel_count
 
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
+            if self.logs_dir is not None and os.path.isfile(os.path.join(self.logs_dir, f'class_counts_i{idx}_s{idx_}.txt')):
+                while True:
+                    try:
+                        with open(os.path.join(self.logs_dir, f'class_counts_i{idx}_s{idx_}.txt'), "r") as f:
+                            class_counts_dict = json.load(f)
+
+                        total_count = class_counts_dict["voxel_count"] if self.use_voxel_count else np.sum([class_counts_dict[str(class_)] for class_ in self.class_weights_dict])
+                        class_priors_dict = {class_: class_counts_dict[str(class_)] / total_count for class_ in self.class_weights_dict}
+                        lsoe = np.zeros((len(class_priors_dict), len(class_priors_dict)))
+                        for i, class_i in enumerate(class_priors_dict):
+                            for j, class_j in enumerate(class_priors_dict):
+                                if i == j:
+                                    lsoe[i, j] = (1 - self.target_priors[class_i]) * class_priors_dict[class_j]
+
+                                else:
+                                    lsoe[i, j] = -self.target_priors[class_i] * class_priors_dict[class_j]
+
+                        a = lsoe
+                        b = np.zeros(len(lsoe))
+                        a[0, :] = [class_priors_dict[class_] for class_ in class_priors_dict]
+                        b[0] = 1
+                        solution = np.linalg.solve(a, b)
+                        # solution = [self.class_weights_dict[next(iter(self.class_weights_dict))]] + [s for s in np.linalg.solve(lsoe[1:, 1:], -lsoe[1:, 0] * self.class_weights_dict[next(iter(self.class_weights_dict))])]
+                        class_weights_dict = {class_: solution[i] for i, class_ in enumerate(class_priors_dict)}
+                        break
+
+                    except:
+                        pass
+
+            else:
+                class_weights_dict = self.class_weights_dict
+
+            k = np.array(list(class_weights_dict.keys()))
+            v = np.array(list(class_weights_dict.values()))
+            mapping_array = np.zeros(np.max(k) + 1, dtype=np.float32)
+            mapping_array[k] = v
             if self.one_hot:
                 assert sample.shape[-1] > 1
                 sample = Sample(np.argmax(sample, axis=-1)[..., None], sample.affine)
@@ -625,7 +759,7 @@ class ClassWeights(Transformer):
             else:
                 sample = np.round(sample).astype(int)
 
-            self.outputs[idx][idx_] = Sample(self.mapping_array[sample], sample.affine)
+            self.outputs[idx][idx_] = Sample(mapping_array[sample], sample.affine)
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -636,22 +770,69 @@ class ClassWeights(Transformer):
 
 
 class Recalibrate(Transformer):
-    def __init__(self, source_priors, target_priors, **kwargs):
+    def __init__(self, source_priors, target_priors, source_priors_logs_dir=None, target_priors_logs_dir=None, use_voxel_count=False, **kwargs):
         super(Recalibrate, self).__init__(**kwargs)
-        self.source_priors = source_priors if isinstance(source_priors, list) else [source_priors]
-        self.target_priors = target_priors if isinstance(target_priors, list) else [target_priors]
+        if not isinstance(source_priors, dict):
+            if not isinstance(source_priors, list):
+                source_priors = [1 - source_priors, source_priors]
+
+            source_priors = {i: sp for i, sp in enumerate(source_priors)}
+
+        self.source_priors = source_priors
+        if not isinstance(target_priors, dict):
+            if not isinstance(target_priors, list):
+                target_priors = [1 - target_priors, target_priors]
+
+            target_priors = {i: tp for i, tp in enumerate(target_priors)}
+
+        self.target_priors = target_priors
         assert len(self.source_priors) == len(self.target_priors)
+        self.source_priors_logs_dir = source_priors_logs_dir
+        self.target_priors_logs_dir = target_priors_logs_dir
+        self.use_voxel_count = use_voxel_count
 
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
-            assert sample.shape[-1] == len(self.source_priors)
+            if self.source_priors_logs_dir is not None and os.path.isfile(os.path.join(self.source_priors_logs_dir, f'class_counts_i{idx}_s{idx_}.txt')):
+                while True:
+                    try:
+                        with open(os.path.join(self.source_priors_logs_dir, f'class_counts_i{idx}_s{idx_}.txt'), "r") as f:
+                            source_class_counts_dict = json.load(f)
+
+                        total_count = source_class_counts_dict["voxel_count"] if self.use_voxel_count else np.sum([source_class_counts_dict[str(class_)] for class_ in self.source_priors])
+                        source_class_priors_dict = {class_: source_class_counts_dict[str(class_)] / total_count for class_ in self.source_priors}
+                        break
+
+                    except:
+                        pass
+
+            else:
+                source_class_priors_dict = self.source_priors
+
+            if self.target_priors_logs_dir is not None and os.path.isfile(os.path.join(self.target_priors_logs_dir, f'class_counts_i{idx}_s{idx_}.txt')):
+                while True:
+                    try:
+                        with open(os.path.join(self.target_priors_logs_dir, f'class_counts_i{idx}_s{idx_}.txt'), "r") as f:
+                            target_class_counts_dict = json.load(f)
+
+                        total_count = target_class_counts_dict["voxel_count"] if self.use_voxel_count else np.sum([target_class_counts_dict[str(class_)] for class_ in self.source_priors])
+                        target_class_priors_dict = {class_: target_class_counts_dict[str(class_)] / total_count for class_ in self.target_priors}
+                        break
+
+                    except:
+                        pass
+
+            else:
+                target_class_priors_dict = self.target_priors
+
             if sample.shape[-1] == 1:
-                tp, sp = self.target_priors[0], self.source_priors[0]
+                assert len(source_class_priors_dict) == 2 and len(target_class_priors_dict) == 2
+                tp, sp = target_class_priors_dict[1], source_class_priors_dict[1]
                 recalibrated_sample = tp / sp * sample / (tp / sp * sample + (1 - tp) / (1 - sp) * (1 - sample))
 
             else:
                 assert np.max(sample) <= 1
-                tp, sp = np.array(self.target_priors), np.array(self.source_priors)
+                tp, sp = np.array([target_class_priors_dict[class_] for class_ in self.target_priors]), np.array([source_class_priors_dict[class_] for class_ in self.source_priors])
                 recalibrated_sample = tp / sp * sample / np.sum(tp / sp * sample, axis=-1, keepdims=True)
 
             self.outputs[idx][idx_] = Sample(recalibrated_sample, sample.affine)
@@ -754,22 +935,20 @@ class Subsample(Transformer):
         for idx_, sample in enumerate(self.connections[idx][0]):
             subsampled_array = np.moveaxis(sample, self.axis, 0)
             if self.mode == "nearest":
-                subsampled_array = np.concatenate([subsampled_array] + [subsampled_array[-1:, ...]] * (self.factor - len(subsampled_array) % self.factor))
                 subsampled_array = subsampled_array[slice(0, None, self.factor), ...]
 
-            else:
-                if len(subsampled_array) < self.factor:
-                    subsampled_array = np.mean(subsampled_array, axis=0, keepdims=True)
+            elif len(subsampled_array) < self.factor:
+                subsampled_array = np.mean(subsampled_array, axis=0, keepdims=True)
 
-                else:
-                    subsampled_array = np.concatenate([subsampled_array] + [subsampled_array[-1:, ...]] * (self.factor - len(subsampled_array) % self.factor))
-                    subsampled_array = transformations.downsample_array(subsampled_array, (self.factor, 1, 1, 1, 1))
+            else:
+                subsampled_array = np.pad(subsampled_array, ((0, int(self.factor - len(subsampled_array) % self.factor if len(subsampled_array) % self.factor else 0)), (0, 0), (0, 0), (0, 0), (0, 0)), mode="edge")
+                subsampled_array = transformations.downsample_array(subsampled_array, (self.factor, 1, 1, 1, 1))
 
             self.outputs[idx][idx_] = Sample(np.moveaxis(subsampled_array, 0, self.axis), sample.affine)
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shapes
+        return [tuple([output_shape_ if axis_i != self.axis else int(np.ceil(output_shape_ / self.factor)) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
 
     def _randomize(self):
         pass
@@ -1028,17 +1207,24 @@ class GridCrop(Crop):
         if self.n_ == 0:
             assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
             self.coordinates = []
-            starts = [-(self.grid_size[i] // 2) for i in range(3)]
-            stops = [self.reference_connection[0].shape[i + 1] - self.grid_size[i] // 2 - 1 for i in range(3)]
-            for x in list(range(starts[0], stops[0], self.strides[0])) + [stops[0]]:
-                for y in list(range(starts[1], stops[1], self.strides[1])) + [stops[1]]:
-                    for z in list(range(starts[2], stops[2], self.strides[2])) + [stops[2]]:
+            for x in range(0, self.reference_connection[0].shape[1] + self.strides[0] + 1, self.strides[0]):
+                for y in range(0, self.reference_connection[0].shape[2] + self.strides[1] + 1, self.strides[1]):
+                    for z in range(0, self.reference_connection[0].shape[3] + self.strides[2] + 1, self.strides[2]):
                         if self.nonzero:
                             if np.any(self.reference_connection[0][:, max(0, x):x + self.grid_size[0], max(0, y):y + self.grid_size[1], max(0, z):z + self.grid_size[2], :]):
                                 self.coordinates.append((x + self.grid_size[0] // 2, y + self.grid_size[1] // 2, z + self.grid_size[2] // 2))
 
                         else:
                             self.coordinates.append((x + self.grid_size[0] // 2, y + self.grid_size[1] // 2, z + self.grid_size[2] // 2))
+
+                        if z + self.grid_size[2] >= self.reference_connection[0].shape[3]:
+                            break
+
+                    if y + self.grid_size[1] >= self.reference_connection[0].shape[2]:
+                        break
+
+                if x + self.grid_size[0] >= self.reference_connection[0].shape[1]:
+                    break
 
             if len(self.coordinates) > 0:
                 if self.ncrops is not None:
