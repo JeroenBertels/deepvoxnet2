@@ -524,8 +524,8 @@ class LogClassCounts(Transformer):
                             pass
 
                 else:
-                    class_counts_dict["voxel_count"] = float(np.prod(sample.shape[:4]))
                     class_counts_dict = {str(class_): float(np.sum((sample[..., class_] if self.one_hot else sample) == self.class_values_dict[class_]).item()) for class_ in self.class_values_dict}
+                    class_counts_dict["voxel_count"] = float(np.prod(sample.shape[:4]))
 
                 while True:
                     try:
@@ -680,7 +680,7 @@ class RemoveBorder(Transformer):
         return self.connections[idx][0].shapes
 
     def _randomize(self):
-        shapes = [sample.shape for connection in self.connections for sample in connection[0]]
+        shapes = [sample.shape for connection in self.connections for sample in connection[0] if sample is not None]
         assert all([shapes[0][i] == shape[i] for shape in shapes for i in range(1, 4)])
         self.remove_state = [(
             random.randint(0, min(remove_widths_[0], int(self.limit_to_fraction_of_input_shape * shapes[0][i + 1]))),
