@@ -50,10 +50,24 @@ class MetricNameChanger(Callback):
         if logs is not None:
             for log in logs.copy():
                 if log != "lr" and log != "epoch" and self.training_key is not None and not log.startswith("val_"):
-                    logs[f"{self.training_key}__" + log] = logs.pop(log)
+                    log_name = f"{self.training_key}__" + log
+                    for i, keras_model_output_name in enumerate(self.model.output_names):
+                        if log.startswith(keras_model_output_name + "_"):
+                            log_name = f"{self.training_key}__" + log[len(keras_model_output_name) + 1:]
+                            if not log.endswith(f"__s{i}"):
+                                log_name = log_name + f"__s{i}"
+
+                    logs[log_name] = logs.pop(log)
 
                 elif log != "lr" and log != "epoch" and self.validation_key is not None and log.startswith("val_"):
-                    logs[f"{self.validation_key}__" + log[4:]] = logs.pop(log)
+                    log_name = f"{self.validation_key}__" + log[4:]
+                    for i, keras_model_output_name in enumerate(self.output_names):
+                        if log[4:].startswith(keras_model_output_name + "_"):
+                            log_name = f"{self.validation_key}__" + log[4 + len(keras_model_output_name) + 1:]
+                            if not log.endswith(f"__s{i}"):
+                                log_name = log_name + f"__s{i}"
+
+                    logs[log_name] = logs.pop(log)
 
 
 class DvnModelCheckpoint(Callback):
