@@ -1,6 +1,11 @@
+import tensorflow as tf
 from functools import partial
 from deepvoxnet2.keras.metrics import categorical_dice_score, binary_dice_score
 from tensorflow.python.keras import backend as K
+
+
+def l2_loss(y_true, y_pred, **kwargs):
+    return tf.math.squared_difference(y_true, y_pred) / 2
 
 
 def binary_crossentropy(y_true, y_pred, from_logits=False, **kwargs):
@@ -20,7 +25,10 @@ def categorical_dice_loss(y_true, y_pred, threshold=None, **kwargs):
 
 
 def get_loss(loss_name, custom_loss_name=None, **kwargs):
-    if loss_name == "binary_crossentropy":
+    if loss_name == "l2_loss":
+        loss = l2_loss
+
+    elif loss_name == "binary_crossentropy":
         loss = binary_crossentropy
 
     elif loss_name == "binary_dice_loss":

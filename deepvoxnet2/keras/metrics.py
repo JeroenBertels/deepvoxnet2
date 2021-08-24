@@ -31,6 +31,12 @@ def binary_accuracy(y_true, y_pred, threshold=0.5, **kwargs):
     return tf.reduce_sum(tf.cast(tf.math.equal(y_true, y_pred), y_true.dtype), axis=(1, 2, 3, 4), keepdims=True)
 
 
+def binary_ece(y_true, y_pred, nbins=10, threshold=0.5, **kwargs):
+    y_true = tf.reshape(y_true, [y_true.shape[0], -1])
+    y_pred = tf.reshape(y_pred, [y_pred.shape[0], -1])
+    return tf.map_fn(lambda x: tfp.stats.expected_calibration_error_quantiles(tf.math.equal(tf.math.greater(x[0], threshold), tf.math.greater(x[1], threshold)), x[1], nbins)[0], (y_true, y_pred), fn_output_signature=tf.float32)
+
+
 def binary_auc(y_true, y_pred, num_thresholds=26, curve='PR', summation_method='interpolation', thresholds=None, **kwargs):
     y_true = tf.reshape(y_true, [y_true.shape[0], -1])
     y_pred = tf.reshape(y_pred, [y_pred.shape[0], -1])
@@ -174,6 +180,9 @@ def get_metric(metric_name, custom_metric_name=None, **kwargs):
 
     elif metric_name == "binary_accuracy":
         metric = binary_accuracy
+
+    elif metric_name == "binary_ece":
+        metric = binary_ece
 
     elif metric_name == "binary_auc":
         metric = binary_auc
