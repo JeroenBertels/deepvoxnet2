@@ -66,8 +66,12 @@ class Connection(object):
 
                 for idx, connection_ in enumerate(connection.transformer.connections):
                     for connection__ in connection_:
-                        if connection__ not in traced_connections and connection__ not in connections and (not only_active or idx == connection.idx):
+                        if connection__ not in traced_connections and connection__ not in connections and (not set_active_indices or idx == connection.idx):
                             connections.append(connection__)
+
+        if only_active:
+            traced_transformers = [traced_transformer for traced_transformer in traced_transformers if len(traced_transformer.active_indices) > 0]
+            traced_connections = [traced_connection for traced_connection in traced_connections if traced_connection.idx in traced_connection.transformer.active_indices]
 
         return traced_transformers, traced_connections
 
@@ -115,6 +119,7 @@ class Transformer(object):
         return self.output_shapes
 
     def eval(self, sample_id=None):
+        # print(f"--> {self.name}")
         if sample_id is None:
             sample_id = uuid.uuid4()
 
@@ -134,6 +139,7 @@ class Transformer(object):
 
             next(self.generator)
 
+        # print(f"<-- {self.name}")
         return self.outputs
 
     def reset(self):
@@ -328,7 +334,7 @@ class Concat(Transformer):
                             output_shape[axis_i] = output_shape_ + output_shape__
 
                     else:
-                        assert output_shape_ is not None and output_shape__ is not None and output_shape_ == output_shape__, "The shapes of the shared axes should be identical and different from None."
+                        assert (output_shape_ is None or output_shape__ is None) or output_shape_ == output_shape__, "The shapes of the shared axes should be identical and different from None."
 
         return [tuple(output_shape) for output_shape in output_shapes]
 
@@ -392,8 +398,8 @@ class Resample(Transformer):
 class Threshold(Transformer):
     def __init__(self, lower_threshold=0, upper_threshold=np.inf, **kwargs):
         super(Threshold, self).__init__(**kwargs)
-        self.lower_threshold = lower_threshold
-        self.upper_threshold = upper_threshold
+        self.lower_threshold = np.array(lower_threshold)
+        self.upper_threshold = np.array(upper_threshold)
 
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
@@ -1207,7 +1213,8 @@ class Put(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.reference_connection.shapes
+        assert len(self.connections[idx][0]) == len(self.reference_connection), "The length of the connection to be put must be equal to the length of the reference connection."
+        return [reference_shape[:4] + sample_shape[4:] for reference_shape, sample_shape in zip(self.reference_connection.shapes, self.connections[idx][0].shapes)]
 
     def _randomize(self):
         if self.output_array_counts is None and self.keep_counts:

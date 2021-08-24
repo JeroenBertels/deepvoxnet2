@@ -12,7 +12,8 @@ class Creator(object):
     def __init__(self, outputs):
         self.outputs = Creator.deepcopy(outputs if isinstance(outputs, list) else [outputs])
         self.transformers, self.connections = self.trace(self.outputs, clear_active_indices=True, set_names=True)
-        self.active_transformers, self.active_connections = self.trace(self.outputs, only_active=True, set_active_indices=True)
+        self.trace(self.outputs, set_active_indices=True)
+        self.active_transformers, self.active_connections = self.trace(self.outputs, only_active=True)
         self.active_input_transformers = [transformer for transformer in self.active_transformers if isinstance(transformer, _Input)]
         self.inputs = [active_connection for active_connection in self.active_connections if isinstance(active_connection.transformer, _Input)]
         self.output_shapes = [output_connection.shapes for output_connection in self.outputs]
