@@ -31,16 +31,63 @@ def binary_accuracy(y_true, y_pred, threshold=0.5, **kwargs):
     return tf.reduce_sum(tf.cast(tf.math.equal(y_true, y_pred), y_true.dtype), axis=(1, 2, 3, 4), keepdims=True)
 
 
-def binary_ece(y_true, y_pred, nbins=10, threshold=0.5, **kwargs):
-    y_true = tf.reshape(y_true, [y_true.shape[0], -1])
-    y_pred = tf.reshape(y_pred, [y_pred.shape[0], -1])
-    return tf.map_fn(lambda x: tfp.stats.expected_calibration_error_quantiles(tf.math.equal(tf.math.greater(x[0], threshold), tf.math.greater(x[1], threshold)), x[1], nbins)[0], (y_true, y_pred), fn_output_signature=tf.float32)
+def binary_ece(y_true, y_pred, nbins=10, threshold=0.5, quantiles_as_bins=False, **kwargs):
+    y_true = tf.reshape(y_true, [y_true.shape[0], -1, 1])
+    y_pred = tf.reshape(y_pred, [y_pred.shape[0], -1, 1])
+    y_true_threshold = tf.math.greater(y_true, threshold)
+    y_pred_threshold = tf.math.greater(y_pred, threshold)
+    if quantiles_as_bins:
+        y_pred_hits = tf.math.equal(y_true_threshold, y_pred_threshold)
+        y_pred_log = tf.math.log(y_pred)
+        return tf.map_fn(lambda x: tfp.stats.expected_calibration_error_quantiles(x[0], x[1], nbins)[0], (y_pred_hits, y_pred_log), fn_output_signature=tf.float32)
+
+    else:
+        y_true_labels = tf.cast(y_true_threshold, tf.int32)[..., 0]
+        y_pred_logits = tf.pad(tf.math.log(y_pred / (1 - y_pred)), tf.constant([[0, 0], [0, 0], [1, 0]]))
+        return tf.map_fn(lambda x: tfp.stats.expected_calibration_error(nbins, x[0], x[1]), (y_pred_logits, y_true_labels), fn_output_signature=tf.float32)
 
 
-def binary_auc(y_true, y_pred, num_thresholds=26, curve='PR', summation_method='interpolation', thresholds=None, **kwargs):
-    y_true = tf.reshape(y_true, [y_true.shape[0], -1])
-    y_pred = tf.reshape(y_pred, [y_pred.shape[0], -1])
-    return tf.map_fn(lambda x: tf.keras.metrics.AUC(num_thresholds=num_thresholds, curve=curve, summation_method=summation_method, thresholds=thresholds)(x[0], x[1]), (y_true, y_pred), fn_output_signature=tf.float32)
+# def binary_auc(y_true, y_pred, num_thresholds=26, curve='PR', thresholds=None, **kwargs):
+#     y_true = tf.reshape(y_true, [y_true.shape[0], -1])
+#     y_pred = tf.reshape(y_pred, [y_pred.shape[0], -1])
+#     return tf.map_fn(lambda x: tf.keras.metrics.AUC(num_thresholds=num_thresholds, curve=curve, thresholds=thresholds)(x[0], x[1]), (y_true, y_pred), fn_output_signature=tf.float32)
+
+
+def binary_auc(y_true, y_pred, num_thresholds=101, curve='PR', thresholds=None, reduce_batch_dim_before_summation=True, **kwargs):
+    if thresholds is None:
+        thresholds = tf.linspace(-tf.keras.backend.epsilon(), 1 + tf.keras.backend.epsilon(), num_thresholds)
+
+    else:
+        thresholds = tf.convert_to_tensor(thresholds, dtype=tf.float32)
+
+    tps = tf.map_fn(lambda x: binary_true_positives(y_true, y_pred, threshold=x), thresholds)
+    fps = tf.map_fn(lambda x: binary_false_positives(y_true, y_pred, threshold=x), thresholds)
+    tns = tf.map_fn(lambda x: binary_true_negatives(y_true, y_pred, threshold=x), thresholds)
+    fns = tf.map_fn(lambda x: binary_false_negatives(y_true, y_pred, threshold=x), thresholds)
+    specificities = (tns + tf.keras.backend.epsilon()) / (tns + fps + tf.keras.backend.epsilon())
+    precisions = (tps + tf.keras.backend.epsilon()) / (tps + fps + tf.keras.backend.epsilon())
+    recalls = (tps + tf.keras.backend.epsilon()) / (tps + fns + tf.keras.backend.epsilon())
+    if curve =="PR":
+        x, y = recalls, precisions
+
+    elif curve == "ROC":
+        x, y = specificities, recalls
+
+    else:
+        raise ValueError("The requested curve is not yet implemented.")
+
+    if reduce_batch_dim_before_summation:
+        x, y = tf.reduce_mean(x, axis=1, keepdims=True), tf.reduce_mean(y, axis=1, keepdims=True)
+
+    x, y = tf.transpose(x), tf.transpose(y)
+    sort_order = tf.argsort(x, axis=1)
+    x = tf.map_fn(lambda x: tf.gather(x[1], x[0]), (sort_order, x), fn_output_signature=tf.float32)
+    y = tf.map_fn(lambda x: tf.gather(x[1], x[0]), (sort_order, y), fn_output_signature=tf.float32)
+    x, y = tf.transpose(x), tf.transpose(y)
+    x = tf.pad(x, tf.constant([[1, 0], [0, 0]]))
+    x = tf.pad(x, tf.constant([[0, 1], [0, 0]]), constant_values=1)
+    y = tf.pad(y, tf.constant([[1, 1], [0, 0]]), "SYMMETRIC")
+    return tf.reduce_sum((x[1:] - x[:-1]) * (y[1:] + y[:-1]) / 2, axis=0)
 
 
 def binary_dice_score(y_true, y_pred, threshold=0.5, **kwargs):
@@ -88,35 +135,43 @@ def binary_hausdorff_distance(y_true, y_pred, threshold=0.5, voxel_sizes=1, perc
 
 
 def binary_true_positives(y_true, y_pred, threshold=0.5, **kwargs):
+    y_true = tf.reshape(y_true, [y_true.shape[0], -1])
+    y_pred = tf.reshape(y_pred, [y_pred.shape[0], -1])
     if threshold is not None:
         y_true = tf.cast(tf.math.greater(y_true, threshold), y_true.dtype)
         y_pred = tf.cast(tf.math.greater(y_pred, threshold), y_pred.dtype)
     
-    return tf.reduce_sum(y_true * y_pred, axis=(1, 2, 3, 4), keepdims=True)
+    return tf.reduce_sum(y_true * y_pred, axis=1, keepdims=False)
 
 
 def binary_true_negatives(y_true, y_pred, threshold=0.5, **kwargs):
+    y_true = tf.reshape(y_true, [y_true.shape[0], -1])
+    y_pred = tf.reshape(y_pred, [y_pred.shape[0], -1])
     if threshold is not None:
         y_true = tf.cast(tf.math.greater(y_true, threshold), y_true.dtype)
         y_pred = tf.cast(tf.math.greater(y_pred, threshold), y_pred.dtype)
 
-    return tf.reduce_sum((1 - y_true) * (1 - y_pred), axis=(1, 2, 3, 4), keepdims=True)
+    return tf.reduce_sum((1 - y_true) * (1 - y_pred), axis=1, keepdims=False)
 
 
 def binary_false_positives(y_true, y_pred, threshold=0.5, **kwargs):
+    y_true = tf.reshape(y_true, [y_true.shape[0], -1])
+    y_pred = tf.reshape(y_pred, [y_pred.shape[0], -1])
     if threshold is not None:
         y_true = tf.cast(tf.math.greater(y_true, threshold), y_true.dtype)
         y_pred = tf.cast(tf.math.greater(y_pred, threshold), y_pred.dtype)
 
-    return tf.reduce_sum((1 - y_true) * y_pred, axis=(1, 2, 3, 4), keepdims=True)
+    return tf.reduce_sum((1 - y_true) * y_pred, axis=1, keepdims=False)
 
 
 def binary_false_negatives(y_true, y_pred, threshold=0.5, **kwargs):
+    y_true = tf.reshape(y_true, [y_true.shape[0], -1])
+    y_pred = tf.reshape(y_pred, [y_pred.shape[0], -1])
     if threshold is not None:
         y_true = tf.cast(tf.math.greater(y_true, threshold), y_true.dtype)
         y_pred = tf.cast(tf.math.greater(y_pred, threshold), y_pred.dtype)
 
-    return tf.reduce_sum(y_true * (1 - y_pred), axis=(1, 2, 3, 4), keepdims=True)
+    return tf.reduce_sum(y_true * (1 - y_pred), axis=1, keepdims=False)
 
 
 def binary_true_volume(y_true, y_pred, threshold=0.5, voxel_volume=1, **kwargs):
