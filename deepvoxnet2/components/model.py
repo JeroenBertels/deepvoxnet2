@@ -214,22 +214,26 @@ class DvnModel(object):
             samples = [sample for sample in Creator(self.outputs[key]).eval(identifier)][0 if mode == "all" else -1:]
             samples = [[Sample(np.concatenate([output[j][i] for output in samples]), np.concatenate([output[j][i].affine for output in samples])) for i in range(len(samples[0][j]))] for j in range(len(samples[0]))]
             if output_dirs is not None:
-                for i, prediction in enumerate(samples[0]):
-                    for j in range(len(prediction)):
-                        output_path = os.path.join(output_dirs[identifier_i], "{}{}{}{}.nii.gz".format(key, f"__s{i}", f"__b{j}", "__" + name_tag if name_tag is not None else ""))
-                        if save_x:
-                            nib.save(nib.Nifti1Image(prediction[j], prediction.affine[j]), output_path[:-7] + "__x" + ".nii.gz")
-
-                        if save_y and len(samples) > 1:
-                            nib.save(nib.Nifti1Image(samples[1][i][j], samples[1][i].affine[j]), output_path[:-7] + "__y" + ".nii.gz")
-
-                        if save_sample_weight and len(samples) > 2:
-                            nib.save(nib.Nifti1Image(samples[2][i][j], samples[2][i].affine[j]), output_path[:-7] + "__sample_weight" + ".nii.gz")
+                self.save_sample(key, samples, output_dirs[identifier_i], name_tag=name_tag, save_x=save_x, save_y=save_y, save_sample_weight=save_sample_weight)
 
             predictions.append(samples)
             print("Predicted {} with {} in {:.0f} s.".format(sampler[identifier_i](), key, time.time() - start_time))
 
         return predictions
+
+    @staticmethod
+    def save_sample(key, sample, output_dir, name_tag=None, save_x=True, save_y=False, save_sample_weight=False):
+        for i, prediction in enumerate(sample[0]):
+            for j in range(len(prediction)):
+                output_path = os.path.join(output_dir, "{}{}{}{}.nii.gz".format(key, f"__s{i}", f"__b{j}", "__" + name_tag if name_tag is not None else ""))
+                if save_x:
+                    nib.save(nib.Nifti1Image(prediction[j], prediction.affine[j]), output_path[:-7] + "__x" + ".nii.gz")
+
+                if save_y and len(sample) > 1:
+                    nib.save(nib.Nifti1Image(sample[1][i][j], sample[1][i].affine[j]), output_path[:-7] + "__y" + ".nii.gz")
+
+                if save_sample_weight and len(sample) > 2:
+                    nib.save(nib.Nifti1Image(sample[2][i][j], sample[2][i].affine[j]), output_path[:-7] + "__sample_weight" + ".nii.gz")
 
     def summary(self, only_active=True):
         self.creator.summary(only_active=only_active)
