@@ -37,7 +37,7 @@ class Structure(object):
 
 
 class MircStructure(Structure):
-    def __init__(self, base_dir, run_name, experiment_name, fold_i, round_i=None, training_identifiers=None, validation_identifiers=None, testing_identifiers=None):
+    def __init__(self, base_dir, run_name, experiment_name, fold_i, round_i=None, training_identifiers=None, validation_identifiers=None, testing_identifiers=None, training_dataset=None, validation_dataset=None, testing_dataset=None):
         self.base_dir = base_dir
         self.run_name = run_name
         self.experiment_name = experiment_name
@@ -64,11 +64,35 @@ class MircStructure(Structure):
         self.fold_i = fold_i
         self.fold_dir = os.path.join(self.round_dir, "Fold_{}".format(self.fold_i))
         print("Starting Fold: {}".format(self.fold_i))
+        train_images_output_dirs = None
+        if training_identifiers is not None:
+            assert training_dataset is None
+            train_images_output_dirs = [os.path.join(self.run_dir, identifier.case_id, identifier.record_id, "Training", "{}_Round_{}_Fold_{}".format(self.experiment_name, self.round_i, self.fold_i)) for identifier in training_identifiers]
+
+        elif training_dataset is not None:
+            train_images_output_dirs = [os.path.join(self.run_dir, case_id, record_id, "Training", "{}_Round_{}_Fold_{}".format(self.experiment_name, self.round_i, self.fold_i)) for case_id in training_dataset for record_id in training_dataset[case_id]]
+
+        val_images_output_dirs = None
+        if validation_identifiers is not None:
+            assert validation_dataset is None
+            val_images_output_dirs = [os.path.join(self.run_dir, identifier.case_id, identifier.record_id, "Validation", "{}_Round_{}_Fold_{}".format(self.experiment_name, self.round_i, self.fold_i)) for identifier in validation_identifiers]
+
+        elif validation_dataset is not None:
+            val_images_output_dirs = [os.path.join(self.run_dir, case_id, record_id, "Validation", "{}_Round_{}_Fold_{}".format(self.experiment_name, self.round_i, self.fold_i)) for case_id in validation_dataset for record_id in validation_dataset[case_id]]
+
+        test_images_output_dirs = None
+        if testing_identifiers is not None:
+            assert testing_dataset is None
+            test_images_output_dirs = [os.path.join(self.run_dir, identifier.case_id, identifier.record_id, "Testing", "{}_Round_{}_Fold_{}".format(self.experiment_name, self.round_i, self.fold_i)) for identifier in testing_identifiers]
+
+        elif testing_dataset is not None:
+            test_images_output_dirs = [os.path.join(self.run_dir, case_id, record_id, "Testing", "{}_Round_{}_Fold_{}".format(self.experiment_name, self.round_i, self.fold_i)) for case_id in testing_dataset for record_id in testing_dataset[case_id]]
+
         super(MircStructure, self).__init__(
             logs_dir=os.path.join(self.fold_dir, "Logs"),
             models_dir=os.path.join(self.fold_dir),
             history_path=os.path.join(self.fold_dir, "training_result.pkl"),
-            train_images_output_dirs=[os.path.join(self.run_dir, identifier.case_id, identifier.record_id, "Training", "{}_Round_{}_Fold_{}".format(self.experiment_name, self.round_i, self.fold_i)) for identifier in training_identifiers] if training_identifiers is not None else None,
-            val_images_output_dirs=[os.path.join(self.run_dir, identifier.case_id, identifier.record_id, "Validation", "{}_Round_{}_Fold_{}".format(self.experiment_name, self.round_i, self.fold_i)) for identifier in validation_identifiers] if validation_identifiers is not None else None,
-            test_images_output_dirs=[os.path.join(self.run_dir, identifier.case_id, identifier.record_id, "Testing", "{}_Round_{}_Fold_{}".format(self.experiment_name, self.round_i, self.fold_i)) for identifier in testing_identifiers] if testing_identifiers is not None else None
+            train_images_output_dirs=train_images_output_dirs,
+            val_images_output_dirs=val_images_output_dirs,
+            test_images_output_dirs=test_images_output_dirs
         )
