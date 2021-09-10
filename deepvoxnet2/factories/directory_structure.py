@@ -1,6 +1,8 @@
 import os
 import numpy as np
+import pandas as pd
 from collections import Iterable
+from deepvoxnet2.components.mirc import NiftiFileModality
 from deepvoxnet2.components.sampler import MircSampler
 from deepvoxnet2.components.model import DvnModel
 from deepvoxnet2.components.sample import Sample
@@ -126,7 +128,25 @@ class MircStructure(Structure):
             if self.testing_identifiers is not None:
                 self.test_images_output_dirs = [os.path.join(self.run_dir, identifier.case_id, identifier.record_id, "Testing", "{}_Round_{}_Fold_{}".format(self.experiment_name, self.round_i, self.fold_i)) for identifier in self.testing_identifiers]
 
-    def predict(self, split, model_name, key, fold_i=None, round_i=None, **kwargs):
+    def get_split(self, split):
+        if split == "training" or split == "train":
+            identifiers = self.training_identifiers
+            output_dirs = self.train_images_output_dirs
+
+        elif split == "validation" or split == "val":
+            identifiers = self.validation_identifiers
+            output_dirs = self.val_images_output_dirs
+
+        elif split == "testing" or split == "test":
+            identifiers = self.testing_identifiers
+            output_dirs = self.test_images_output_dirs
+
+        else:
+            raise ValueError("Split name unknown.")
+
+        return identifiers, output_dirs
+
+    def predict(self, split, model_name, key, fold_i=None, round_i=None, name_tag=None, **kwargs):
         prev_fold_i = self.fold_i
         if fold_i is None:
             fold_i = self.fold_i
@@ -145,24 +165,24 @@ class MircStructure(Structure):
                 dvn_models.append(DvnModel.load_model(os.path.join(self.models_dir, model_name)))
 
             self.update(fold_i="-".join([str(fold_i_) for fold_i_ in fold_i]), round_i=round_i)
-            if split == "training" or split == "train":
-                identifiers = self.training_identifiers
-                output_dirs = self.train_images_output_dirs
-
-            elif split == "validation" or split == "val":
-                identifiers = self.validation_identifiers
-                output_dirs = self.val_images_output_dirs
-
-            elif split == "testing" or split == "test":
-                identifiers = self.testing_identifiers
-                output_dirs = self.test_images_output_dirs
-
-            else:
-                raise ValueError("Split name unknown.")
-
+            identifiers, output_dirs = self.get_split(split)
+            assert identifiers is not None, "For this split there were no identifiers or there was no Mirc object specified."
+            self.create()
             for identifier, output_dir in zip(identifiers, output_dirs):
                 samples = [dvn_model.predict(key, [identifier])[0] for dvn_model in dvn_models]
                 sample = [[Sample(np.mean([sample[i][j] for sample in samples], axis=0), np.mean([sample[i][j].affine for sample in samples], axis=0)) for j in range(len(samples[0][i]))] for i in range(len(samples[0]))]
-                DvnModel.save_sample(key, sample, output_dir, **kwargs)
+                DvnModel.save_sample(key, sample, output_dir, name_tag=name_tag, **kwargs)
 
             self.update(fold_i=prev_fold_i, round_i=prev_round_i)
+
+    def get_df(self, split, key, si=0, bi=0, name_tag=None, x_or_y_or_sample_weight="x"):
+        identifiers, output_dirs = self.get_split(split)
+        assert identifiers is not None, "For this split there were no identifiers or there was no Mirc object specified."
+        indices = pd.MultiIndex.from_tuples([(identifier.dataset_id, identifier.case_id, identifier.record_id) for identifier in identifiers], names=["dataset_id", "case_id", "record_id"])
+        columns = pd.MultiIndex.from_tuples([(f"{self.run_name} > {self.experiment_name}",)], names=["run_name > experiment_name"])
+        df = pd.DataFrame(index=indices, columns=columns)
+        for identifier, output_dir in zip(identifiers, output_dirs):
+            output_path = os.path.join(output_dir, "{}{}{}{}__{}.nii.gz".format(key, f"__s{si}", f"__b{bi}", "__" + name_tag if name_tag is not None else "", x_or_y_or_sample_weight))
+            df.loc[(identifier.dataset_id, identifier.case_id, identifier.record_id), (f"{self.run_name} > {self.experiment_name}",)] = NiftiFileModality("_", output_path).load()
+
+        return df

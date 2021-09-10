@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import nibabel as nib
+import pandas as pd
 from deepvoxnet2.components.sample import Sample
 from PIL import Image
 from matplotlib import pyplot as plt
@@ -52,6 +53,17 @@ class Mirc(SortedDict):
 
     def get_modality_ids(self):
         return sorted(set([modality_id for dataset_id in self for case_id in self[dataset_id] for record_id in self[dataset_id][case_id] for modality_id in self[dataset_id][case_id][record_id]]))
+
+    def get_df(self, modality_id):
+        indices = pd.MultiIndex.from_tuples([(dataset_id, case_id, record_id) for dataset_id in self for case_id in self[dataset_id] for record_id in self[dataset_id][case_id]], names=["dataset_id", "case_id", "record_id"])
+        columns = pd.MultiIndex.from_tuples([(modality_id,)], names=["modality_id"])
+        df = pd.DataFrame(index=indices, columns=columns)
+        for dataset_id in self:
+            for case_id in self[dataset_id]:
+                for record_id in self[dataset_id][case_id]:
+                    df.loc[(dataset_id, case_id, record_id), (modality_id, )] = self[dataset_id][case_id][record_id][modality_id].load()
+
+        return df
 
     def mean_and_std(self, modality_id, n=None, clipping=(-np.inf, np.inf), return_histogram=False, fillna=None, exclude_clipping=True):
         assert modality_id in self.get_modality_ids(), "The requested modality_id is not present in this Mirc object."
