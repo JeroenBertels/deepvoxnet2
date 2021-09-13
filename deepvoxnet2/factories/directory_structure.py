@@ -50,6 +50,21 @@ class Structure(object):
                 if not os.path.isdir(test_images_output_dir):
                     os.makedirs(test_images_output_dir)
 
+    def get_split_dirs(self, split):
+        if split == "training" or split == "train":
+            output_dirs = self.train_images_output_dirs
+
+        elif split == "validation" or split == "val":
+            output_dirs = self.val_images_output_dirs
+
+        elif split == "testing" or split == "test":
+            output_dirs = self.test_images_output_dirs
+
+        else:
+            raise ValueError("Split name unknown.")
+
+        return output_dirs
+
     def update(self, *args, **kwargs):
         pass
 
@@ -128,23 +143,20 @@ class MircStructure(Structure):
             if self.testing_identifiers is not None:
                 self.test_images_output_dirs = [os.path.join(self.run_dir, identifier.case_id, identifier.record_id, "Testing", "{}_Round_{}_Fold_{}".format(self.experiment_name, self.round_i, self.fold_i)) for identifier in self.testing_identifiers]
 
-    def get_split(self, split):
+    def get_split_identifiers(self, split):
         if split == "training" or split == "train":
             identifiers = self.training_identifiers
-            output_dirs = self.train_images_output_dirs
 
         elif split == "validation" or split == "val":
             identifiers = self.validation_identifiers
-            output_dirs = self.val_images_output_dirs
 
         elif split == "testing" or split == "test":
             identifiers = self.testing_identifiers
-            output_dirs = self.test_images_output_dirs
 
         else:
             raise ValueError("Split name unknown.")
 
-        return identifiers, output_dirs
+        return identifiers
 
     def predict(self, split, model_name, key, fold_i=None, round_i=None, name_tag=None, **kwargs):
         prev_fold_i = self.fold_i
@@ -165,8 +177,9 @@ class MircStructure(Structure):
                 dvn_models.append(DvnModel.load_model(os.path.join(self.models_dir, model_name)))
 
             self.update(fold_i="-".join([str(fold_i_) for fold_i_ in fold_i]), round_i=round_i)
-            identifiers, output_dirs = self.get_split(split)
-            assert identifiers is not None, "For this split there were no identifiers or there was no Mirc object specified."
+            output_dirs = self.get_split_dirs(split)
+            identifiers = self.get_split_identifiers(split)
+            assert output_dirs is not None and identifiers is not None, "For this split there were no identifiers or there was no Mirc object specified."
             self.create()
             for identifier, output_dir in zip(identifiers, output_dirs):
                 samples = [dvn_model.predict(key, [identifier])[0] for dvn_model in dvn_models]
@@ -176,8 +189,9 @@ class MircStructure(Structure):
             self.update(fold_i=prev_fold_i, round_i=prev_round_i)
 
     def get_df(self, split, key, si=0, bi=0, name_tag=None, x_or_y_or_sample_weight="x"):
-        identifiers, output_dirs = self.get_split(split)
-        assert identifiers is not None, "For this split there were no identifiers or there was no Mirc object specified."
+        output_dirs = self.get_split_dirs(split)
+        identifiers = self.get_split_identifiers(split)
+        assert output_dirs is not None and identifiers is not None, "For this split there were no identifiers or there was no Mirc object specified."
         indices = pd.MultiIndex.from_tuples([(identifier.dataset_id, identifier.case_id, identifier.record_id) for identifier in identifiers], names=["dataset_id", "case_id", "record_id"])
         columns = pd.MultiIndex.from_tuples([(f"{self.run_name} > {self.experiment_name}",)], names=["run_name > experiment_name"])
         df = pd.DataFrame(index=indices, columns=columns)
