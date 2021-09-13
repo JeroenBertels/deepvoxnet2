@@ -188,11 +188,11 @@ class Figure(object):
         self.ax.set_xlim([self.xmin, self.xmax])
         self.ax.set_ylim([self.ymin, self.ymax])
         # add whitespace in between x- and y-axis in the dx and dy regions
-        e = self.lw / 2 / self.fig.get_dpi() * self.awidth / self.awidthininches
-        self.ax.add_patch(Rectangle((self.xmin + e, self.yamax + e), self.width - 2 * e, self.ymax - self.yamax - 2 * e, fc='w', ec='w', linewidth=0, zorder=2.001))
-        self.ax.add_patch(Rectangle((self.xmin + e, self.ymin + e), self.width - 2 * e, self.dy - 2 * e, fc='w', ec='w', linewidth=0, zorder=2.001))
-        self.ax.add_patch(Rectangle((self.xmin + e, self.ymin + e), self.dx - 2 * e, self.height - 2 * e, fc='w', ec='w', linewidth=0, zorder=2.001))
-        self.ax.add_patch(Rectangle((self.xamax + e, self.ymin + e), self.xmax - self.xamax - 2 * e, self.height - 2 * e, fc='w', ec='w', linewidth=0, zorder=2.001))
+        self.lwic = self.lw / self.fig.get_dpi() * self.awidth / self.awidthininches
+        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.yamax + self.lwic / 2), self.width - self.lwic, self.ymax - self.yamax - self.lwic, fc='w', ec='w', linewidth=0, zorder=2.001))
+        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.ymin + self.lwic / 2), self.width - self.lwic, self.dy - self.lwic, fc='w', ec='w', linewidth=0, zorder=2.001))
+        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.ymin + self.lwic / 2), self.dx - self.lwic, self.height - self.lwic, fc='w', ec='w', linewidth=0, zorder=2.001))
+        self.ax.add_patch(Rectangle((self.xamax + self.lwic / 2, self.ymin + self.lwic / 2), self.xmax - self.xamax - self.lwic, self.height - self.lwic, fc='w', ec='w', linewidth=0, zorder=2.001))
         # optionally set title, labels, ticks and ticklabels
         if "xlabel" in kwargs and kwargs["xlabel"] is not None:
             self.set_xlabel(kwargs["xlabel"])
@@ -402,52 +402,52 @@ class Boxplot(Figure):
             for j, series in enumerate(series_group):
                 self.boxplot(series, pos=positions[i][j], fc=self.get_color(colors[i][j], alpha=alpha), direction=direction, **kwargs)
 
+        locs = np.zeros((int((position - 1) * position / 2), position + 1))
         loc = (self.yamax + 3 * self.dy) if direction == "vertical" else (self.xamax + 3 * self.dx)
         if l0_stats:
             for i, (series_group, positions_) in enumerate(zip(grouped_series, positions)):
-                loc_ = (self.yamax + 3 * self.dy) if direction == "vertical" else (self.xamax + 3 * self.dx)
                 for j, (series0, position0) in enumerate(zip(series_group, positions_)):
                     for k, (series1, position1) in enumerate(zip(series_group, positions_)):
                         if k > j:
-                            p_value = series0.different_from(series1, **kwargs)
+                            p_value = series0.different_from(series1.series, **kwargs)
                             p = min([p_value, 1 - p_value])
                             if p < 0.05:
+                                min_loc_pos = np.nonzero(np.sum(locs[:, position0:position1], axis=1) == 0)[0][0]
+                                loc_ = loc + min_loc_pos * self.dy
+                                locs[min_loc_pos, position0:position1] = 1
                                 position01 = (position0 + position1) / 2
-                                self.plot(*[[position0, position01], [loc_, loc_]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][j]), linewidth=self.lw, zorder=2.01)
-                                self.plot(*[[position0, position0], [loc_, loc_ - self.dy / 4]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][j]), linewidth=self.lw, zorder=2.01)
-                                self.plot(*[[position01, position1], [loc_, loc_]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][k]), linewidth=self.lw, zorder=2.01)
-                                self.plot(*[[position1, position1], [loc_, loc_ - self.dy / 4]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][k]), linewidth=self.lw, zorder=2.01)
-                                self.text(*[(position0 + position1) / 2, loc_][::1 if direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
+                                self.plot(*[[position0 + self.lwic, position01], [loc_, loc_]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][j]), linewidth=self.lw, zorder=2.01)
+                                self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][j]), linewidth=self.lw, zorder=2.01)
+                                self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][k]), linewidth=self.lw, zorder=2.01)
+                                self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][k]), linewidth=self.lw, zorder=2.01)
+                                self.text(*[position01, loc_][::1 if direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
                                           rotation=0 if direction == "vertical" else 270,
                                           ha="center" if direction == "vertical" else "left",
                                           va="bottom" if direction == "vertical" else "center",
                                           fontsize=self.ms)
-                                loc_ += self.dy if direction == "vertical" else self.dx
-
-                if loc_ > loc:
-                    loc = loc_
 
         if l1_stats:
-            loc_ = loc + 2 * (self.dy if direction == "vertical" else self.dx)
             for i, (series_group_a, positions_a) in enumerate(zip(grouped_series, positions)):
                 for j, (series0, position0) in enumerate(zip(series_group_a, positions_a)):
                     for k, (series_group_b, positions_b) in enumerate(zip(grouped_series, positions)):
                         if k > i:
                             for l, (series1, position1) in enumerate(zip(series_group_b, positions_b)):
-                                p_value = series0.different_from(series1, **kwargs)
+                                p_value = series0.different_from(series1.series, **kwargs)
                                 p = min([p_value, abs(1 - p_value)])
                                 if p < 0.05:
+                                    min_loc_pos = np.nonzero(np.sum(locs[:, position0:position1], axis=1) == 0)[0][0]
+                                    loc_ = loc + min_loc_pos * self.dy
+                                    locs[min_loc_pos, position0:position1] = 1
                                     position01 = (position0 + position1) / 2
-                                    self.plot(*[[position0, position01], [loc_, loc_]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][j]), linewidth=self.lw, zorder=2.01)
-                                    self.plot(*[[position0, position0], [loc_, loc_ - self.dy / 4]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][j]), linewidth=self.lw, zorder=2.01)
-                                    self.plot(*[[position01, position1], [loc_, loc_]][::1 if direction == "vertical" else -1], color=self.get_color(colors[k][l]), linewidth=self.lw, zorder=2.01)
-                                    self.plot(*[[position1, position1], [loc_, loc_ - self.dy / 4]][::1 if direction == "vertical" else -1], color=self.get_color(colors[k][l]), linewidth=self.lw, zorder=2.01)
-                                    self.text(*[(position0 + position1) / 2, loc_][::1 if direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
+                                    self.plot(*[[position0 + self.lwic, position01], [loc_, loc_]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][j]), linewidth=self.lw, zorder=2.01)
+                                    self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][j]), linewidth=self.lw, zorder=2.01)
+                                    self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if direction == "vertical" else -1], color=self.get_color(colors[k][l]), linewidth=self.lw, zorder=2.01)
+                                    self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if direction == "vertical" else -1], color=self.get_color(colors[k][l]), linewidth=self.lw, zorder=2.01)
+                                    self.text(*[position01, loc_][::1 if direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
                                               rotation=0 if direction == "vertical" else 270,
                                               ha="center" if direction == "vertical" else "left",
                                               va="bottom" if direction == "vertical" else "center",
                                               fontsize=self.ms)
-                                    loc_ += self.dy if direction == "vertical" else self.dx
 
 
 if __name__ == "__main__":
