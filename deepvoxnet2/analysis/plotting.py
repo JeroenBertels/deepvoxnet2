@@ -1,134 +1,18 @@
 import numpy as np
-from collections import Iterable
 from matplotlib import pyplot as plt
-from matplotlib.patches import Rectangle, Polygon
+from matplotlib.patches import Rectangle
+from deepvoxnet2.analysis.data import Series, GroupedSeries
 
 
 color_dict = {
     "r": (1, 0, 0),
     "g": (0, 1, 0),
-    "b": (0, 0, 1)
+    "b": (0, 0, 1),
+    "c": (0, 1, 1),
+    "m": (1, 0, 1),
+    "y": (1, 1, 0),
+    "k": (0, 0, 0)
 }
-
-
-class Series(object):
-    def __init__(self, series):
-        if not isinstance(series, Iterable):
-            series = [series]
-
-        self.series = np.array(series)
-        self.series_, self.nnans, self.min, self.p25, self.p50, self.pm, self.p75, self.max, self.iqr, self.pmin, self.pmax, self.outliers = self.get_stats()
-        self.median, self.mean = self.p50, self.pm
-
-    def __len__(self):
-        return len(self.series)
-
-    def __getitem__(self, idx):
-        return self.series[idx]
-
-    def __iter__(self):
-        return iter(self.series)
-
-    def different_from(self, value=0, **kwargs):
-        return self.basic_test(self.series, value if isinstance(value, Iterable) else [value] * len(self.series), **kwargs)
-
-    def get_stats(self):
-        return self.calculate_stats(self.series)
-
-    @staticmethod
-    def calculate_stats(series):
-        series_ = np.array([value for value in series if not np.isnan(value) and not np.isinf(value)])
-        nnans = len([value for value in series if np.isnan(value) or np.isinf(value)])
-        min = np.min(series_)
-        p25 = np.percentile(series_, 25)
-        p50 = np.percentile(series_, 50)
-        pm = np.mean(series_)
-        p75 = np.percentile(series_, 75)
-        max = np.max(series_)
-        iqr = p75 - p25
-        pmin = np.min([value for value in series_ if value >= p25 - 1.5 * iqr])
-        pmax = np.max([value for value in series_ if value <= p75 + 1.5 * iqr])
-        outliers = np.array([value for value in series_ if (value > pmax or value < pmin)])
-        return series_, nnans, min, p25, p50, pm, p75, max, iqr, pmin, pmax, outliers
-
-    @staticmethod
-    def basic_test(series0, series1=None, n=10000, skipnan=True, skipinf=True, pairwise=True, **kwargs):
-        series0 = np.array(series0)
-        if series1 is None:
-            series1 = np.zeros_like(series0)
-
-        else:
-            series1 = np.array(series1)
-
-        if pairwise:
-            assert len(series0) == len(series1), "For a pairwise test the original series must be of equal length."
-            series0 = series0 - series1
-            series1 = np.zeros_like(series0)
-
-        if skipnan:
-            series0, series1 = zip(*[(s0, s1) for s0, s1 in zip(series0, series1) if not np.isnan(s0) and not np.isnan(s1)])
-
-        if skipinf:
-            series0, series1 = zip(*[(s0, s1) for s0, s1 in zip(series0, series1) if not np.isinf(s0) and not np.isinf(s1)])
-
-        if len(series0) > 0 and len(series1) > 0 and np.sum(np.isnan(series0)) == 0 and np.sum(np.isinf(series0)) == 0 and np.sum(np.isnan(series1)) == 0 and np.sum(np.isinf(series1)) == 0:
-            if pairwise and np.all(series0 == 0):
-                return 0.5
-
-            else:
-                count = 0
-                for i in range(n):
-                    series0_ = np.random.choice(series0, len(series0))
-                    series1_ = np.random.choice(series1, len(series1))
-                    if np.mean(series0_) - np.mean(series1_) > 0:
-                        count += 1
-
-                return count / n
-
-        else:
-            return np.nan
-
-
-class SeriesGroup(object):
-    def __init__(self, series_group):
-        if not isinstance(series_group, Iterable):
-            series_group = [series_group]
-
-        for i, series in enumerate(series_group):
-            series_group[i] = Series(series)
-
-        self.series_group = series_group
-        self.series = Series([value for series in series_group for value in series])
-
-    def __len__(self):
-        return len(self.series_group)
-
-    def __getitem__(self, idx):
-        return self.series_group[idx]
-
-    def __iter__(self):
-        return iter(self.series_group)
-
-
-class GroupedSeries(object):
-    def __init__(self, grouped_series):
-        if not isinstance(grouped_series, Iterable):
-            grouped_series = [grouped_series]
-
-        for i, series_group in enumerate(grouped_series):
-            grouped_series[i] = SeriesGroup(series_group)
-
-        self.grouped_series = grouped_series
-        self.series = Series([value for series_group in grouped_series for value in series_group.series])
-
-    def __len__(self):
-        return len(self.grouped_series)
-
-    def __getitem__(self, idx):
-        return self.grouped_series[idx]
-
-    def __iter__(self):
-        return iter(self.grouped_series)
 
 
 class Figure(object):
@@ -300,7 +184,7 @@ class Figure(object):
                 self.plot([self.xmin, pos - width2], [series.p75, series.p75], color=ec, linewidth=self.lw, zorder=2.01)
                 self.plot([self.xmin, pos - width2], [series.p25, series.p25], color=ec, linewidth=self.lw, zorder=2.01)
 
-            self.text(pos, self.yamax + self.dy, text, rotation=0, ha="center", va="bottom", fontsize=self.ms)
+            self.text(pos, self.yamax + self.dy, text, rotation=0, ha="center", va="bottom", fontsize=self.fs)
             if different_from:
                 self.plot([pos - 0.5, pos + 0.5], [different_from, different_from], "k--", linewidth=self.lw, zorder=2.01)
 
@@ -320,7 +204,7 @@ class Figure(object):
                 self.plot([series.p75, series.p75], [self.ymin, pos - width2], color=ec, linewidth=self.lw, zorder=2.01)
                 self.plot([series.p25, series.p25], [self.ymin, pos - width2], color=ec, linewidth=self.lw, zorder=2.01)
 
-            self.text(self.xamax + self.dx, pos, text, rotation=270, ha="left", va="center", fontsize=self.ms)
+            self.text(self.xamax + self.dx, pos, text, rotation=270, ha="left", va="center", fontsize=self.fs)
             if different_from:
                 self.plot([different_from, different_from], [pos - 0.5, pos + 0.5], "k--", linewidth=self.lw, zorder=2.01)
 
@@ -451,7 +335,29 @@ class Boxplot(Figure):
 
 
 if __name__ == "__main__":
-    data = [[np.random.rand(250) + 2], [np.random.rand(150), np.random.rand(100) + 1]]
-    jb = Boxplot(data, yalim=[0, 3], project_stats=True, plot_violin=True, direction="vertical", different_from=1.5, labels=["group1", "group2"], l0_stats=True, l1_stats=True, top_extent=0.75, right_extent=0, inchesperposition=1, pairwise=False)
+    data = [
+        [
+            2 * np.random.rand(250) + 2
+        ],
+        [
+            5 * np.random.rand(150),
+            5 * np.random.rand(100) + 1
+        ],
+        [
+            2 * np.random.rand(150) + 5,
+            2 * np.random.rand(100) + 3,
+            3 * np.random.rand(150) + 7,
+            np.random.rand(100) + 2,
+            2 * np.random.rand(100) + 3,
+            5 * np.random.rand(150) + 7,
+            7 * np.random.rand(100) + 3
+        ],
+        [
+            np.random.rand(150),
+            2 * np.random.rand(100) + 1,
+            np.random.rand(100) + 10
+        ]
+    ]
+    jb = Boxplot(data, yalim=[0, 13], project_stats=False, plot_violin=True, direction="vertical", different_from=1.5, labels=["group1", "group2", "group3", "group4"], l0_stats=True, l1_stats=True, top_extent=2.5, right_extent=0, inchesperposition=1, pairwise=False, use_tex=False)
     jb.show()
     jb.savefig("/usr/local/micapollo01/MIC/DATA/STAFF/jberte3/data/phd/pictures/bootstrap_maps/test1.pdf")
