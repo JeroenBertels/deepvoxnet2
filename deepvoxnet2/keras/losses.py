@@ -1,48 +1,57 @@
 import tensorflow as tf
 from functools import partial
-from deepvoxnet2.keras.metrics import categorical_dice_score, binary_dice_score
-from tensorflow.python.keras import backend as K
+from deepvoxnet2.keras.metrics import get_metric
+
+
+def l1_loss(y_true, y_pred, **kwargs):
+    return get_metric("absolute_error", **kwargs)(y_true, y_pred)
 
 
 def l2_loss(y_true, y_pred, **kwargs):
-    return tf.math.squared_difference(y_true, y_pred) / 2
+    return get_metric("squared_error", **kwargs)(y_true, y_pred) / 2
 
 
-def binary_crossentropy(y_true, y_pred, from_logits=False, **kwargs):
-    return K.mean(K.binary_crossentropy(y_true, y_pred, from_logits=from_logits), axis=-1, keepdims=True)
+def cross_entropy(y_true, y_pred, **kwargs):
+    return get_metric("cross_entropy", **kwargs)(y_true, y_pred)
 
 
-def binary_dice_loss(y_true, y_pred, threshold=None, **kwargs):
-    return 1 - binary_dice_score(y_true, y_pred, threshold=threshold, **kwargs)
+def dice_loss(y_true, y_pred, threshold=None, **kwargs):
+    return 1 - get_metric("dice_coefficient", threshold=threshold, **kwargs)(y_true, y_pred)
 
 
-def categorical_crossentropy(y_true, y_pred, from_logits=False, **kwargs):
-    return K.expand_dims(K.categorical_crossentropy(y_true, y_pred, from_logits=from_logits))
+def get_loss(loss_name, reduction_mode="mean", custom_loss_name=None, **kwargs):
+    if loss_name == "l1_loss":
+        loss = l1_loss
 
-
-def categorical_dice_loss(y_true, y_pred, threshold=None, **kwargs):
-    return 1 - categorical_dice_score(y_true, y_true * y_pred, threshold=threshold, **kwargs)
-
-
-def get_loss(loss_name, custom_loss_name=None, **kwargs):
-    if loss_name == "l2_loss":
+    elif loss_name == "l2_loss":
         loss = l2_loss
 
-    elif loss_name == "binary_crossentropy":
-        loss = binary_crossentropy
+    elif loss_name == "cross_entropy":
+        loss = cross_entropy
 
-    elif loss_name == "binary_dice_loss":
-        loss = binary_dice_loss
-
-    elif loss_name == "categorical_crossentropy":
-        loss = categorical_crossentropy
-
-    elif loss_name == "categorical_dice_loss":
-        loss = categorical_dice_loss
+    elif loss_name == "dice_loss":
+        loss = dice_loss
 
     else:
-        raise ValueError("The requested loss is unknown.")
+        raise NotImplementedError("The requested loss is not implemented.")
 
-    loss = partial(loss, **kwargs)
+    loss = partial(loss, reduction_mode=reduction_mode, **kwargs)
     loss.__name__ = loss_name if custom_loss_name is None else custom_loss_name
     return loss
+
+
+def get_combined_loss(losses, loss_weights=None, custom_combined_loss_name=None):
+    if loss_weights is None:
+        loss_weights = [1 / len(losses) for _ in losses]
+
+    else:
+        assert len(losses) == len(loss_weights)
+
+    def loss_fn(y_true, y_pred):
+        weighted_losses = [tf.cast(loss_weight, tf.float32) * loss(y_true, y_pred) for loss, loss_weight in zip(losses, loss_weights)]
+        return tf.math.add_n(weighted_losses)
+
+    if custom_combined_loss_name is not None:
+        loss_fn.__name__ = custom_combined_loss_name
+
+    return loss_fn

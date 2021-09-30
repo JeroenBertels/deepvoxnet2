@@ -13,6 +13,7 @@ from deepvoxnet2.components.creator import Creator
 from deepvoxnet2.components.sampler import Sampler, Identifier
 from deepvoxnet2.components.transformers import KerasModel
 from deepvoxnet2.keras.callbacks import MetricNameChanger, LogsLogger, DvnHistory
+from deepvoxnet2.keras.losses import get_combined_loss
 
 
 class TfDataset(tf.data.Dataset, ABC):
@@ -102,8 +103,7 @@ class DvnModel(object):
             self.losses[key] = []
             self.losses_weights[key] = []
             for i, (loss, loss_weights) in enumerate(zip(losses, losses_weights)):
-                combined_loss = partial(self.get_combined_loss, losses=loss, loss_weights=loss_weights)
-                combined_loss.__name__ = f"loss__s{i}"
+                combined_loss = get_combined_loss(loss, loss_weights=loss_weights, custom_combined_loss_name=f"loss__s{i}")
                 self.losses[key].append(combined_loss)
                 self.losses_weights[key].append(1)
 
@@ -278,11 +278,3 @@ class DvnModel(object):
             dvn_model.creator.set_keras_models(keras_models)
 
         return dvn_model
-
-    @staticmethod
-    def get_combined_loss(y_true, y_pred, losses=None, loss_weights=None):
-        loss_value = 0
-        for loss, loss_weight in zip(losses, loss_weights):
-            loss_value += loss(y_true, y_pred) * loss_weight
-
-        return loss_value
