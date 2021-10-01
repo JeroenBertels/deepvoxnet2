@@ -96,7 +96,7 @@ def true_negative_rate(y_true, y_pred, eps=tf.keras.backend.epsilon(), **kwargs)
 
 
 def dice_coefficient(y_true, y_pred, eps=tf.keras.backend.epsilon(), reduce_along_batch=False, reduce_along_features=False, feature_weights=None, **kwargs):
-    return generalized_dice_coeff(y_true, y_pred, keepdims=True, eps=eps, reduce_along_batch=reduce_along_batch, reduce_along_features=reduce_along_features, feature_weights=feature_weights, **kwargs)
+    return generalized_dice_coeff(y_true, y_pred, keepdims=True, eps=eps, reduce_along_batch=reduce_along_batch, reduce_along_features=reduce_along_features, feature_weights=feature_weights)
 
 
 def coefficient_of_determination(y_true, y_pred, **kwargs):
@@ -105,7 +105,15 @@ def coefficient_of_determination(y_true, y_pred, **kwargs):
     return 1 - ss_res / (ss_tot + tf.keras.backend.epsilon())
 
 
-def ece(y_true, y_pred, nbins=10, quantiles_as_bins=False, return_bin_stats=False, **kwargs):
+def ece_from_bin_stats(y_true, y_pred, **kwargs):
+    y_true = tf.where(tf.math.is_nan(y_true), tf.zeros_like(y_true), y_true)
+    bin_confidence = y_true[:, :, :1, ...]
+    bin_accuracy = y_true[:, :, 1:2, ...]
+    bin_count = y_true[:, :, 2:, ...]
+    return tf.reduce_sum(tf.abs(bin_confidence - bin_accuracy) * bin_count, axis=1, keepdims=True) / tf.reduce_sum(bin_count, axis=1, keepdims=True)
+
+
+def ece(y_true, y_pred, nbins=10, quantiles_as_bins=False, return_bin_stats=False, from_bin_stats=False, **kwargs):
     y_true, y_pred = _expand_binary(y_true, y_pred)
     y_true = tf.reshape(y_true, [-1, y_true.shape[4]])
     y_pred = tf.reshape(y_pred, [-1, y_pred.shape[4]])
@@ -115,12 +123,12 @@ def ece(y_true, y_pred, nbins=10, quantiles_as_bins=False, return_bin_stats=Fals
     hits = tf.equal(labels_true, labels_pred)
     if quantiles_as_bins:
         edges = tfp.stats.percentile(confidence, tf.linspace(0, 100, nbins), interpolation="midpoint")
-        if not return_bin_stats:
+        if not return_bin_stats and not from_bin_stats:
             return tfp.stats.expected_calibration_error_quantiles(hits, tf.math.log(confidence), nbins)[0][None, None, None, None, None]
 
     else:
         edges = tf.cast(tf.linspace(0, 1, nbins), tf.float32)
-        if not return_bin_stats:
+        if not return_bin_stats and not from_bin_stats:
             return tfp.stats.expected_calibration_error(nbins, tf.math.log(y_pred), labels_true)[None, None, None, None, None]
 
     bins = tfp.stats.find_bins(confidence, edges=edges)
@@ -132,7 +140,12 @@ def ece(y_true, y_pred, nbins=10, quantiles_as_bins=False, return_bin_stats=Fals
         bin_count = tf.reduce_sum(tf.cast(mask, tf.float32))
         stats.append([bin_confidence, bin_accuracy, bin_count])
 
-    return tf.convert_to_tensor(stats, tf.float32)[None, ..., None, None]
+    bin_stats = tf.convert_to_tensor(stats, tf.float32)[None, ..., None, None]
+    if return_bin_stats:
+        return bin_stats
+
+    else:
+        return ece_from_bin_stats(bin_stats, bin_stats)
 
 
 def riemann_sum(y_true, y_pred, reduce_mean_axes=(1, 2, 3, 4), **kwargs):
@@ -161,7 +174,7 @@ def auc(y_true, y_pred, thresholds=np.linspace(tf.keras.backend.epsilon(), 1 - t
     return riemann_sum(x, y, reduce_mean_axes=(0, 2, 3, 4))
 
 
-def hausdorff_distance(y_true, y_pred, min_edge_diff=1, voxel_size=1, hd_percentile=95):
+def hausdorff_distance(y_true, y_pred, min_edge_diff=1, voxel_size=1, hd_percentile=95, **kwargs):
     y_true_shape = tf.keras.backend.int_shape(y_true)
     edge_filter = np.zeros((2, 1, 1, y_true_shape[4], y_true_shape[4]))
     for i in range(y_true_shape[4]):
@@ -272,6 +285,9 @@ def get_metric(
 
     elif metric_name == "coefficient_of_determination":
         metric = coefficient_of_determination
+
+    elif metric_name == "ece_from_bin_stats":
+        metric = ece_from_bin_stats
 
     elif metric_name == "ece":
         metric = ece

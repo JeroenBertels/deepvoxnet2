@@ -128,7 +128,7 @@ class Data(object):
         assert len(df.index.names) == 3 and all([name == name_ for name, name_ in zip(df.index.names, ["dataset_id", "case_id", "record_id"])])
         self.df = df.copy()
 
-    def get_empty_df(self, reduction_level=None, reduction_mode=None, reduce_all_below=True, columns=None):
+    def get_empty_df(self, reduction_level=None, reduction_mode=None, reduce_all_below=True):
         if reduction_level is None:
             indices = self.df.index
 
@@ -181,13 +181,7 @@ class Data(object):
 
             indices = pd.MultiIndex.from_tuples(indices, names=["dataset_id", "case_id", "record_id"])
 
-        if columns is not None:
-            assert len(columns) == len(self.df.columns)
-
-        else:
-            columns = self.df.columns
-
-        return pd.DataFrame(index=indices, columns=columns)
+        return pd.DataFrame(index=indices, columns=self.df.columns)
 
     @staticmethod
     def iter_upper_level(df, level):
@@ -276,6 +270,10 @@ class Data(object):
 
     def expand_dims(self, *args, **kwargs):
         return self.apply(np.expand_dims, *args, **kwargs)
+
+    def dropna(self):
+        self.df = self.df.dropna()
+        return self
 
 
 if __name__ == "__main__":
