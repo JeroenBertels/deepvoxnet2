@@ -4,6 +4,7 @@ import tensorflow_probability as tfp
 from functools import partial
 from collections import Iterable
 from pymirc.metrics.tf_metrics import generalized_dice_coeff
+from deepvoxnet2.backwards_compatibility.metrics import *
 
 
 def _expand_binary(y_true, y_pred):

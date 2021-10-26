@@ -278,3 +278,11 @@ class DvnModel(object):
             dvn_model.creator.set_keras_models(keras_models)
 
         return dvn_model
+
+    @staticmethod
+    def get_combined_loss(y_true, y_pred, losses=None, loss_weights=None):
+        loss_value = 0
+        for loss, loss_weight in zip(losses, loss_weights):
+            loss_value += loss(y_true, y_pred) * loss_weight
+
+        return loss_value
