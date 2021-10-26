@@ -5,13 +5,13 @@ from deepvoxnet2 import DEMO_DIR
 from deepvoxnet2.components.mirc import Mirc
 from deepvoxnet2.components.sampler import MircSampler
 from deepvoxnet2.keras.models.unet_generalized import create_generalized_unet_model
-from deepvoxnet2.components.transformers import Normalize, AffineDeformation, MircInput, ElasticDeformation, GridCrop, Flip, Put, KerasModel, RandomCrop, Group, Concat, Multiply, Threshold, Buffer
+from deepvoxnet2.components.transformers import Normalize, AffineDeformation, MircInput, ElasticDeformation, GridCrop, Flip, Put, KerasModel, Concat, Multiply, Threshold, Buffer
 from deepvoxnet2.components.model import DvnModel
 from deepvoxnet2.components.creator import Creator
 from deepvoxnet2.keras.optimizers import Adam
-from deepvoxnet2.keras.losses import binary_dice_loss, binary_crossentropy
-from deepvoxnet2.keras.metrics import binary_dice_score, binary_accuracy, binary_true_volume, binary_pred_volume, binary_volume_difference, binary_abs_volume_difference, binary_true_positives, binary_true_negatives, binary_false_positives, binary_false_negatives
-from deepvoxnet2.keras.callbacks import LogsLogger, DvnModelEvaluator, MetricNameChanger, LearningRateScheduler, DvnModelCheckpoint
+from deepvoxnet2.keras.losses import get_loss
+from deepvoxnet2.keras.metrics import get_metric
+from deepvoxnet2.keras.callbacks import DvnModelEvaluator, LearningRateScheduler, DvnModelCheckpoint
 from deepvoxnet2.factories.directory_structure import MircStructure
 
 
@@ -28,7 +28,7 @@ def train(run_name, experiment_name, fold_i=0):
 
     # building mirc samplers: here the sampler randomly samples a record out of train_data or val_data --> depending on what objects these samplers return, you must choose an appropriate Input later on when building your Dvn network/creator
     train_sampler = MircSampler(train_data, shuffle=True)
-    val_sampler = MircSampler(val_data, shuffle=False)
+    val_sampler = MircSampler(val_data)
 
     # let's create a keras model and put it in a Transformer layer to be used in our Dvn network (see "create_samples.py" for other examples on Transformers and sample creation)
     # have a look at the print-outs when this model is created; you'll see some interesting properties like # parameters, field of view, output/input sizes, etc.
@@ -67,7 +67,7 @@ def train(run_name, experiment_name, fold_i=0):
     # used for validation of the full images and thus is on the level of the input
     x_path = Multiply()([x_val, Threshold(-flair_mean / flair_std)(x_path_0)])
     x_path = Buffer()(x_path)
-    x_full_val = Put(y_input)(x_path)  # x_val is on the patch level and the put transformers brings the patch back to the reference space; have a look why y_input is used (with n=None) and think about why this is
+    x_full_val = Put(x_input_0)(x_path)  # x_val is on the patch level and the put transformers brings the patch back to the reference space; have a look why y_input is used (with n=None) and think about why this is
     y_full_val = y_input
 
     # you can use Creator.summary() method to visualize your designed architecture
@@ -85,17 +85,23 @@ def train(run_name, experiment_name, fold_i=0):
         outputs={
             "train": [x_train, y_train],
             "val": [x_val, y_val],
-            "full_val": [x_full_val, y_full_val]
+            "full_val": [x_full_val, y_full_val],
+            "full_test": [x_full_val]
         }
     )
 
     # similar to keras, we can compile the model
     # here lists (of lists) can be used to apply different losses/metrics to different outputs of the network
     # the losses can also be lists of lists if you want a linear combination of losses to be applied to a certain output (when no weights specified, everything is weighted uniformly)
-    dvn_model.compile("train", optimizer=Adam(lr=1e-3), losses=[[binary_crossentropy, binary_dice_loss]], metrics=[[binary_crossentropy, binary_dice_loss, binary_dice_score, binary_accuracy, binary_true_volume, binary_pred_volume, binary_volume_difference, binary_abs_volume_difference, binary_true_positives, binary_true_negatives, binary_false_positives, binary_false_negatives]])
+    cross_entropy = get_loss("cross_entropy")
+    soft_dice = get_loss("dice_loss")
+    dice_score = get_metric("dice_coefficient", threshold=0.5)
+    accuracy = get_metric("accuracy", threshold=0.5)
+    abs_vol_diff = get_metric("absolute_volume_error", voxel_volume=0.001)  # in ml (voxels are 1 x 1 x 1 mm)
+    dvn_model.compile("train", optimizer=Adam(lr=1e-3), losses=[[cross_entropy, soft_dice]], metrics=[[dice_score, accuracy, abs_vol_diff]])
     # although the following outputs are not used for fitting your model, you must compile it as well to know what metrics to calculate
-    dvn_model.compile("val", losses=[[binary_crossentropy, binary_dice_loss]], metrics=[[binary_crossentropy, binary_dice_loss, binary_dice_score, binary_accuracy, binary_true_volume, binary_pred_volume, binary_volume_difference, binary_abs_volume_difference, binary_true_positives, binary_true_negatives, binary_false_positives, binary_false_negatives]])
-    dvn_model.compile("full_val", losses=[[binary_crossentropy, binary_dice_loss]], metrics=[[binary_crossentropy, binary_dice_loss, binary_dice_score, binary_accuracy, binary_true_volume, binary_pred_volume, binary_volume_difference, binary_abs_volume_difference, binary_true_positives, binary_true_negatives, binary_false_positives, binary_false_negatives]])
+    dvn_model.compile("val", losses=[[cross_entropy, soft_dice]], metrics=[[dice_score, accuracy, abs_vol_diff]])
+    dvn_model.compile("full_val", losses=[[cross_entropy, soft_dice]], metrics=[[dice_score, accuracy, abs_vol_diff]])
 
     # typically one needs to organize everything on their local disks, e.g. a dir to save (intermediate) models, a logs directory to save intermediate log files to view via e.g. Tensorboad, some output dirs to save (intermediate) predictions, etc.
     # we have provided one way of doing so under deepvoxnet2/factories/directory_structure based on the samplers you created
@@ -104,22 +110,21 @@ def train(run_name, experiment_name, fold_i=0):
         run_name=run_name,
         experiment_name=experiment_name,
         fold_i=fold_i,
-        round_i=None,  # when None a new round will be created (only possible when the experiment dir already exists)
-        training_identifiers=train_sampler.identifiers,
-        validation_identifiers=val_sampler.identifiers
+        round_i=None,  # when None a new round will be created
+        training_mirc=train_data,
+        validation_mirc=val_data
     )
     output_structure.create()  # only now the non-existing output dirs are created
 
     # also similar to keras, we define some callbacks
     callbacks = [
         LearningRateScheduler(lambda epoch, lr: ([1e-3] * 300 + [1e-4] * 150 + [1e-5] * 75)[epoch]),
-        DvnModelEvaluator(dvn_model, "full_val", val_sampler, freq=25, output_dirs=output_structure.val_images_output_dirs, name_tag=None, save_x=True, save_y=False, save_sample_weight=False),
-        LogsLogger(output_structure.logs_dir),
+        DvnModelEvaluator(dvn_model, "full_val", val_sampler, freq=25, output_dirs=output_structure.val_images_output_dirs),  # watch out, here you do need to make sure that the order of the val_sampler (shuffle=False by default) is te same as the order of your output_dirs...
         DvnModelCheckpoint(dvn_model, output_structure.models_dir, freq=25)  # every 25 epochs the model will be saved (for e.g. parallel offline use for testing some things)
     ]
 
     # let's train :-)
-    history = dvn_model.fit("train", train_sampler, batch_size=2, validation_key="val", validation_sampler=val_sampler, callbacks=callbacks, epochs=525)  # ideally choose the batch size as a whole multiple of the number of samples your processing pipeline produces
+    history = dvn_model.fit("train", train_sampler, batch_size=2, validation_key="val", validation_sampler=val_sampler, callbacks=callbacks, epochs=525, logs_dir=output_structure.logs_dir)  # ideally choose the batch size as a whole multiple of the number of samples your processing pipeline produces
     with open(output_structure.history_path, "wb") as f:
         pickle.dump(history.history, f)
 
@@ -127,22 +132,42 @@ def train(run_name, experiment_name, fold_i=0):
 
 
 def evaluate(run_name, experiment_name, fold_i=0, round_i=0):
-    val_data = Mirc()
-    val_data.add(create_dataset("val"))
-    val_sampler = MircSampler(val_data, shuffle=False)
+    test_data = Mirc()
+    test_data.add(create_dataset("test"))
+    test_sampler = MircSampler(test_data)
     output_structure = MircStructure(
         base_dir=os.path.join(DEMO_DIR, "brats_2018", "runs"),
         run_name=run_name,
         experiment_name=experiment_name,
         fold_i=fold_i,
         round_i=round_i,
-        validation_identifiers=val_sampler.identifiers
+        testing_mirc=test_data
+    )
+    output_structure.create()
+    dvn_model = DvnModel.load_model(os.path.join(output_structure.models_dir, "dvn_model_final"))
+    evaluations = dvn_model.evaluate("full_val", test_sampler, output_dirs=output_structure.test_images_output_dirs)
+    print(evaluations)
+
+
+def predict(run_name, experiment_name, fold_i=0, round_i=0):
+    test_data = Mirc()
+    test_data.add(create_dataset("test"))
+    test_sampler = MircSampler(test_data)
+    output_structure = MircStructure(
+        base_dir=os.path.join(DEMO_DIR, "brats_2018", "runs"),
+        run_name=run_name,
+        experiment_name=experiment_name,
+        fold_i=fold_i,
+        round_i=round_i,
+        testing_mirc=test_data
     )
     dvn_model = DvnModel.load_model(os.path.join(output_structure.models_dir, "dvn_model_final"))
-    evaluations = dvn_model.evaluate("full_val", val_sampler, output_dirs=output_structure.val_images_output_dirs)
-    print(evaluations)
+    predictions = dvn_model.predict("full_test", test_sampler)
+    # or you could simply use baked in functions in your ProjectStructure class, e.g.:
+    # output_structure.predict("test", "dvn_model_final", "full_test", fold_i=0, round_i=0, save_x=False)
 
 
 if __name__ == '__main__':
     train("unet", "adam_ce-sd")
-    evaluate("unet", "adam_ce-sd", round_i=0)
+    evaluate("unet", "adam_ce-sd", round_i=0)  # when we do have a GT
+    predict("unet", "adam_ce-sd", round_i=0)  # when we not have a GT
