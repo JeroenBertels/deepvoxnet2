@@ -11,23 +11,59 @@ from scripts.jberte3.KAROLINSKA2021.preprocessing.s2_datasets import mrclean, ka
 class Analysis(object):
     def __init__(self, *data):
         assert all([isinstance(data_, Data) for data_ in data])
-        if not all([sorted(data[0].df.index) == sorted(data_.df.index) for data_ in data[1:]]):
-            warnings.warn("Watch out: not all indices are identical across all the data!")
+        all_indices = sorted(set([ind for data_ in data for ind in data_.index]))
+        if any([len(all_indices[0]) != len(ind) for ind in all_indices[1:]]):
+            warnings.warn("Watch out: not all indices have the same number of levels across all the data!")
 
-        self.data_df = pd.concat([data_.df for data_ in data], axis=1)
+        all_columns = sorted(set([col for data_ in data for col in data_.columns]))
+        if any([len(all_columns[0]) != len(col) for col in all_columns[1:]]):
+            warnings.warn("Watch out: not all columns have the same number of levels across all the data!")
+
+        max_nb_index_levels = max([len(ind) for ind in all_indices])
+        index_names = [None] * max_nb_index_levels
+        for data_ in data:
+            if len(data_.index.names) == max_nb_index_levels:
+                index_names = data_.index.names
+                break
+
+        indices = pd.MultiIndex.from_tuples(all_indices, names=index_names)
+        max_nb_column_levels = max([len(col) for col in all_columns])
+        column_names = [None] * max_nb_column_levels
+        for data_ in data:
+            if len(data_.columns.names) == max_nb_column_levels:
+                column_names = data_.columns.names
+                break
+
+        columns = pd.MultiIndex.from_tuples(all_columns, names=column_names)
+        self.df = pd.DataFrame(index=indices, columns=columns)
+        self.index = self.df.index
+        self.columns = self.df.columns
+        for data_ in data:
+            for ind in data_.index:
+                for col in data_.columns:
+                    self.df.loc[ind + (None,) * (max_nb_index_levels - len(ind)), col + (None,) * (max_nb_column_levels - len(col))] = data_.df.loc[ind, col]
 
     def __call__(self):
-        df = self.data_df.dropna()
-        return [Data(df.loc[:, [column]]) for column in df.columns]
+        return self.data()
+
+    def data(self):
+        return [Data(self.df.loc[:, [column]]) for column in self.columns]
+
+    def get_empty_df(self):
+        return pd.DataFrame(index=self.index, columns=self.columns)
 
     def apply(self, apply_fn, **kwargs):
-        indices = self.data_df.dropna().index
         columns = pd.MultiIndex.from_tuples([(apply_fn.__name__,)], names=["apply_fn"])
-        df = pd.DataFrame(index=indices, columns=columns)
-        for index in indices:
-            df.loc[index, :] = [apply_fn(*self.data_df.loc[index, :].values, **kwargs).numpy()]
+        df = pd.DataFrame(index=self.index, columns=columns)
+        for ind in self.df.dropna().index:
+            df.loc[ind, :] = [apply_fn(*self.df.loc[ind, :].values, **kwargs).numpy()]
 
         return Data(df)
+
+    def dropna(self):
+        indices = self.df.dropna().index
+        data = [Data(self.df.loc[indices, [column]]) for column in self.columns]
+        return Analysis(*data)
 
 
 if __name__ == "__main__":
@@ -67,7 +103,7 @@ if __name__ == "__main__":
     ece_stats = analysis.apply(get_metric("ece", nbins=20, return_bin_stats=True)).dropna()
     case_ece = analysis.apply(get_metric("ece", nbins=20)).squeeze()
 
-    y_true_data, y_pred_data = analysis()  # remove nan rows
+    y_true_data, y_pred_data = analysis.dropna()()  # remove nan rows and get Data objects
     analysis = Analysis(y_true_data.reshape((-1, 1, 1, 1, 1)).combine_concat(), y_pred_data.reshape((-1, 1, 1, 1, 1)).combine_concat())
     dataset_ece_stats = analysis.apply(get_metric("ece", nbins=20, return_bin_stats=True))
     dataset_ece = analysis.apply(get_metric("ece", nbins=20)).squeeze()

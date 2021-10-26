@@ -127,10 +127,15 @@ class Data(object):
     def __init__(self, df):
         assert len(df.index.names) == 3 and all([name == name_ for name, name_ in zip(df.index.names, ["dataset_id", "case_id", "record_id"])])
         self.df = df.copy()
+        self.index = self.df.index
+        self.columns = self.df.columns
+
+    def __call__(self):
+        return self
 
     def get_empty_df(self, reduction_level=None, reduction_mode=None, reduce_all_below=True):
         if reduction_level is None:
-            indices = self.df.index
+            indices = self.index
 
         else:
             assert isinstance(reduction_mode, str)
@@ -181,7 +186,7 @@ class Data(object):
 
             indices = pd.MultiIndex.from_tuples(indices, names=["dataset_id", "case_id", "record_id"])
 
-        return pd.DataFrame(index=indices, columns=self.df.columns)
+        return pd.DataFrame(index=indices, columns=self.columns)
 
     @staticmethod
     def iter_upper_level(df, level):
@@ -235,8 +240,7 @@ class Data(object):
             raise ValueError("Unknown mode value.")
 
         combined_df.loc[:, :] = values
-        self.df = combined_df
-        return self
+        return Data(combined_df)
 
     def combine_mean(self, **kwargs):
         return self.combine(mode="mean", **kwargs)
@@ -248,10 +252,11 @@ class Data(object):
         return self.combine(mode="concat", axis=axis, **kwargs)
 
     def apply(self, apply_fn, *args, **kwargs):
-        for index in self.df.index:
-            self.df.loc[index, :] = [apply_fn(value, *args, **kwargs) for value in self.df.loc[index, :]]
+        applied_df = self.get_empty_df()
+        for ind in self.index:
+            applied_df.loc[ind, :] = [apply_fn(value, *args, **kwargs) for value in self.df.loc[ind, :]]
 
-        return self
+        return Data(applied_df)
 
     def mean(self, *args, **kwargs):
         return self.apply(np.mean, *args, **kwargs)
@@ -272,13 +277,18 @@ class Data(object):
         return self.apply(np.expand_dims, *args, **kwargs)
 
     def dropna(self):
-        self.df = self.df.dropna()
-        return self
+        return Data(self.df.dropna())
+
+    def reindex(self, *args, **kwargs):
+        return Data(self.df.reindex(*args, **kwargs))
+
+    def set_axis(self, *args, **kwargs):
+        return Data(self.df.set_axis(*args, **kwargs))
 
 
 if __name__ == "__main__":
     indices = pd.MultiIndex.from_tuples([("dataset_A", "case_0", "record_0"), ("dataset_A", "case_1", "record_0"), ("dataset_B", "case_0", "record_0"), ("dataset_B", "case_1", "record_0")], names=["dataset_id", "case_id", "record_id"])
-    columns = pd.MultiIndex.from_tuples([("value",)], names=["metric_name"])
+    columns = pd.MultiIndex.from_tuples([("experiment_A", "metric_A")], names=["experiment_name", "metric_name"])
     df = pd.DataFrame([[np.array([[1, 2]])], [np.array([[3, 4]])], [np.array([[10, 11]])], [np.array([[10, 11]])]], index=indices, columns=columns)
     data = Data(df)
 
