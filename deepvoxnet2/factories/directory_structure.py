@@ -193,10 +193,10 @@ class MircStructure(Structure):
         identifiers = self.get_split_identifiers(split)
         assert output_dirs is not None and identifiers is not None, "For this split there were no identifiers or there was no Mirc object specified."
         indices = pd.MultiIndex.from_tuples([(identifier.dataset_id, identifier.case_id, identifier.record_id) for identifier in identifiers], names=["dataset_id", "case_id", "record_id"])
-        columns = pd.MultiIndex.from_tuples([(f"{self.run_name} > {self.experiment_name}",)], names=["run_name > experiment_name"])
+        columns = pd.MultiIndex.from_tuples([(self.run_name, self.experiment_name,)], names=["run_name", "experiment_name"])
         df = pd.DataFrame(index=indices, columns=columns)
         for identifier, output_dir in zip(identifiers, output_dirs):
             output_path = os.path.join(output_dir, "{}{}{}{}__{}.nii.gz".format(key, f"__s{si}", f"__b{bi}", "__" + name_tag if name_tag is not None else "", x_or_y_or_sample_weight))
-            df.loc[(identifier.dataset_id, identifier.case_id, identifier.record_id), (f"{self.run_name} > {self.experiment_name}",)] = NiftiFileModality("_", output_path).load()
+            df.loc[(identifier.dataset_id, identifier.case_id, identifier.record_id), (self.run_name, self.experiment_name)] = NiftiFileModality("_", output_path).load()
 
         return df
