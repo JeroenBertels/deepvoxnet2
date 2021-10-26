@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
+from functools import partial
 from collections import Iterable
 from pymirc.metrics.tf_metrics import generalized_dice_coeff
 
@@ -207,6 +208,56 @@ def hausdorff_distance(y_true, y_pred, min_edge_diff=1, voxel_size=1, hd_percent
     return hdd[None, None, None, None, None]
 
 
+def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False, feature_dim_as_spatial_dim=False, threshold=None, argmax=False, map_batch=False, map_features=False, reduction_mode=None, percentile=None, reduction_axes=(0, 1, 2, 3, 4), **kwargs):
+    assert len(tf.keras.backend.int_shape(y_true)) == 5 and len(tf.keras.backend.int_shape(y_pred)) == 5, "The input tensors/arrays y_true and y_pred to a metric function must be 5D!"
+    y_true = tf.cast(y_true, tf.float32)
+    y_pred = tf.cast(y_pred, tf.float32)
+    if batch_dim_as_spatial_dim:
+        y_true = tf.reshape(y_true, [1, y_true.shape[1], y_true.shape[2], -1, y_true.shape[4]])
+        y_pred = tf.reshape(y_pred, [1, y_pred.shape[1], y_pred.shape[2], -1, y_pred.shape[4]])
+
+    if feature_dim_as_spatial_dim:
+        y_true = tf.reshape(y_true, [1, y_true.shape[1], y_true.shape[2], -1, 1])
+        y_pred = tf.reshape(y_pred, [1, y_pred.shape[1], y_pred.shape[2], -1, 1])
+
+    if argmax:
+        y_true = tf.one_hot(tf.math.argmax(y_true, axis=-1), y_true.shape[-1], dtype=tf.float32)
+        y_pred = tf.one_hot(tf.math.argmax(y_pred, axis=-1), y_pred.shape[-1], dtype=tf.float32)
+
+    if threshold is not None:
+        y_true = tf.cast(tf.math.greater(y_true, threshold), tf.float32)
+        y_pred = tf.cast(tf.math.greater(y_pred, threshold), tf.float32)
+
+    if map_batch:
+        result = tf.map_fn(lambda x: get_metric(metric_name, map_features=map_features, **kwargs)(x[0][None], x[1][None]), (y_true, y_pred), fn_output_signature=tf.float32)
+        result = result[:, 0, ...]
+
+    elif map_features:
+        y_true = tf.keras.backend.permute_dimensions(y_true, (4, 0, 1, 2, 3))
+        y_pred = tf.keras.backend.permute_dimensions(y_pred, (4, 0, 1, 2, 3))
+        result = tf.map_fn(lambda x: get_metric(metric_name, **kwargs)(x[0][..., None], x[1][..., None]), (y_true, y_pred), fn_output_signature=tf.float32)
+        result = result[..., 0]
+        result = tf.keras.backend.permute_dimensions(result, (1, 2, 3, 4, 0))
+
+    else:
+        result = metric(y_true, y_pred, **kwargs)
+
+    result = tf.cast(result, tf.float32)
+    assert len(tf.keras.backend.int_shape(result)) == 5, "The output tensor/array of a metric function must be 5D!"
+    if reduction_mode is None:
+        return result
+
+    elif reduction_mode == "mean":
+        return tf.reduce_mean(result, axis=reduction_axes, keepdims=True)
+
+    elif reduction_mode == "median" or (reduction_mode == "percentile" and (percentile is None or percentile == 50)):
+        return tfp.stats.percentile(result, 50, axis=reduction_axes, interpolation="midpoint", keepdims=True)
+
+    else:
+        assert reduction_mode == "percentile" and percentile is not None, "Unknown reduction_mode/percentile combination requested."
+        return tfp.stats.percentile(result, percentile, axis=reduction_axes, interpolation="midpoint", keepdims=True)
+
+
 def get_metric(
         metric_name,
         batch_dim_as_spatial_dim=False,
@@ -304,85 +355,53 @@ def get_metric(
     else:
         raise NotImplementedError("The requested metric is not implemented.")
 
-    def metric_fn(y_true, y_pred):
-        assert len(tf.keras.backend.int_shape(y_true)) == 5 and len(tf.keras.backend.int_shape(y_pred)) == 5, "The input tensors/arrays y_true and y_pred to a metric function must be 5D!"
-        y_true = tf.cast(y_true, tf.float32)
-        y_pred = tf.cast(y_pred, tf.float32)
-        if batch_dim_as_spatial_dim:
-            y_true = tf.reshape(y_true, [1, y_true.shape[1], y_true.shape[2], -1, y_true.shape[4]])
-            y_pred = tf.reshape(y_pred, [1, y_pred.shape[1], y_pred.shape[2], -1, y_pred.shape[4]])
-
-        if feature_dim_as_spatial_dim:
-            y_true = tf.reshape(y_true, [1, y_true.shape[1], y_true.shape[2], -1, 1])
-            y_pred = tf.reshape(y_pred, [1, y_pred.shape[1], y_pred.shape[2], -1, 1])
-
-        if argmax:
-            y_true = tf.one_hot(tf.math.argmax(y_true, axis=-1), y_true.shape[-1], dtype=tf.float32)
-            y_pred = tf.one_hot(tf.math.argmax(y_pred, axis=-1), y_pred.shape[-1], dtype=tf.float32)
-
-        if threshold is not None:
-            y_true = tf.cast(tf.math.greater(y_true, threshold), tf.float32)
-            y_pred = tf.cast(tf.math.greater(y_pred, threshold), tf.float32)
-
-        if map_batch:
-            result = tf.map_fn(lambda x: get_metric(metric_name, map_features=map_features, **kwargs)(x[0][None], x[1][None]), (y_true, y_pred), fn_output_signature=tf.float32)
-            result = result[:, 0, ...]
-
-        elif map_features:
-            y_true = tf.keras.backend.permute_dimensions(y_true, (4, 0, 1, 2, 3))
-            y_pred = tf.keras.backend.permute_dimensions(y_pred, (4, 0, 1, 2, 3))
-            result = tf.map_fn(lambda x: get_metric(metric_name, **kwargs)(x[0][..., None], x[1][..., None]), (y_true, y_pred), fn_output_signature=tf.float32)
-            result = result[..., 0]
-            result = tf.keras.backend.permute_dimensions(result, (1, 2, 3, 4, 0))
-
-        else:
-            result = metric(y_true, y_pred, **kwargs)
-
-        result = tf.cast(result, tf.float32)
-        assert len(tf.keras.backend.int_shape(result)) == 5, "The output tensor/array of a metric function must be 5D!"
-        if reduction_mode is None:
-            return result
-
-        elif reduction_mode == "mean":
-            return tf.reduce_mean(result, axis=reduction_axes, keepdims=True)
-
-        elif reduction_mode == "median" or (reduction_mode == "percentile" and (percentile is None or percentile == 50)):
-            return tfp.stats.percentile(result, 50, axis=reduction_axes, interpolation="midpoint", keepdims=True)
-
-        else:
-            assert reduction_mode == "percentile" and percentile is not None, "Unknown reduction_mode/percentile combination requested."
-            return tfp.stats.percentile(result, percentile, axis=reduction_axes, interpolation="midpoint", keepdims=True)
-
+    metric = partial(
+        _metric,
+        metric_name=metric_name,
+        metric=metric,
+        batch_dim_as_spatial_dim=batch_dim_as_spatial_dim,
+        feature_dim_as_spatial_dim=feature_dim_as_spatial_dim,
+        threshold=threshold,
+        argmax=argmax,
+        map_batch=map_batch,
+        map_features=map_features,
+        reduction_mode=reduction_mode,
+        percentile=percentile,
+        reduction_axes=reduction_axes,
+        **kwargs
+    )
     if custom_metric_name is not None:
-        metric_fn.__name__ = custom_metric_name
+        metric.__name__ = custom_metric_name
 
     elif reduction_mode is None:
-        metric_fn.__name__ = metric_name
+        metric.__name__ = metric_name
 
     elif reduction_mode == "mean":
-        metric_fn.__name__ = "mean_" + metric_name
+        metric.__name__ = "mean_" + metric_name
 
     elif reduction_mode == "median" or (reduction_mode == "percentile" and (percentile is None or percentile == 50)):
-        metric_fn.__name__ = "median_" + metric_name
+        metric.__name__ = "median_" + metric_name
 
     else:
         assert reduction_mode == "percentile" and percentile is not None, "Unknown reduction_mode/percentile combination requested."
-        metric_fn.__name__ = f"p{percentile}_" + metric_name
+        metric.__name__ = f"p{percentile}_" + metric_name
 
-    return metric_fn
+    return metric
 
 
-def get_metric_at_multiple_thresholds(metric_name, thresholds, threshold_axis=None, **kwargs):
+def _metric_at_multiple_thresholds(y_true, y_pred, metric_name, thresholds, threshold_axis=None, **kwargs):
     if not isinstance(thresholds, Iterable):
         thresholds = (thresholds,)
 
-    def metric_fn(y_true, y_pred):
-        metric_values = [get_metric(metric_name, threshold=threshold, **kwargs)(y_true, y_pred) for threshold in thresholds]
-        if threshold_axis is None:
-            return tf.stack(metric_values, axis=0)
+    metric_values = [get_metric(metric_name, threshold=threshold, **kwargs)(y_true, y_pred) for threshold in thresholds]
+    if threshold_axis is None:
+        return tf.stack(metric_values, axis=0)
 
-        else:
-            return tf.concat(metric_values, axis=threshold_axis)
+    else:
+        return tf.concat(metric_values, axis=threshold_axis)
 
-    metric_fn.__name__ = get_metric(metric_name, **kwargs).__name__
-    return metric_fn
+
+def get_metric_at_multiple_thresholds(metric_name, thresholds, threshold_axis=None, **kwargs):
+    metric_at_multiple_thresholds = partial(_metric_at_multiple_thresholds, metric_name=metric_name, thresholds=thresholds, threshold_axis=threshold_axis, **kwargs)
+    metric_at_multiple_thresholds.__name__ = get_metric(metric_name, **kwargs).__name__
+    return metric_at_multiple_thresholds

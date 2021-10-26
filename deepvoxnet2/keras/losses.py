@@ -40,6 +40,11 @@ def get_loss(loss_name, reduction_mode="mean", custom_loss_name=None, **kwargs):
     return loss
 
 
+def _combined_loss(y_true, y_pred, losses, loss_weights):
+    weighted_losses = [tf.cast(loss_weight, tf.float32) * loss(y_true, y_pred) for loss, loss_weight in zip(losses, loss_weights)]
+    return tf.math.add_n(weighted_losses)
+
+
 def get_combined_loss(losses, loss_weights=None, custom_combined_loss_name=None):
     if loss_weights is None:
         loss_weights = [1 / len(losses) for _ in losses]
@@ -47,11 +52,8 @@ def get_combined_loss(losses, loss_weights=None, custom_combined_loss_name=None)
     else:
         assert len(losses) == len(loss_weights)
 
-    def loss_fn(y_true, y_pred):
-        weighted_losses = [tf.cast(loss_weight, tf.float32) * loss(y_true, y_pred) for loss, loss_weight in zip(losses, loss_weights)]
-        return tf.math.add_n(weighted_losses)
-
+    combined_loss = partial(_combined_loss, losses=losses, loss_weights=loss_weights)
     if custom_combined_loss_name is not None:
-        loss_fn.__name__ = custom_combined_loss_name
+        combined_loss.__name__ = custom_combined_loss_name
 
-    return loss_fn
+    return combined_loss
