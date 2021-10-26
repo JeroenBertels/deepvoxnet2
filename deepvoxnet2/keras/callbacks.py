@@ -61,7 +61,7 @@ class MetricNameChanger(Callback):
 
                 elif log != "lr" and log != "epoch" and self.validation_key is not None and log.startswith("val_"):
                     log_name = f"{self.validation_key}__" + log[4:]
-                    for i, keras_model_output_name in enumerate(self.output_names):
+                    for i, keras_model_output_name in enumerate(self.model.output_names):
                         if log[4:].startswith(keras_model_output_name + "_"):
                             log_name = f"{self.validation_key}__" + log[4 + len(keras_model_output_name) + 1:]
                             if not log.endswith(f"__s{i}"):
