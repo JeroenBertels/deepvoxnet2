@@ -115,12 +115,10 @@ def ece_from_bin_stats(y_true, y_pred, **kwargs):
     return tf.reduce_sum(tf.abs(bin_confidence - bin_accuracy) * bin_count, axis=1, keepdims=True) / tf.reduce_sum(bin_count, axis=1, keepdims=True)
 
 
-def ece(y_true, y_pred, nbins=10, quantiles_as_bins=False, return_bin_stats=False, from_bin_stats=False, **kwargs):
+def ece(y_true, y_pred, nbins=21, quantiles_as_bins=False, return_bin_stats=False, from_bin_stats=True, **kwargs):
     y_true, y_pred = _expand_binary(y_true, y_pred)
-    y_true = tf.reshape(y_true, [-1, y_true.shape[4]])
-    y_pred = tf.reshape(y_pred, [-1, y_pred.shape[4]])
-    labels_true = tf.math.argmax(y_true, axis=-1)
-    labels_pred = tf.math.argmax(y_pred, axis=-1)
+    y_true, y_pred = tf.reshape(y_true, [-1, y_true.shape[4]]), tf.reshape(y_pred, [-1, y_pred.shape[4]])
+    labels_true, labels_pred = tf.math.argmax(y_true, axis=-1), tf.math.argmax(y_pred, axis=-1)
     confidence = tf.math.reduce_max(y_pred, axis=-1)
     hits = tf.equal(labels_true, labels_pred)
     if quantiles_as_bins:
@@ -131,7 +129,7 @@ def ece(y_true, y_pred, nbins=10, quantiles_as_bins=False, return_bin_stats=Fals
     else:
         edges = tf.cast(tf.linspace(0, 1, nbins), tf.float32)
         if not return_bin_stats and not from_bin_stats:
-            return tfp.stats.expected_calibration_error(nbins, tf.math.log(y_pred), labels_true)[None, None, None, None, None]
+            return tfp.stats.expected_calibration_error(nbins, tf.math.log(y_pred), labels_true, labels_pred)[None, None, None, None, None]
 
     bins = tfp.stats.find_bins(confidence, edges=edges)
     stats = []
@@ -159,21 +157,31 @@ def riemann_sum(y_true, y_pred, reduce_mean_axes=(1, 2, 3, 4), **kwargs):
     return tf.reduce_sum((x[1:] - x[:-1]) * (y[1:] + y[:-1]) / 2, axis=0, keepdims=True)[None, None, None, None]
 
 
-def auc(y_true, y_pred, thresholds=np.linspace(tf.keras.backend.epsilon(), 1 - tf.keras.backend.epsilon(), 51), curve='PR', **kwargs):
-    thresholds = tf.convert_to_tensor(thresholds, dtype=tf.float32)
+def auc(y_true, y_pred, thresholds=np.linspace(0 - tf.keras.backend.epsilon(), 1, 51), curve='PR', auc_threshold_axis=1, return_auc_stats=False, y_true_thresholds=None, **kwargs):
+    if y_true_thresholds is not None:
+        if not isinstance(y_true_thresholds, Iterable):
+            y_true_thresholds = [y_true_thresholds] * len(thresholds)
+
+        assert len(y_true_thresholds) == len(thresholds), "If you specify a list of y_true_thresholds they must be of equal length to the specified list of (y_pred) thresholds."
+        thresholds = list(zip(y_true_thresholds, thresholds))
+
     if curve == "PR":
-        x = recall = get_metric_at_multiple_thresholds("true_positive_rate", thresholds, threshold_axis=1, **kwargs)(y_true, y_pred)
-        y = precision = get_metric_at_multiple_thresholds("positive_predictive_value", thresholds, threshold_axis=1, **kwargs)(y_true, y_pred)
+        x = recall = get_metric_at_multiple_thresholds("true_positive_rate", thresholds, threshold_axis=auc_threshold_axis, **kwargs)(y_true, y_pred)
+        y = precision = get_metric_at_multiple_thresholds("positive_predictive_value", thresholds, threshold_axis=auc_threshold_axis, **kwargs)(y_true, y_pred)
 
     elif curve == "ROC":
-        specificity = get_metric_at_multiple_thresholds("true_negative_rate", thresholds, threshold_axis=1, **kwargs)(y_true, y_pred)
+        specificity = get_metric_at_multiple_thresholds("true_negative_rate", thresholds, threshold_axis=auc_threshold_axis, **kwargs)(y_true, y_pred)
         x = 1 - specificity
-        y = recall = get_metric_at_multiple_thresholds("true_positive_rate", thresholds, threshold_axis=1, **kwargs)(y_true, y_pred)
+        y = recall = get_metric_at_multiple_thresholds("true_positive_rate", thresholds, threshold_axis=auc_threshold_axis, **kwargs)(y_true, y_pred)
 
     else:
         raise ValueError("The requested curve is not yet implemented.")
 
-    return riemann_sum(x, y, reduce_mean_axes=(0, 2, 3, 4))
+    if return_auc_stats:
+        return tf.concat([x, y], axis=auc_threshold_axis)
+
+    else:
+        return riemann_sum(x, y, reduce_mean_axes=tuple([i for i in range(5) if i != auc_threshold_axis]))
 
 
 def hausdorff_distance(y_true, y_pred, min_edge_diff=1, voxel_size=1, hd_percentile=95, **kwargs):
@@ -226,8 +234,12 @@ def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False,
         y_pred = tf.one_hot(tf.math.argmax(y_pred, axis=-1), y_pred.shape[-1], dtype=tf.float32)
 
     if threshold is not None:
-        y_true = tf.cast(tf.math.greater(y_true, threshold), tf.float32)
-        y_pred = tf.cast(tf.math.greater(y_pred, threshold), tf.float32)
+        if not isinstance(threshold, tuple):
+            threshold = (threshold, threshold)
+
+        assert len(threshold) == 2, "A threshold must either be specified as a scalar, a broadcastable array or a tuple of two of these (one for y_true and one for y_pred)."
+        y_true = tf.cast(tf.math.greater(y_true, tf.convert_to_tensor(threshold[0], dtype=tf.float32)), tf.float32)
+        y_pred = tf.cast(tf.math.greater(y_pred, tf.convert_to_tensor(threshold[1], dtype=tf.float32)), tf.float32)
 
     if map_batch:
         result = tf.map_fn(lambda x: get_metric(metric_name, map_features=map_features, **kwargs)(x[0][None], x[1][None]), (y_true, y_pred), fn_output_signature=tf.float32)
@@ -406,3 +418,41 @@ def get_metric_at_multiple_thresholds(metric_name, thresholds, threshold_axis=No
     metric_at_multiple_thresholds = partial(_metric_at_multiple_thresholds, metric_name=metric_name, thresholds=thresholds, threshold_axis=threshold_axis, **kwargs)
     metric_at_multiple_thresholds.__name__ = get_metric(metric_name, **kwargs).__name__
     return metric_at_multiple_thresholds
+
+
+if __name__ == "__main__":
+    from matplotlib import pyplot as plt
+    y_true = np.random.rand(1, 100, 100, 100, 1)
+    # y_pred = np.random.rand(1, 100, 100, 100, 1)
+    y_pred = np.clip(y_true + np.random.rand(1, 100, 100, 100, 1) / 2, 0, 1)
+    y_true = y_true > 0.5
+
+    # ECE checking
+    ece_0 = get_metric("ece", quantiles_as_bins=False, ece_from_bin_stats=False)(y_true, y_pred)
+    ece_1 = get_metric("ece", quantiles_as_bins=True, ece_from_bin_stats=False)(y_true, y_pred)
+    ece_2 = get_metric("ece", quantiles_as_bins=False, ece_from_bin_stats=True)(y_true, y_pred)
+    ece_3 = get_metric("ece", quantiles_as_bins=True, ece_from_bin_stats=True)(y_true, y_pred)
+    print(ece_0, ece_1, ece_2, ece_3)
+    bin_stats_0 = get_metric("ece", quantiles_as_bins=False, ece_from_bin_stats=False, return_bin_stats=True)(y_true, y_pred)
+    bin_stats_1 = get_metric("ece", quantiles_as_bins=True, ece_from_bin_stats=False, return_bin_stats=True)(y_true, y_pred)
+    confidence_0, accuracy_0 = bin_stats_0[0, :, 0, 0, 0], bin_stats_0[0, :, 1, 0, 0]
+    confidence_1, accuracy_1 = bin_stats_1[0, :, 0, 0, 0], bin_stats_1[0, :, 1, 0, 0]
+    plt.figure()
+    plt.plot(confidence_0, accuracy_0, "b.")
+    plt.plot(confidence_1, accuracy_1, "r.")
+    plt.title("ECE")
+    plt.show()
+
+    # AUC checking
+    auc_0 = get_metric("auc", y_true_thresholds=None)(y_true, y_pred)
+    auc_1 = get_metric("auc", y_true_thresholds=0.5)(y_true, y_pred)
+    print(auc_0, auc_1)
+    auc_stats_0 = get_metric("auc", return_auc_stats=True, y_true_thresholds=None)(y_true, y_pred)
+    auc_stats_1 = get_metric("auc", return_auc_stats=True, y_true_thresholds=0.5)(y_true, y_pred)
+    x_0, y_0 = auc_stats_0[0, :auc_stats_0.shape[1] // 2, 0, 0, 0], auc_stats_0[0, auc_stats_0.shape[1] // 2:, 0, 0, 0]
+    x_1, y_1 = auc_stats_1[0, :auc_stats_1.shape[1] // 2, 0, 0, 0], auc_stats_1[0, auc_stats_1.shape[1] // 2:, 0, 0, 0]
+    plt.figure()
+    plt.plot(x_0, y_0, "b.")
+    plt.plot(x_1, y_1, "r.")
+    plt.title("AUC")
+    plt.show()
