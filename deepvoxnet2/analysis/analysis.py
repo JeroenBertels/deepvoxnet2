@@ -1,4 +1,3 @@
-import warnings
 import numpy as np
 import pandas as pd
 from deepvoxnet2.components.mirc import Mirc
@@ -11,14 +10,21 @@ from scripts.jberte3.KAROLINSKA2021.preprocessing.s2_datasets import mrclean, ka
 class Analysis(object):
     def __init__(self, *data):
         assert all([isinstance(data_, Data) for data_ in data])
-        all_indices = sorted(set([ind for data_ in data for ind in data_.index]))
-        if any([len(all_indices[0]) != len(ind) for ind in all_indices[1:]]):
-            warnings.warn("Watch out: not all indices have the same number of levels across all the data!")
+        if any([len(data_.index.names) != len(data[0].index.names) for data_ in data[1:]]):
+            print("Watch out: not all indices have the same number of levels across all the data!")
 
-        all_columns = sorted(set([col for data_ in data for col in data_.columns]))
-        if any([len(all_columns[0]) != len(col) for col in all_columns[1:]]):
-            warnings.warn("Watch out: not all columns have the same number of levels across all the data!")
+        if any([len(data_.columns.names) != len(data[0].columns.names) for data_ in data[1:]]):
+            print("Watch out: not all columns have the same number of levels across all the data!")
 
+        all_indices = [ind for data_ in data for ind in data_.index]
+        if any([set(data_.index) != set(data[0].index) for data_ in data]):
+            print("Watch out: the given data have different indices!")
+
+        all_columns = [col for data_ in data for col in data_.columns]
+        if len(set(all_columns)) != len(all_columns):
+            print("Watch out: the given data have overlapping columns!")
+
+        all_indices = list(dict.fromkeys(all_indices))
         max_nb_index_levels = max([len(ind) for ind in all_indices])
         index_names = [None] * max_nb_index_levels
         for data_ in data:
@@ -26,7 +32,7 @@ class Analysis(object):
                 index_names = data_.index.names
                 break
 
-        indices = pd.MultiIndex.from_tuples(all_indices, names=index_names)
+        all_columns = list(dict.fromkeys(all_columns))
         max_nb_column_levels = max([len(col) for col in all_columns])
         column_names = [None] * max_nb_column_levels
         for data_ in data:
@@ -34,8 +40,7 @@ class Analysis(object):
                 column_names = data_.columns.names
                 break
 
-        columns = pd.MultiIndex.from_tuples(all_columns, names=column_names)
-        self.df = pd.DataFrame(index=indices, columns=columns)
+        self.df = pd.DataFrame(index=pd.MultiIndex.from_tuples(all_indices, names=index_names), columns=pd.MultiIndex.from_tuples(all_columns, names=column_names))
         self.index = self.df.index
         self.columns = self.df.columns
         for data_ in data:

@@ -125,7 +125,8 @@ class GroupedSeries(object):
 
 class Data(object):
     def __init__(self, df):
-        assert len(df.index.names) == 3 and all([name == name_ for name, name_ in zip(df.index.names, ["dataset_id", "case_id", "record_id"])])
+        assert len(df.index.names) == 3 and all([name == name_ for name, name_ in zip(df.index.names, ["dataset_id", "case_id", "record_id"])]),  "The index must be a MultiIndex with the three levels: dataset_id, case_id and record_id."
+        assert df.shape[1] == 1, "The dataframe must have only a single column."
         self.df = df.copy()
         self.index = self.df.index
         self.columns = self.df.columns
@@ -198,6 +199,20 @@ class Data(object):
 
         elif level == "record_id":
             return df.groupby(level=("dataset_id", "case_id"))
+
+        else:
+            raise ValueError("Unknown level value.")
+
+    @staticmethod
+    def iter_level(df, level):
+        if level == "dataset_id":
+            return df.groupby(level=("dataset_id",))
+
+        elif level == "case_id":
+            return df.groupby(level=("dataset_id", "case_id"))
+
+        elif level == "record_id":
+            return df.groupby(level=("dataset_id", "case_id", "record_id"))
 
         else:
             raise ValueError("Unknown level value.")
@@ -284,6 +299,19 @@ class Data(object):
 
     def set_axis(self, *args, **kwargs):
         return Data(self.df.set_axis(*args, **kwargs))
+
+    def bootstrap(self, level="record_id", seed=0, n=None):
+        dfs = [df for _, df in self.iter_level(self.df, level)]
+        np.random.seed(seed)
+        bootstrapped_dfs = []
+        for i, j in enumerate(np.random.choice(range(len(dfs)), size=len(dfs) if n is None else n)):
+            df = dfs[j]
+            for level_name in ["dataset_id", "case_id", "record_id"]:
+                df = df.rename(index=lambda ind: f"{ind}_{seed}", level=level_name)
+
+            bootstrapped_dfs.append(df.rename(index=lambda ind: f"{ind}_{i}", level=level))
+
+        return Data(pd.concat(bootstrapped_dfs))
 
 
 if __name__ == "__main__":
