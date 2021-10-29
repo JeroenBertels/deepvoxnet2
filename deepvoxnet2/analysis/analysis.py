@@ -9,7 +9,17 @@ from scripts.jberte3.KAROLINSKA2021.preprocessing.s2_datasets import mrclean, ka
 
 class Analysis(object):
     def __init__(self, *data):
-        assert all([isinstance(data_, Data) for data_ in data])
+        data_data = []
+        for i, data_ in enumerate(data):
+            assert isinstance(data_, (Data, pd.DataFrame))
+            if isinstance(data_, Data):
+                data_data.append(data_)
+
+            else:
+                for col in data_:
+                    data_data.append(Data(data_[[col]]))
+
+        data = data_data
         if any([len(data_.index.names) != len(data[0].index.names) for data_ in data[1:]]):
             print("Watch out: not all indices have the same number of levels across all the data!")
 
@@ -40,19 +50,29 @@ class Analysis(object):
                 column_names = data_.columns.names
                 break
 
-        self.df = pd.DataFrame(index=pd.MultiIndex.from_tuples(all_indices, names=index_names), columns=pd.MultiIndex.from_tuples(all_columns, names=column_names))
+        # all_indices = [tuple([ind[i - (max_nb_index_levels - len(ind))] if i + len(ind) >= max_nb_index_levels else None for i in range(max_nb_index_levels)]) for ind in all_indices]
+        # all_columns = [tuple([col[i - (max_nb_column_levels - len(col))] if i + len(col) >= max_nb_column_levels else None for i in range(max_nb_column_levels)]) for col in all_columns]
+        self.df = pd.DataFrame(index=pd.MultiIndex.from_tuples(all_indices, names=index_names), columns=pd.MultiIndex.from_tuples(all_columns, names=column_names)).sort_index()
         self.index = self.df.index
         self.columns = self.df.columns
+        self.shape = self.df.shape
         for data_ in data:
             for ind in data_.index:
                 for col in data_.columns:
+                    # self.df.loc[(None,) * (max_nb_index_levels - len(ind)) + ind, (None,) * (max_nb_column_levels - len(col)) + col] = data_.df.loc[ind, col]
                     self.df.loc[ind + (None,) * (max_nb_index_levels - len(ind)), col + (None,) * (max_nb_column_levels - len(col))] = data_.df.loc[ind, col]
 
-    def __call__(self):
-        return self.data()
+    def __len__(self):
+        return self.df.shape[1]
 
-    def data(self):
-        return [Data(self.df.loc[:, [column]]) for column in self.columns]
+    def __getitem__(self, item):
+        return Data(self.df[[self.columns[item]]])
+
+    def __iter__(self):
+        return iter(self())
+
+    def __call__(self):
+        return [Data(self.df[[column]]) for column in self.columns]
 
     def get_empty_df(self):
         return pd.DataFrame(index=self.index, columns=self.columns)
@@ -65,10 +85,17 @@ class Analysis(object):
 
         return Data(df)
 
-    def dropna(self):
-        indices = self.df.dropna().index
-        data = [Data(self.df.loc[indices, [column]]) for column in self.columns]
-        return Analysis(*data)
+    def reindex(self, *args, **kwargs):
+        return Analysis(self.df.reindex(*args, **kwargs))
+
+    def set_axis(self, *args, **kwargs):
+        return Analysis(self.df.set_axis(*args, **kwargs))
+
+    def dropna(self, axis=0, how="any"):
+        return Analysis(self.df.dropna(axis=axis, how=how))
+
+    def squeeze(self, *args, **kwargs):
+        return Analysis(*[data.squeeze(*args, **kwargs) for data in self])
 
 
 if __name__ == "__main__":
@@ -109,6 +136,8 @@ if __name__ == "__main__":
     case_ece = analysis.apply(get_metric("ece", nbins=20)).squeeze()
 
     y_true_data, y_pred_data = analysis.dropna()()  # remove nan rows and get Data objects
-    analysis = Analysis(y_true_data.reshape((-1, 1, 1, 1, 1)).combine_concat(), y_pred_data.reshape((-1, 1, 1, 1, 1)).combine_concat())
+    y_true_data = y_true_data.reshape((-1, 1, 1, 1, 1)).combine_concat()
+    y_pred_data = y_pred_data.reshape((-1, 1, 1, 1, 1)).combine_concat()
+    analysis = Analysis(y_true_data, y_pred_data)
     dataset_ece_stats = analysis.apply(get_metric("ece", nbins=20, return_bin_stats=True))
     dataset_ece = analysis.apply(get_metric("ece", nbins=20)).squeeze()

@@ -127,39 +127,39 @@ class Data(object):
     def __init__(self, df):
         assert len(df.index.names) == 3 and all([name == name_ for name, name_ in zip(df.index.names, ["dataset_id", "case_id", "record_id"])]),  "The index must be a MultiIndex with the three levels: dataset_id, case_id and record_id."
         assert df.shape[1] == 1, "The dataframe must have only a single column."
-        self.df = df.copy()
+        assert isinstance(df, (Data, pd.DataFrame)), "A Data class needs to be constructed from a DataFrame or another Data class."
+        self.df = df.sort_index() if isinstance(df, pd.DataFrame) else df.df.sort_index()
         self.index = self.df.index
         self.columns = self.df.columns
+        self.shape = self.df.shape
 
-    def __call__(self):
-        return self
-
-    def get_empty_df(self, reduction_level=None, reduction_mode=None, reduce_all_below=True):
+    def get_empty_df(self, reduction_level=None, reduction_mode=None, reduce_all_below=True, custom_reduction_name=False):
         if reduction_level is None:
             indices = self.index
 
         else:
             assert isinstance(reduction_mode, str)
+            custom_reduction_name = custom_reduction_name if custom_reduction_name is not False else reduction_mode
             indices = []
             if reduction_level == "record_id":
                 for dataset_id, dataset_df in self.df.groupby("dataset_id"):
                     for case_id, case_df in dataset_df.groupby("case_id"):
                         for record_i, (record_id, record_df) in enumerate(case_df.groupby("record_id")):
-                            indices.append((dataset_id, case_id, reduction_mode))
+                            indices.append((dataset_id, case_id, custom_reduction_name))
                             break
 
             elif reduction_level == "case_id":
                 for dataset_id, dataset_df in self.df.groupby("dataset_id"):
                     for case_i, (case_id, case_df) in enumerate(dataset_df.groupby("case_id")):
                         if reduce_all_below:
-                            indices.append((dataset_id, reduction_mode, reduction_mode))
+                            indices.append((dataset_id, custom_reduction_name, custom_reduction_name))
                             break
 
                         elif case_i == 0:
                             indices_case_0 = []
                             for record_id, record_df in case_df.groupby("record_id"):
                                 indices_case_0.append((record_id,))
-                                indices.append((dataset_id, reduction_mode, record_id))
+                                indices.append((dataset_id, custom_reduction_name, record_id))
 
                         else:
                             indices_case_i = [(record_id,) for record_id, record_df in case_df.groupby("record_id")]
@@ -168,7 +168,7 @@ class Data(object):
             elif reduction_level == "dataset_id":
                 for dataset_i, (dataset_id, dataset_df) in enumerate(self.df.groupby("dataset_id")):
                     if reduce_all_below:
-                        indices.append((reduction_mode, reduction_mode, reduction_mode))
+                        indices.append((custom_reduction_name, custom_reduction_name, custom_reduction_name))
                         break
 
                     elif dataset_i == 0:
@@ -176,7 +176,7 @@ class Data(object):
                         for case_id, case_df in dataset_df.groupby("case_id"):
                             for record_id, record_df in case_df.groupby("record_id"):
                                 indices_dataset_0.append((case_id, record_id))
-                                indices.append((reduction_mode, case_id, record_id))
+                                indices.append((custom_reduction_name, case_id, record_id))
 
                     else:
                         indices_dataset_i = [(case_id, record_id) for case_id, case_df in dataset_df.groupby("case_id") for record_id, record_df in case_df.groupby("record_id")]
@@ -231,8 +231,8 @@ class Data(object):
         else:
             raise ValueError("Unknown level value.")
 
-    def combine(self, mode, level="dataset_id", reduce_all_below=True, **kwargs):
-        combined_df = self.get_empty_df(reduction_level=level, reduction_mode=mode, reduce_all_below=reduce_all_below)
+    def combine(self, mode, level="dataset_id", reduce_all_below=True, custom_name=False, **kwargs):
+        combined_df = self.get_empty_df(reduction_level=level, reduction_mode=mode, reduce_all_below=reduce_all_below, custom_reduction_name=custom_name)
         values = []
         for upper_index, upper_df in self.iter_upper_level(self.df, level):
             if reduce_all_below:
@@ -291,8 +291,8 @@ class Data(object):
     def expand_dims(self, *args, **kwargs):
         return self.apply(np.expand_dims, *args, **kwargs)
 
-    def dropna(self):
-        return Data(self.df.dropna())
+    def dropna(self, axis=0, how="any"):
+        return Data(self.df.dropna(axis=axis, how=how))
 
     def reindex(self, *args, **kwargs):
         return Data(self.df.reindex(*args, **kwargs))
