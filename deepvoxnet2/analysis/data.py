@@ -133,33 +133,31 @@ class Data(object):
         self.columns = self.df.columns
         self.shape = self.df.shape
 
-    def get_empty_df(self, reduction_level=None, reduction_mode=None, reduce_all_below=True, custom_reduction_name=False):
+    def get_empty_df(self, reduction_level=None, combine_fn_name=None, reduce_all_below=True):
         if reduction_level is None:
             indices = self.index
 
         else:
-            assert isinstance(reduction_mode, str)
-            custom_reduction_name = custom_reduction_name if custom_reduction_name is not False else reduction_mode
             indices = []
             if reduction_level == "record_id":
                 for dataset_id, dataset_df in self.df.groupby("dataset_id"):
                     for case_id, case_df in dataset_df.groupby("case_id"):
                         for record_i, (record_id, record_df) in enumerate(case_df.groupby("record_id")):
-                            indices.append((dataset_id, case_id, custom_reduction_name))
+                            indices.append((dataset_id, case_id, combine_fn_name))
                             break
 
             elif reduction_level == "case_id":
                 for dataset_id, dataset_df in self.df.groupby("dataset_id"):
                     for case_i, (case_id, case_df) in enumerate(dataset_df.groupby("case_id")):
                         if reduce_all_below:
-                            indices.append((dataset_id, custom_reduction_name, custom_reduction_name))
+                            indices.append((dataset_id, combine_fn_name, combine_fn_name))
                             break
 
                         elif case_i == 0:
                             indices_case_0 = []
                             for record_id, record_df in case_df.groupby("record_id"):
                                 indices_case_0.append((record_id,))
-                                indices.append((dataset_id, custom_reduction_name, record_id))
+                                indices.append((dataset_id, combine_fn_name, record_id))
 
                         else:
                             indices_case_i = [(record_id,) for record_id, record_df in case_df.groupby("record_id")]
@@ -168,7 +166,7 @@ class Data(object):
             elif reduction_level == "dataset_id":
                 for dataset_i, (dataset_id, dataset_df) in enumerate(self.df.groupby("dataset_id")):
                     if reduce_all_below:
-                        indices.append((custom_reduction_name, custom_reduction_name, custom_reduction_name))
+                        indices.append((combine_fn_name, combine_fn_name, combine_fn_name))
                         break
 
                     elif dataset_i == 0:
@@ -176,7 +174,7 @@ class Data(object):
                         for case_id, case_df in dataset_df.groupby("case_id"):
                             for record_id, record_df in case_df.groupby("record_id"):
                                 indices_dataset_0.append((case_id, record_id))
-                                indices.append((custom_reduction_name, case_id, record_id))
+                                indices.append((combine_fn_name, case_id, record_id))
 
                     else:
                         indices_dataset_i = [(case_id, record_id) for case_id, case_df in dataset_df.groupby("case_id") for record_id, record_df in case_df.groupby("record_id")]
@@ -231,46 +229,34 @@ class Data(object):
         else:
             raise ValueError("Unknown level value.")
 
-    def combine(self, mode, level="dataset_id", reduce_all_below=True, custom_name=False, **kwargs):
-        custom_reduction_name = custom_name if custom_name is not False else mode
-        combined_df = self.get_empty_df(reduction_level=level, reduction_mode=mode, reduce_all_below=reduce_all_below, custom_reduction_name=custom_reduction_name)
+    def combine(self, combine_fn, level="dataset_id", reduce_all_below=True, custom_combine_fn_name=False, **kwargs):
+        combine_fn_name = custom_combine_fn_name if custom_combine_fn_name is not False else combine_fn.__name__
+        combined_df = self.get_empty_df(reduction_level=level, combine_fn_name=combine_fn_name, reduce_all_below=reduce_all_below)
         for upper_index, upper_df in self.iter_upper_level(self.df, level):
             reduced_indices = []
             values = []
             if reduce_all_below:
-                reduced_indices.append(upper_index + (custom_reduction_name,) * (3 - len(upper_index)))
+                reduced_indices.append(upper_index + (combine_fn_name,) * (3 - len(upper_index)))
                 values.append([df_.values[0, 0] for _, df_ in upper_df.groupby(level=("dataset_id", "case_id", "record_id"))])
 
             else:
                 for lower_index, lower_df in self.iter_lower_level(upper_df, level):
-                    reduced_indices.append(upper_index + (custom_reduction_name,) + lower_index)
+                    reduced_indices.append(upper_index + (combine_fn_name,) + lower_index)
                     values.append([df_.values[0, 0] for _, df_ in lower_df.groupby(level=("dataset_id", "case_id", "record_id"))])
 
-            if mode == "mean":
-                values = [np.mean(values_, axis=0) for values_ in values]
-
-            elif mode == "sum":
-                values = [np.sum(values_, axis=0) for values_ in values]
-
-            elif mode == "concat":
-                values = [np.concatenate(values_, **kwargs) for values_ in values]
-
-            else:
-                raise ValueError("Unknown mode value.")
-
-            for reduced_idx, value in zip(reduced_indices, values):
-                combined_df.at[reduced_idx, combined_df.columns[0]] = value
+            for reduced_idx, values_ in zip(reduced_indices, values):
+                combined_df.at[reduced_idx, combined_df.columns[0]] = combine_fn(values_, **kwargs)
 
         return Data(combined_df)
 
-    def combine_mean(self, **kwargs):
-        return self.combine(mode="mean", **kwargs)
+    def combine_mean(self, axis=0, custom_combine_fn_name="mean", **kwargs):
+        return self.combine(np.mean, axis=axis, custom_combine_fn_name=custom_combine_fn_name, **kwargs)
 
-    def combine_sum(self, **kwargs):
-        return self.combine(mode="sum", **kwargs)
+    def combine_sum(self, axis=0, custom_combine_fn_name="sum", **kwargs):
+        return self.combine(np.sum, axis=axis, custom_combine_fn_name=custom_combine_fn_name, **kwargs)
 
-    def combine_concat(self, axis=0, **kwargs):
-        return self.combine(mode="concat", axis=axis, **kwargs)
+    def combine_concat(self, axis=0, custom_combine_fn_name="concat", **kwargs):
+        return self.combine(np.concatenate, axis=axis, custom_combine_fn_name=custom_combine_fn_name, **kwargs)
 
     def apply(self, apply_fn, *args, **kwargs):
         applied_df = self.get_empty_df()
@@ -319,6 +305,17 @@ class Data(object):
 
         return Data(pd.concat(bootstrapped_dfs))
 
+    def get_stats(self):
+        pmin = self.combine(np.min, axis=0, level="dataset_id", reduce_all_below=True, custom_combine_fn_name="min")
+        p5 = self.combine(np.percentile, axis=0, q=5, level="dataset_id", reduce_all_below=True, custom_combine_fn_name="p5")
+        p25 = self.combine(np.percentile, axis=0, q=25, level="dataset_id", reduce_all_below=True, custom_combine_fn_name="p25")
+        p50 = self.combine(np.percentile, axis=0, q=50, level="dataset_id", reduce_all_below=True, custom_combine_fn_name="p50")
+        p75 = self.combine(np.percentile, axis=0, q=75, level="dataset_id", reduce_all_below=True, custom_combine_fn_name="p75")
+        p95 = self.combine(np.percentile, axis=0, q=95, level="dataset_id", reduce_all_below=True, custom_combine_fn_name="p95")
+        pmax = self.combine(np.max, axis=0, level="dataset_id", reduce_all_below=True, custom_combine_fn_name="max")
+        pmean = self.combine_mean(level="dataset_id", reduce_all_below=True)
+        return Data(pd.concat([pmin.df, p5.df, p25.df, p50.df, p75.df, p95.df, pmax.df, pmean.df]))
+
 
 if __name__ == "__main__":
     indices = pd.MultiIndex.from_tuples([("dataset_A", "case_0", "record_0"), ("dataset_A", "case_1", "record_0"), ("dataset_B", "case_0", "record_0"), ("dataset_B", "case_1", "record_0")], names=["dataset_id", "case_id", "record_id"])
@@ -331,17 +328,17 @@ if __name__ == "__main__":
     print("The empty dataframe: ")
     print(data.get_empty_df(), "\n")
     print("The empty dataframe mean-reduced at dataset level: ")
-    print(data.get_empty_df(reduction_level="dataset_id", reduction_mode="mean", reduce_all_below=False), "\n")
+    print(data.get_empty_df(reduction_level="dataset_id", combine_fn_name="mean", reduce_all_below=False), "\n")
     print("The empty dataframe mean-reduced at dataset level and all below: ")
-    print(data.get_empty_df(reduction_level="dataset_id", reduction_mode="mean", reduce_all_below=True), "\n")
+    print(data.get_empty_df(reduction_level="dataset_id", combine_fn_name="mean", reduce_all_below=True), "\n")
     print("The empty dataframe sum-reduced at case level: ")
-    print(data.get_empty_df(reduction_level="case_id", reduction_mode="sum", reduce_all_below=False), "\n")
+    print(data.get_empty_df(reduction_level="case_id", combine_fn_name="sum", reduce_all_below=False), "\n")
     print("The empty dataframe sum-reduced at case level and all below: ")
-    print(data.get_empty_df(reduction_level="case_id", reduction_mode="sum", reduce_all_below=True), "\n")
+    print(data.get_empty_df(reduction_level="case_id", combine_fn_name="sum", reduce_all_below=True), "\n")
     print("The empty dataframe concat-reduced at record level: ")
-    print(data.get_empty_df(reduction_level="record_id", reduction_mode="concat", reduce_all_below=False), "\n")
+    print(data.get_empty_df(reduction_level="record_id", combine_fn_name="concat", reduce_all_below=False), "\n")
     print("The empty dataframe concat-reduced at record level and all below: ")
-    print(data.get_empty_df(reduction_level="record_id", reduction_mode="concat", reduce_all_below=True), "\n")
+    print(data.get_empty_df(reduction_level="record_id", combine_fn_name="concat", reduce_all_below=True), "\n")
 
     print("MEAN dataframe reduced at dataset level: ")
     data = Data(df)
