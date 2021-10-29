@@ -192,13 +192,13 @@ class Data(object):
     @staticmethod
     def iter_upper_level(df, level):
         if level == "dataset_id":
-            return [(None, df)]
+            return [((), df)]
 
         elif level == "case_id":
-            return df.groupby(level=("dataset_id",))
+            return [((idx,), df_) for idx, df_ in df.groupby(level=("dataset_id",))]
 
         elif level == "record_id":
-            return df.groupby(level=("dataset_id", "case_id"))
+            return [(idx, df_) for idx, df_ in df.groupby(level=("dataset_id", "case_id"))]
 
         else:
             raise ValueError("Unknown level value.")
@@ -206,13 +206,13 @@ class Data(object):
     @staticmethod
     def iter_level(df, level):
         if level == "dataset_id":
-            return df.groupby(level=("dataset_id",))
+            return [((idx,), df_) for idx, df_ in df.groupby(level=("dataset_id",))]
 
         elif level == "case_id":
-            return df.groupby(level=("dataset_id", "case_id"))
+            return [(idx, df_) for idx, df_ in df.groupby(level=("dataset_id", "case_id"))]
 
         elif level == "record_id":
-            return df.groupby(level=("dataset_id", "case_id", "record_id"))
+            return [(idx, df_) for idx, df_ in df.groupby(level=("dataset_id", "case_id", "record_id"))]
 
         else:
             raise ValueError("Unknown level value.")
@@ -220,41 +220,47 @@ class Data(object):
     @staticmethod
     def iter_lower_level(df, level):
         if level == "dataset_id":
-            return df.groupby(level=("case_id", "record_id"))
+            return [(idx, df_) for idx, df_ in df.groupby(level=("case_id", "record_id"))]
 
         elif level == "case_id":
-            return df.groupby(level=("record_id",))
+            return [((idx,), df_) for idx, df_ in df.groupby(level=("record_id",))]
 
         elif level == "record_id":
-            return [(None, df)]
+            return [((), df)]
 
         else:
             raise ValueError("Unknown level value.")
 
     def combine(self, mode, level="dataset_id", reduce_all_below=True, custom_name=False, **kwargs):
-        combined_df = self.get_empty_df(reduction_level=level, reduction_mode=mode, reduce_all_below=reduce_all_below, custom_reduction_name=custom_name)
-        values = []
+        custom_reduction_name = custom_name if custom_name is not False else mode
+        combined_df = self.get_empty_df(reduction_level=level, reduction_mode=mode, reduce_all_below=reduce_all_below, custom_reduction_name=custom_reduction_name)
         for upper_index, upper_df in self.iter_upper_level(self.df, level):
+            reduced_indices = []
+            values = []
             if reduce_all_below:
+                reduced_indices.append(upper_index + (custom_reduction_name,) * (3 - len(upper_index)))
                 values.append([df_.values[0, 0] for _, df_ in upper_df.groupby(level=("dataset_id", "case_id", "record_id"))])
 
             else:
                 for lower_index, lower_df in self.iter_lower_level(upper_df, level):
+                    reduced_indices.append(upper_index + (custom_reduction_name,) + lower_index)
                     values.append([df_.values[0, 0] for _, df_ in lower_df.groupby(level=("dataset_id", "case_id", "record_id"))])
 
-        if mode == "mean":
-            values = [[np.mean(values_, axis=0)] for values_ in values]
+            if mode == "mean":
+                values = [np.mean(values_, axis=0) for values_ in values]
 
-        elif mode == "sum":
-            values = [[np.sum(values_, axis=0)] for values_ in values]
+            elif mode == "sum":
+                values = [np.sum(values_, axis=0) for values_ in values]
 
-        elif mode == "concat":
-            values = [[np.concatenate(values_, **kwargs)] for values_ in values]
+            elif mode == "concat":
+                values = [np.concatenate(values_, **kwargs) for values_ in values]
 
-        else:
-            raise ValueError("Unknown mode value.")
+            else:
+                raise ValueError("Unknown mode value.")
 
-        combined_df.loc[:, :] = values
+            for reduced_idx, value in zip(reduced_indices, values):
+                combined_df.at[reduced_idx, combined_df.columns[0]] = value
+
         return Data(combined_df)
 
     def combine_mean(self, **kwargs):
@@ -269,7 +275,7 @@ class Data(object):
     def apply(self, apply_fn, *args, **kwargs):
         applied_df = self.get_empty_df()
         for ind in self.index:
-            applied_df.loc[ind, :] = [apply_fn(value, *args, **kwargs) for value in self.df.loc[ind, :]]
+            applied_df.at[ind, applied_df.columns[0]] = apply_fn(self.df.at[ind, self.df.columns[0]], *args, **kwargs)
 
         return Data(applied_df)
 

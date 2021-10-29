@@ -61,7 +61,7 @@ class Mirc(SortedDict):
         for dataset_id in self:
             for case_id in self[dataset_id]:
                 for record_id in self[dataset_id][case_id]:
-                    df.loc[(dataset_id, case_id, record_id), (modality_id, )] = self[dataset_id][case_id][record_id][modality_id].load()
+                    df.at[(dataset_id, case_id, record_id), (modality_id,)] = self[dataset_id][case_id][record_id][modality_id].load()
 
         return df
 

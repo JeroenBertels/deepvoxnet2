@@ -50,8 +50,6 @@ class Analysis(object):
                 column_names = data_.columns.names
                 break
 
-        # all_indices = [tuple([ind[i - (max_nb_index_levels - len(ind))] if i + len(ind) >= max_nb_index_levels else None for i in range(max_nb_index_levels)]) for ind in all_indices]
-        # all_columns = [tuple([col[i - (max_nb_column_levels - len(col))] if i + len(col) >= max_nb_column_levels else None for i in range(max_nb_column_levels)]) for col in all_columns]
         self.df = pd.DataFrame(index=pd.MultiIndex.from_tuples(all_indices, names=index_names), columns=pd.MultiIndex.from_tuples(all_columns, names=column_names)).sort_index()
         self.index = self.df.index
         self.columns = self.df.columns
@@ -59,8 +57,7 @@ class Analysis(object):
         for data_ in data:
             for ind in data_.index:
                 for col in data_.columns:
-                    # self.df.loc[(None,) * (max_nb_index_levels - len(ind)) + ind, (None,) * (max_nb_column_levels - len(col)) + col] = data_.df.loc[ind, col]
-                    self.df.loc[ind + (None,) * (max_nb_index_levels - len(ind)), col + (None,) * (max_nb_column_levels - len(col))] = data_.df.loc[ind, col]
+                    self.df.at[ind + (None,) * (max_nb_index_levels - len(ind)), col + (None,) * (max_nb_column_levels - len(col))] = data_.df.at[ind, col]
 
     def __len__(self):
         return self.df.shape[1]
@@ -81,7 +78,7 @@ class Analysis(object):
         columns = pd.MultiIndex.from_tuples([(apply_fn.__name__,)], names=["apply_fn"])
         df = pd.DataFrame(index=self.index, columns=columns)
         for ind in self.df.dropna().index:
-            df.loc[ind, :] = [apply_fn(*self.df.loc[ind, :].values, **kwargs).numpy()]
+            df.at[ind, df.columns[0]] = apply_fn(*self.df.loc[ind, :].values, **kwargs).numpy()
 
         return Data(df)
 

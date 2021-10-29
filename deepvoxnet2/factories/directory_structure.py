@@ -197,6 +197,6 @@ class MircStructure(Structure):
         df = pd.DataFrame(index=indices, columns=columns)
         for identifier, output_dir in zip(identifiers, output_dirs):
             output_path = os.path.join(output_dir, "{}{}{}{}__{}.nii.gz".format(key, f"__s{si}", f"__b{bi}", "__" + name_tag if name_tag is not None else "", x_or_y_or_sample_weight))
-            df.loc[(identifier.dataset_id, identifier.case_id, identifier.record_id), (self.run_name, self.experiment_name)] = NiftiFileModality("_", output_path).load()
+            df.at[(identifier.dataset_id, identifier.case_id, identifier.record_id), (self.run_name, self.experiment_name)] = NiftiFileModality("_", output_path).load()
 
         return df
