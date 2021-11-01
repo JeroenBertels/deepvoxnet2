@@ -66,11 +66,11 @@ def pred_volume(y_true, y_pred, voxel_volume=1, **kwargs):
 
 
 def volume_error(y_true, y_pred, voxel_volume=1, **kwargs):
-    return tf.reduce_sum(error(y_true, y_pred), axis=(1, 2, 3), keepdims=True) * voxel_volume
+    return pred_volume(y_true, y_pred, voxel_volume=voxel_volume, **kwargs) - true_volume(y_true, y_pred, voxel_volume=voxel_volume, **kwargs)
 
 
 def absolute_volume_error(y_true, y_pred, voxel_volume=1, **kwargs):
-    return tf.reduce_sum(absolute_error(y_true, y_pred), axis=(1, 2, 3), keepdims=True) * voxel_volume
+    return tf.abs(pred_volume(y_true, y_pred, voxel_volume=voxel_volume, **kwargs) - true_volume(y_true, y_pred, voxel_volume=voxel_volume, **kwargs))
 
 
 def positive_predictive_value(y_true, y_pred, eps=tf.keras.backend.epsilon(), **kwargs):
@@ -108,22 +108,24 @@ def coefficient_of_determination(y_true, y_pred, **kwargs):
 
 
 def _combine_ece_bin_stats(y_true, y_pred, combine_ece_bin_stats_axis=0, **kwargs):
-    ece_bin_stats = tf.where(tf.math.is_nan(y_true), tf.zeros_like(y_true), y_true)
     if combine_ece_bin_stats_axis is None:
-        return ece_bin_stats
+        return y_true
 
     else:
+        ece_bin_stats = tf.where(tf.math.is_nan(y_true), tf.zeros_like(y_true), y_true)
         bin_confidence = ece_bin_stats[:, :, :1, ...]
         bin_accuracy = ece_bin_stats[:, :, 1:2, ...]
         bin_count = ece_bin_stats[:, :, 2:, ...]
         bin_count_combined = tf.reduce_sum(bin_count, axis=combine_ece_bin_stats_axis, keepdims=True)
         bin_confidence_combined = (tf.reduce_sum(bin_confidence * bin_count, axis=combine_ece_bin_stats_axis, keepdims=True) + tf.keras.backend.epsilon()) / (bin_count_combined + tf.keras.backend.epsilon())
         bin_accuracy_combined = (tf.reduce_sum(bin_accuracy * bin_count, axis=combine_ece_bin_stats_axis, keepdims=True) + tf.keras.backend.epsilon()) / (bin_count_combined + tf.keras.backend.epsilon())
-        return tf.concat([bin_confidence_combined, bin_accuracy_combined, bin_count_combined], axis=2)
+        ece_bin_stats = tf.concat([bin_confidence_combined, bin_accuracy_combined, bin_count_combined], axis=2)
+        return tf.where(tf.reduce_all(tf.math.is_nan(y_true), axis=combine_ece_bin_stats_axis, keepdims=True), tf.convert_to_tensor(np.nan, tf.float32), ece_bin_stats)
 
 
 def ece_from_bin_stats(y_true, y_pred, **kwargs):
     ece_bin_stats = _combine_ece_bin_stats(y_true, y_pred, **kwargs)
+    ece_bin_stats = tf.where(tf.math.is_nan(ece_bin_stats), tf.zeros_like(ece_bin_stats), ece_bin_stats)
     bin_confidence = ece_bin_stats[:, :, :1, ...]
     bin_accuracy = ece_bin_stats[:, :, 1:2, ...]
     bin_count = ece_bin_stats[:, :, 2:, ...]
