@@ -82,17 +82,23 @@ class Analysis(object):
 
         return Data(df)
 
+    def squeeze(self, *args, **kwargs):
+        return Analysis(*[data.squeeze(*args, **kwargs) for data in self])
+
+    def dropna(self, axis=0, how="any"):
+        return Analysis(self.df.dropna(axis=axis, how=how))
+
     def reindex(self, *args, **kwargs):
         return Analysis(self.df.reindex(*args, **kwargs))
 
     def set_axis(self, *args, **kwargs):
         return Analysis(self.df.set_axis(*args, **kwargs))
 
-    def dropna(self, axis=0, how="any"):
-        return Analysis(self.df.dropna(axis=axis, how=how))
+    def rename(self, *args, **kwargs):
+        return Analysis(self.df.rename(*args, **kwargs))
 
-    def squeeze(self, *args, **kwargs):
-        return Analysis(*[data.squeeze(*args, **kwargs) for data in self])
+    def get_stats(self, **kwargs):
+        return Analysis(*[data.get_stats(**kwargs) for data in self])
 
 
 if __name__ == "__main__":
