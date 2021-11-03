@@ -25,8 +25,10 @@ class SortedDict(dict):
 
 
 class Mirc(SortedDict):
-    def __init__(self):
+    def __init__(self, *datasets):
         super(Mirc, self).__init__()
+        for dataset in datasets:
+            self.add(dataset)
 
     def __add__(self, other):
         mirc = Mirc()
