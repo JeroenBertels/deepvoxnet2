@@ -229,7 +229,7 @@ class Data(object):
         else:
             raise ValueError("Unknown level value.")
 
-    def combine(self, combine_fn, reduction_level="dataset_id", reduce_all_below=True, custom_combine_fn_name=False, skipna=True, **kwargs):
+    def combine(self, combine_fn, reduction_level="dataset_id", reduce_all_below=True, custom_combine_fn_name=False, exclude_nan=True, exclude_inf=True, **kwargs):
         combine_fn_name = custom_combine_fn_name if custom_combine_fn_name is not False else combine_fn.__name__
         combined_df = self.get_empty_df(reduction_level=reduction_level, combine_fn_name=combine_fn_name, reduce_all_below=reduce_all_below)
         for upper_index, upper_df in self.iter_upper_level(self.df, reduction_level):
@@ -245,8 +245,11 @@ class Data(object):
                     values.append([df_.values[0, 0] for _, df_ in self.iter_level(upper_df, level="record_id")])
 
             for reduced_idx, values_ in zip(reduced_indices, values):
-                if skipna:
-                    values_ = [value for value in values_ if not np.isscalar(value) or (not np.isnan(value) and not np.isinf(value))]
+                if exclude_nan:
+                    values_ = [value for value in values_ if (np.isscalar(value) and not np.isnan(value)) or (not np.isscalar(value) and (value.ndim > 0 or not np.isnan(value)))]
+
+                if exclude_inf:
+                    values_ = [value for value in values_ if (np.isscalar(value) and not np.isinf(value)) or (not np.isscalar(value) and (value.ndim > 0 or not np.isinf(value)))]
 
                 combined_df.at[reduced_idx, combined_df.columns[0]] = combine_fn(values_, **kwargs) if len(values_) > 0 else np.nan
 
@@ -312,21 +315,22 @@ class Data(object):
         return Data(pd.concat(bootstrapped_dfs))
 
     def get_stats(self, reduction_level="dataset_id", reduce_all_below=True):
-        n = self.combine(lambda values: len([value for value in values if not np.isscalar(value) or (not np.isnan(value) and not np.isinf(value))]), custom_combine_fn_name="n", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
-        nnan = self.combine(lambda values: len([value for value in values if np.isscalar(value) and (np.isnan(value) or np.isinf(value))]), custom_combine_fn_name="nnan", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
-        pmin = self.combine(np.min, axis=0, custom_combine_fn_name="min", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
-        p5 = self.combine(np.percentile, axis=0, q=5, custom_combine_fn_name="p5", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
-        p25 = self.combine(np.percentile, axis=0, q=25, custom_combine_fn_name="p25", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
-        p50 = self.combine(np.percentile, axis=0, q=50, custom_combine_fn_name="p50", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
-        p75 = self.combine(np.percentile, axis=0, q=75, custom_combine_fn_name="p75", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
-        p95 = self.combine(np.percentile, axis=0, q=95, custom_combine_fn_name="p95", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
-        pmax = self.combine(np.max, axis=0, custom_combine_fn_name="max", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
+        n = self.combine(lambda values: len(values), custom_combine_fn_name="n", reduction_level=reduction_level, reduce_all_below=reduce_all_below)  # nan and inf excluded by default
+        nnan = self.combine(lambda values: len([value for value in values if (np.isscalar(value) and np.isnan(value)) or (not np.isscalar(value) and value.ndim == 0 and np.isnan(value))]), custom_combine_fn_name="nnan", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_nan=False)
+        ninf = self.combine(lambda values: len([value for value in values if (np.isscalar(value) and np.isinf(value)) or (not np.isscalar(value) and value.ndim == 0 and np.isinf(value))]), custom_combine_fn_name="ninf", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
+        pmin = self.combine(np.min, axis=0, custom_combine_fn_name="min", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
+        p5 = self.combine(np.percentile, axis=0, q=5, custom_combine_fn_name="p5", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
+        p25 = self.combine(np.percentile, axis=0, q=25, custom_combine_fn_name="p25", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
+        p50 = self.combine(np.percentile, axis=0, q=50, custom_combine_fn_name="p50", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
+        p75 = self.combine(np.percentile, axis=0, q=75, custom_combine_fn_name="p75", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
+        p95 = self.combine(np.percentile, axis=0, q=95, custom_combine_fn_name="p95", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
+        pmax = self.combine(np.max, axis=0, custom_combine_fn_name="max", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
         pmean = self.combine_mean(reduction_level=reduction_level, reduce_all_below=reduce_all_below)
         iqr = self.get_empty_df(combine_fn_name="iqr", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
         for idx_p25, idx_p75, idx_iqr in zip(p25.index, p75.index, iqr.index):
             iqr.at[idx_iqr, iqr.columns[0]] = p75.df.at[idx_p75, p75.columns[0]] - p25.df.at[idx_p25, p25.columns[0]]
 
-        return Data(pd.concat([n.df, nnan.df, pmin.df, p5.df, p25.df, p50.df, p75.df, p95.df, pmax.df, pmean.df, iqr]))
+        return Data(pd.concat([n.df, nnan.df, ninf.df, pmin.df, p5.df, p25.df, p50.df, p75.df, p95.df, pmax.df, pmean.df, iqr]))
 
 
 if __name__ == "__main__":
