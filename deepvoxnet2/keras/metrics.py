@@ -234,7 +234,24 @@ def hausdorff_distance(y_true, y_pred, min_edge_diff=1, voxel_size=1, hd_percent
     return hdd[None, None, None, None, None]
 
 
-def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False, feature_dim_as_spatial_dim=False, threshold=None, argmax=False, map_batch=False, map_features=False, reduction_mode=None, percentile=None, reduction_axes=(0, 1, 2, 3, 4), **kwargs):
+def _get_threshold_fn(threshold_mode="greater"):
+    if threshold_mode == "greater":
+        return tf.math.greater
+
+    elif threshold_mode == "greater_equal":
+        return tf.math.greater_equal
+
+    elif threshold_mode == "less":
+        return tf.math.less
+
+    elif threshold_mode == "less_equal":
+        return tf.math.less_equal
+
+    else:
+        raise ValueError("For the threshold_mode please choose between 'greater', 'greater_equal', 'less', 'less_equal'")
+
+
+def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False, feature_dim_as_spatial_dim=False, threshold=None, argmax=False, map_batch=False, map_features=False, reduction_mode=None, percentile=None, reduction_axes=(0, 1, 2, 3, 4), threshold_mode="greater", **kwargs):
     assert len(tf.keras.backend.int_shape(y_true)) == 5 and len(tf.keras.backend.int_shape(y_pred)) == 5, "The input tensors/arrays y_true and y_pred to a metric function must be 5D!"
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
@@ -255,8 +272,15 @@ def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False,
             threshold = (threshold, threshold)
 
         assert len(threshold) == 2, "A threshold must either be specified as a scalar, a broadcastable array or a tuple of two of these (one for y_true and one for y_pred)."
-        y_true = tf.cast(tf.math.greater(y_true, tf.convert_to_tensor(threshold[0], dtype=tf.float32)), tf.float32)
-        y_pred = tf.cast(tf.math.greater(y_pred, tf.convert_to_tensor(threshold[1], dtype=tf.float32)), tf.float32)
+        if not isinstance(threshold_mode, tuple):
+            threshold_mode = (threshold_mode, threshold_mode)
+
+        assert len(threshold_mode) == 2, "The threshold mode must be specified either as just the mode or a tuple of modes with length 2 (one for y_true and one for y_pred)."
+        if threshold[0] is not None:
+            y_true = tf.cast(_get_threshold_fn(threshold_mode[0])(y_true, tf.convert_to_tensor(threshold[0], dtype=tf.float32)), tf.float32)
+
+        if threshold[1] is not None:
+            y_pred = tf.cast(_get_threshold_fn(threshold_mode[1])(y_pred, tf.convert_to_tensor(threshold[1], dtype=tf.float32)), tf.float32)
 
     if map_batch:
         result = tf.map_fn(lambda x: get_metric(metric_name, map_features=map_features, **kwargs)(x[0][None], x[1][None]), (y_true, y_pred), fn_output_signature=tf.float32)
@@ -300,6 +324,7 @@ def get_metric(
         percentile=None,
         reduction_axes=(0, 1, 2, 3, 4),
         custom_metric_name=None,
+        threshold_mode="greater",
         **kwargs):
 
     if metric_name.startswith("mean_"):
@@ -401,6 +426,7 @@ def get_metric(
         reduction_mode=reduction_mode,
         percentile=percentile,
         reduction_axes=reduction_axes,
+        threshold_mode=threshold_mode,
         **kwargs
     )
     if custom_metric_name is not None:
@@ -422,7 +448,7 @@ def get_metric(
     return metric
 
 
-def _metric_at_multiple_thresholds(y_true, y_pred, metric_name, thresholds, threshold_axis=None, **kwargs):
+def _metric_at_multiple_thresholds(y_true, y_pred, metric_name, thresholds, threshold_axis=None, threshold=None, **kwargs):
     if not isinstance(thresholds, Iterable):
         thresholds = (thresholds,)
 
