@@ -325,9 +325,9 @@ class Data(object):
         return Data(pd.concat(bootstrapped_dfs))
 
     def get_stats(self, reduction_level="case_id", reduce_all_below=True, return_formatted=False, **kwargs):
-        n = self.combine(lambda values: len(values), custom_combine_fn_name="n", reduction_level=reduction_level, reduce_all_below=reduce_all_below)  # nan and inf excluded by default
-        nnan = self.combine(lambda values: len([value for value in values if (np.isscalar(value) and np.isnan(value)) or (not np.isscalar(value) and value.ndim == 0 and np.isnan(value))]), custom_combine_fn_name="nnan", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_nan=False)
-        ninf = self.combine(lambda values: len([value for value in values if (np.isscalar(value) and np.isinf(value)) or (not np.isscalar(value) and value.ndim == 0 and np.isinf(value))]), custom_combine_fn_name="ninf", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
+        n = self.combine(lambda values: len([value for value in values if (np.isscalar(value) and not np.isnan(value) and not np.isinf(value)) or (not np.isscalar(value) and (value.ndim > 0 or (not np.isnan(value) and not np.isinf(value))))]), custom_combine_fn_name="n", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_nan=False, exclude_inf=False)
+        nnan = self.combine(lambda values: len([value for value in values if (np.isscalar(value) and np.isnan(value)) or (not np.isscalar(value) and value.ndim == 0 and np.isnan(value))]), custom_combine_fn_name="nnan", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_nan=False, exclude_inf=False)
+        ninf = self.combine(lambda values: len([value for value in values if (np.isscalar(value) and np.isinf(value)) or (not np.isscalar(value) and value.ndim == 0 and np.isinf(value))]), custom_combine_fn_name="ninf", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_nan=False, exclude_inf=False)
         pmin = self.combine(np.min, axis=0, custom_combine_fn_name="min", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
         p5 = self.combine(np.percentile, axis=0, q=5, custom_combine_fn_name="p5", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
         p25 = self.combine(np.percentile, axis=0, q=25, custom_combine_fn_name="p25", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
@@ -363,7 +363,11 @@ class Data(object):
             pmean = self.df.at[idx_fn('mean'), column]
             nnaninf = self.df.at[idx_fn('nnaninf'), column]
             std = self.df.at[idx_fn('std'), column]
-            if printing_type == 0:
+            n = self.df.at[idx_fn('n'), column]
+            if n == 0:
+                printing_df.at[printing_idx, column] = "/"
+
+            elif printing_type == 0:
                 s = f"{formatting} [{formatting} - {formatting}] {{}}"  # p50 [p25 - p75] [nnaninf]
                 printing_df.at[printing_idx, column] = s.format(p50, p25, p75, "[{:.0f}]".format(float(nnaninf)) if float(nnaninf) > 0 else "")
 
@@ -379,7 +383,7 @@ class Data(object):
                 raise ValueError("Unknown printing_type.")
 
         printing_data = Data(printing_df)
-        print(printing_data.df.transpose().to_latex(escape=True))
+        # print(printing_data.df.transpose().to_latex(escape=True))
         return printing_data
 
 

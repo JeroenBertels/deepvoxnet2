@@ -120,7 +120,7 @@ class Analysis(object):
 
     def print_stats(self, **kwargs):
         printed_analysis = Analysis(*[data.print_stats(**kwargs) for data in self])
-        print(printed_analysis.df.transpose().to_latex(escape=True))
+        # print(printed_analysis.df.transpose().to_latex(escape=True))
         return printed_analysis
 
 
