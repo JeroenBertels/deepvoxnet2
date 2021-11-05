@@ -56,14 +56,15 @@ class Mirc(SortedDict):
     def get_modality_ids(self):
         return sorted(set([modality_id for dataset_id in self for case_id in self[dataset_id] for record_id in self[dataset_id][case_id] for modality_id in self[dataset_id][case_id][record_id]]))
 
-    def get_df(self, modality_id):
+    def get_df(self, modality_id, custom_modality_id=None):
+        custom_modality_id = modality_id if custom_modality_id is None else custom_modality_id
         indices = pd.MultiIndex.from_tuples([(dataset_id, case_id, record_id) for dataset_id in self for case_id in self[dataset_id] for record_id in self[dataset_id][case_id]], names=["dataset_id", "case_id", "record_id"])
-        columns = pd.MultiIndex.from_tuples([(modality_id,)], names=["modality_id"])
+        columns = pd.MultiIndex.from_tuples([(custom_modality_id,)], names=["modality_id"])
         df = pd.DataFrame(index=indices, columns=columns)
         for dataset_id in self:
             for case_id in self[dataset_id]:
                 for record_id in self[dataset_id][case_id]:
-                    df.at[(dataset_id, case_id, record_id), (modality_id,)] = self[dataset_id][case_id][record_id][modality_id].load()
+                    df.at[(dataset_id, case_id, record_id), (custom_modality_id,)] = self[dataset_id][case_id][record_id][modality_id].load()
 
         return df
 

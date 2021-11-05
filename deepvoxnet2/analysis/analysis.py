@@ -11,13 +11,12 @@ class Analysis(object):
     def __init__(self, *data):
         data_data = []
         for i, data_ in enumerate(data):
-            assert isinstance(data_, (Data, pd.DataFrame))
-            if isinstance(data_, Data):
-                data_data.append(data_)
+            assert isinstance(data_, (Analysis, Data, pd.DataFrame))
+            if isinstance(data_, (Data, Analysis)):
+                data_ = data_.df
 
-            else:
-                for col in data_:
-                    data_data.append(Data(data_[[col]]))
+            for col in data_:
+                data_data.append(Data(data_[[col]]))
 
         data = data_data
         if any([len(data_.index.names) != len(data[0].index.names) for data_ in data[1:]]):
@@ -74,16 +73,35 @@ class Analysis(object):
     def get_empty_df(self):
         return pd.DataFrame(index=self.index, columns=self.columns)
 
-    def apply(self, apply_fn, **kwargs):
-        columns = pd.MultiIndex.from_tuples([(apply_fn.__name__,)], names=["apply_fn"])
-        df = pd.DataFrame(index=self.index, columns=columns)
-        for ind in self.df.dropna().index:
-            df.at[ind, df.columns[0]] = apply_fn(*self.df.loc[ind, :].values, **kwargs).numpy()
+    def combine(self, *args, **kwargs):
+        return Analysis(*[data.combine(*args, **kwargs) for data in self])
 
-        return Data(df)
+    def combine_mean(self, **kwargs):
+        return Analysis(*[data.combine_mean(**kwargs) for data in self])
+
+    def combine_concat(self, **kwargs):
+        return Analysis(*[data.combine_concat(**kwargs) for data in self])
+
+    def combine_sum(self, **kwargs):
+        return Analysis(*[data.combine_sum(**kwargs) for data in self])
+
+    def apply(self, apply_fn, custom_apply_fn_name=None, **kwargs):
+        custom_apply_fn_name = apply_fn.__name__ if custom_apply_fn_name is None else custom_apply_fn_name
+        columns = pd.MultiIndex.from_tuples([(custom_apply_fn_name,)], names=["apply_fn"])
+        applied_df = pd.DataFrame(index=self.index, columns=columns)
+        for ind in self.df.dropna().index:
+            applied_df.at[ind, applied_df.columns[0]] = apply_fn(*self.df.loc[ind, :].values, **kwargs).numpy()
+
+        return Data(applied_df)
 
     def squeeze(self, *args, **kwargs):
         return Analysis(*[data.squeeze(*args, **kwargs) for data in self])
+
+    def round(self, decimals=0):
+        return Analysis(*[data.round(decimals=decimals) for data in self])
+
+    def format(self, formatting):
+        return Analysis(*[data.format(formatting) for data in self])
 
     def dropna(self, axis=0, how="any"):
         return Analysis(self.df.dropna(axis=axis, how=how))
@@ -99,6 +117,11 @@ class Analysis(object):
 
     def get_stats(self, **kwargs):
         return Analysis(*[data.get_stats(**kwargs) for data in self])
+
+    def print_stats(self, **kwargs):
+        printed_analysis = Analysis(*[data.print_stats(**kwargs) for data in self])
+        print(printed_analysis.df.transpose().to_latex(escape=True))
+        return printed_analysis
 
 
 if __name__ == "__main__":

@@ -229,7 +229,7 @@ class Data(object):
         else:
             raise ValueError("Unknown level value.")
 
-    def combine(self, combine_fn, reduction_level="dataset_id", reduce_all_below=True, custom_combine_fn_name=False, exclude_nan=True, exclude_inf=True, **kwargs):
+    def combine(self, combine_fn, reduction_level="case_id", reduce_all_below=True, custom_combine_fn_name=False, exclude_nan=True, exclude_inf=True, **kwargs):
         combine_fn_name = custom_combine_fn_name if custom_combine_fn_name is not False else combine_fn.__name__
         combined_df = self.get_empty_df(reduction_level=reduction_level, combine_fn_name=combine_fn_name, reduce_all_below=reduce_all_below)
         for upper_index, upper_df in self.iter_upper_level(self.df, reduction_level):
@@ -264,12 +264,16 @@ class Data(object):
     def combine_concat(self, axis=0, custom_combine_fn_name="concat", **kwargs):
         return self.combine(np.concatenate, axis=axis, custom_combine_fn_name=custom_combine_fn_name, **kwargs)
 
-    def apply(self, apply_fn, *args, **kwargs):
-        applied_df = self.get_empty_df()
+    def apply(self, apply_fn, *args, custom_apply_fn_name=None, **kwargs):
+        columns = self.columns if custom_apply_fn_name is None else pd.MultiIndex.from_tuples([(custom_apply_fn_name,)], names=["apply_fn"])
+        applied_df = pd.DataFrame(index=self.index, columns=columns)
         for ind in self.index:
             applied_df.at[ind, applied_df.columns[0]] = apply_fn(self.df.at[ind, self.df.columns[0]], *args, **kwargs)
 
         return Data(applied_df)
+
+    def volume(self, voxel_volume=1):
+        return self.apply(lambda value: np.sum(value) * voxel_volume)
 
     def mean(self, *args, **kwargs):
         return self.apply(np.mean, *args, **kwargs)
@@ -285,6 +289,12 @@ class Data(object):
 
     def squeeze(self, *args, **kwargs):
         return self.apply(np.squeeze, *args, **kwargs)
+
+    def round(self, decimals=0):
+        return self.apply(np.round, decimals=decimals)
+
+    def format(self, formatting="{}"):
+        return self.apply(lambda value: formatting.format(value))
 
     def expand_dims(self, *args, **kwargs):
         return self.apply(np.expand_dims, *args, **kwargs)
@@ -314,7 +324,7 @@ class Data(object):
 
         return Data(pd.concat(bootstrapped_dfs))
 
-    def get_stats(self, reduction_level="dataset_id", reduce_all_below=True):
+    def get_stats(self, reduction_level="case_id", reduce_all_below=True, return_formatted=False, **kwargs):
         n = self.combine(lambda values: len(values), custom_combine_fn_name="n", reduction_level=reduction_level, reduce_all_below=reduce_all_below)  # nan and inf excluded by default
         nnan = self.combine(lambda values: len([value for value in values if (np.isscalar(value) and np.isnan(value)) or (not np.isscalar(value) and value.ndim == 0 and np.isnan(value))]), custom_combine_fn_name="nnan", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_nan=False)
         ninf = self.combine(lambda values: len([value for value in values if (np.isscalar(value) and np.isinf(value)) or (not np.isscalar(value) and value.ndim == 0 and np.isinf(value))]), custom_combine_fn_name="ninf", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
@@ -326,11 +336,51 @@ class Data(object):
         p95 = self.combine(np.percentile, axis=0, q=95, custom_combine_fn_name="p95", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
         pmax = self.combine(np.max, axis=0, custom_combine_fn_name="max", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
         pmean = self.combine_mean(reduction_level=reduction_level, reduce_all_below=reduce_all_below)
+        std = self.combine(np.std, axis=0, custom_combine_fn_name="std", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
+        ste = self.get_empty_df(combine_fn_name="ste", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
         iqr = self.get_empty_df(combine_fn_name="iqr", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
-        for idx_p25, idx_p75, idx_iqr in zip(p25.index, p75.index, iqr.index):
-            iqr.at[idx_iqr, iqr.columns[0]] = p75.df.at[idx_p75, p75.columns[0]] - p25.df.at[idx_p25, p25.columns[0]]
+        nnaninf = self.get_empty_df(combine_fn_name="nnaninf", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
+        for i, _ in enumerate(std.index):
+            ste.iat[i, 0] = std.df.iat[i, 0] / np.sqrt(n.df.iat[i, 0])
+            iqr.iat[i, 0] = p75.df.iat[i, 0] - p25.df.iat[i, 0]
+            nnaninf.iat[i, 0] = nnan.df.iat[i, 0] + ninf.df.iat[i, 0]
 
-        return Data(pd.concat([n.df, nnan.df, ninf.df, pmin.df, p5.df, p25.df, p50.df, p75.df, p95.df, pmax.df, pmean.df, iqr]))
+        data_stats = Data(pd.concat([n.df, nnan.df, ninf.df, nnaninf, pmin.df, p5.df, p25.df, p50.df, p75.df, p95.df, pmax.df, pmean.df, std.df, ste, iqr]))
+        if return_formatted:
+            data_stats = data_stats.print_stats(**kwargs)
+
+        return data_stats
+
+    def print_stats(self, printing_type=0, formatting="{}"):
+        printing_indices = pd.MultiIndex.from_tuples([tuple(["print_stats" if idx[i] == "p50" else idx[i] for i in range(3)]) for idx in self.index if any([idx[i] == "p50" for i in range(3)])], names=self.index.names)
+        printing_df = pd.DataFrame(index=printing_indices, columns=self.columns)
+        for i, printing_idx in enumerate(printing_df.index):
+            idx_fn = lambda x: tuple([x if idx_ == "print_stats" else idx_ for idx_ in printing_idx])
+            column = printing_df.columns[0]
+            p25 = self.df.at[idx_fn('p25'), column]
+            p50 = self.df.at[idx_fn('p50'), column]
+            p75 = self.df.at[idx_fn('p75'), column]
+            pmean = self.df.at[idx_fn('mean'), column]
+            nnaninf = self.df.at[idx_fn('nnaninf'), column]
+            std = self.df.at[idx_fn('std'), column]
+            if printing_type == 0:
+                s = f"{formatting} [{formatting} - {formatting}] {{}}"  # p50 [p25 - p75] [nnaninf]
+                printing_df.at[printing_idx, column] = s.format(p50, p25, p75, "[{:.0f}]".format(float(nnaninf)) if float(nnaninf) > 0 else "")
+
+            elif printing_type == 1:  # mean ± std [nnaninf]
+                s = f"{formatting} ± {formatting} {{}}"
+                printing_df.at[printing_idx, column] = s.format(pmean, std, "[{:.0f}]".format(float(nnaninf)) if float(nnaninf) > 0 else "")
+
+            elif printing_type == 2:  # mean [nnaninf]
+                s = f"{formatting} {{}}"
+                printing_df.at[printing_idx, column] = s.format(pmean, "[{:.0f}]".format(float(nnaninf)) if float(nnaninf) > 0 else "")
+
+            else:
+                raise ValueError("Unknown printing_type.")
+
+        printing_data = Data(printing_df)
+        print(printing_data.df.transpose().to_latex(escape=True))
+        return printing_data
 
 
 if __name__ == "__main__":
