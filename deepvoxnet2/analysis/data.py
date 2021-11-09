@@ -11,6 +11,8 @@ class Series(object):
         self.series = np.array(series)
         self.series_, self.nnans, self.min, self.p25, self.p50, self.pm, self.p75, self.max, self.iqr, self.pmin, self.pmax, self.outliers = self.get_stats()
         self.median, self.mean = self.p50, self.pm
+        self.std = np.std(self.series_)
+        self.ste = self.std / np.sqrt(len(self.series_))
 
     def __len__(self):
         return len(self.series)
@@ -86,6 +88,9 @@ class SeriesGroup(object):
         if not isinstance(series_group, Iterable):
             series_group = [series_group]
 
+        if isinstance(series_group, tuple):
+            series_group = list(series_group)
+
         for i, series in enumerate(series_group):
             series_group[i] = Series(series)
 
@@ -106,6 +111,9 @@ class GroupedSeries(object):
     def __init__(self, grouped_series):
         if not isinstance(grouped_series, Iterable):
             grouped_series = [grouped_series]
+
+        if isinstance(grouped_series, tuple):
+            grouped_series = list(grouped_series)
 
         for i, series_group in enumerate(grouped_series):
             grouped_series[i] = SeriesGroup(series_group)
@@ -272,8 +280,8 @@ class Data(object):
 
         return Data(applied_df)
 
-    def volume(self, voxel_volume=1):
-        return self.apply(lambda value: np.sum(value) * voxel_volume)
+    def volume(self, voxel_volume=1, **kwargs):
+        return self.apply(lambda value: np.sum(value) * voxel_volume, **kwargs)
 
     def mean(self, *args, **kwargs):
         return self.apply(np.mean, *args, **kwargs)
@@ -284,17 +292,17 @@ class Data(object):
     def reshape(self, *args, **kwargs):
         return self.apply(np.reshape, *args, **kwargs)
 
-    def flatten(self):
-        return self.reshape((-1,))
+    def flatten(self, **kwargs):
+        return self.reshape((-1,), **kwargs)
 
     def squeeze(self, *args, **kwargs):
         return self.apply(np.squeeze, *args, **kwargs)
 
-    def round(self, decimals=0):
-        return self.apply(np.round, decimals=decimals)
+    def round(self, decimals=0, **kwargs):
+        return self.apply(np.round, decimals=decimals, **kwargs)
 
-    def format(self, formatting="{}"):
-        return self.apply(lambda value: formatting.format(value))
+    def format(self, formatting="{}", **kwargs):
+        return self.apply(lambda value: formatting.format(value), **kwargs)
 
     def expand_dims(self, *args, **kwargs):
         return self.apply(np.expand_dims, *args, **kwargs)
@@ -368,7 +376,7 @@ class Data(object):
                 printing_df.at[printing_idx, column] = "/"
 
             elif printing_type == 0:
-                s = f"{formatting} [{formatting} - {formatting}] {{}}"  # p50 [p25 - p75] [nnaninf]
+                s = f"{formatting} [{formatting}-{formatting}] {{}}"  # p50 [p25 - p75] [nnaninf]
                 printing_df.at[printing_idx, column] = s.format(p50, p25, p75, "[{:.0f}]".format(float(nnaninf)) if float(nnaninf) > 0 else "")
 
             elif printing_type == 1:  # mean ± std [nnaninf]
@@ -378,6 +386,10 @@ class Data(object):
             elif printing_type == 2:  # mean [nnaninf]
                 s = f"{formatting} {{}}"
                 printing_df.at[printing_idx, column] = s.format(pmean, "[{:.0f}]".format(float(nnaninf)) if float(nnaninf) > 0 else "")
+
+            elif printing_type == 3:  # n
+                s = f"{formatting}"
+                printing_df.at[printing_idx, column] = s.format(n)
 
             else:
                 raise ValueError("Unknown printing_type.")
