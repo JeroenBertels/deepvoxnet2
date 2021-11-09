@@ -24,6 +24,7 @@ class Figure(object):
                  bmheightininches=1, tmheightininches=0.5,
                  top_extent=0, right_extent=0,
                  fs=20, lw=2, ms=10,
+                 plot_xaxis=True, plot_yaxis=True,
                  use_tex=True, **kwargs):
 
         if use_tex:
@@ -59,11 +60,13 @@ class Figure(object):
         self.fig = plt.figure(figsize=(self.fwidthininches, self.fheightininches))
         self.ax = self.fig.add_axes((self.lmwidthininches / self.fwidthininches, self.bmheightininches / self.fheightininches, self.widthininches / self.fwidthininches, self.heightininches / self.fheightininches))
         # setup figure
-        self.lw = lw
+        self.lw = self.lh = lw
         self.fs = fs
         self.ms = ms
         self.ax.spines['right'].set_visible(False)
         self.ax.spines['top'].set_visible(False)
+        self.ax.spines['left'].set_visible(plot_yaxis)
+        self.ax.spines['bottom'].set_visible(plot_xaxis)
         self.ax.spines['left'].set_linewidth(self.lw)
         self.ax.spines['bottom'].set_linewidth(self.lw)
         self.ax.spines['left'].set_bounds(self.yamin, self.yamax)
@@ -73,10 +76,11 @@ class Figure(object):
         self.ax.set_ylim([self.ymin, self.ymax])
         # add whitespace in between x- and y-axis in the dx and dy regions
         self.lwic = self.lw / self.fig.get_dpi() * self.awidth / self.awidthininches
-        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.yamax + self.lwic / 2), self.width - self.lwic, self.ymax - self.yamax - self.lwic, fc='w', ec='w', linewidth=0, zorder=2.001))
-        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.ymin + self.lwic / 2), self.width - self.lwic, self.dy - self.lwic, fc='w', ec='w', linewidth=0, zorder=2.001))
-        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.ymin + self.lwic / 2), self.dx - self.lwic, self.height - self.lwic, fc='w', ec='w', linewidth=0, zorder=2.001))
-        self.ax.add_patch(Rectangle((self.xamax + self.lwic / 2, self.ymin + self.lwic / 2), self.xmax - self.xamax - self.lwic, self.height - self.lwic, fc='w', ec='w', linewidth=0, zorder=2.001))
+        self.lhic = self.lh / self.fig.get_dpi() * self.aheight / self.aheightininches
+        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.yamax + self.lhic / 2), self.width - self.lwic, self.ymax - self.yamax - self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))
+        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.ymin + self.lhic / 2), self.width - self.lwic, self.dy - self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))
+        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.ymin + self.lhic / 2), self.dx - self.lwic, self.height - self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))
+        self.ax.add_patch(Rectangle((self.xamax + self.lwic / 2, self.ymin + self.lhic / 2), self.xmax - self.xamax - self.lwic, self.height - self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))
         # optionally set title, labels, ticks and ticklabels
         if "xlabel" in kwargs and kwargs["xlabel"] is not None:
             self.set_xlabel(kwargs["xlabel"])
@@ -208,6 +212,19 @@ class Figure(object):
             if different_from:
                 self.plot([different_from, different_from], [pos - 0.5, pos + 0.5], "k--", linewidth=self.lw, zorder=2.01)
 
+    def barplot(self, series, pos, offset=0, direction="vertical", width=0.8, fc=(0, 0, 1, 0.5), ec=None, print_mean=False, plot_error_bar=False, **kwargs):
+        series = Series(series)
+        width2 = width / 2
+        if ec is None:
+            ec = (fc[0], fc[1], fc[2], 1)
+
+        text = "{0:.3g}".format(series.mean) if print_mean else ""
+        if direction == "vertical":
+            self.add_patch(Rectangle((pos - width2, offset), width, series.mean, fc=fc, ec=ec, linewidth=self.lw))
+            self.text(pos, self.yamax + self.dy, text, rotation=0, ha="center", va="bottom", fontsize=self.fs)
+            if plot_error_bar:
+                self.plot([pos, pos], [offset + series.mean - series.ste / 2, offset + series.mean + series.ste / 2], color=ec, linewidth=self.lw)
+
     def add_patch(self, patch):
         self.ax.add_patch(patch)
 
@@ -273,13 +290,13 @@ class Boxplot(Figure):
             yalim[1] = grouped_series.series.max
 
         ticks = [np.mean(positions_) for positions_ in positions]
+        kwargs["xticks"] = ticks if direction == "vertical" else kwargs.get("xticks", "auto")
+        kwargs["xticklabels"] = labels if direction == "vertical" else kwargs.get("xticklabels", "auto")
+        kwargs["yticks"] = kwargs.get("yticks", "auto") if direction == "vertical" else ticks
+        kwargs["yticklabels"] = kwargs.get("yticklabels", "auto") if direction == "vertical" else labels
         super(Boxplot, self).__init__(
             xalim=xalim if direction == "vertical" else yalim,
             yalim=yalim if direction == "vertical" else xalim,
-            xticks=ticks if direction == "vertical" else "auto",
-            xticklabels=labels if direction == "vertical" else "auto",
-            yticks="auto" if direction == "vertical" else ticks,
-            yticklabels="auto" if direction == "vertical" else labels,
             **kwargs)
 
         for i, series_group in enumerate(grouped_series):
@@ -334,6 +351,70 @@ class Boxplot(Figure):
                                               fontsize=self.ms)
 
 
+class Barplot(Figure):
+    def __init__(self, grouped_series, labels=None, xalim=None, yalim=None, inchesperposition=None, colors=None, alpha=0.5, direction="vertical", grouped_offsets=None, **kwargs):
+        grouped_series = GroupedSeries(grouped_series)
+        grouped_offsets = GroupedSeries(grouped_offsets) if grouped_offsets is not None else None
+        position, positions = 0, []
+        for series_group in grouped_series:
+            position += 1
+            positions_ = []
+            for series in series_group:
+                positions_.append(position)
+                position += 1
+
+            positions.append(positions_)
+
+        if colors is None:
+            colors = [[list(color_dict.keys())[i] for i, series in enumerate(series_group)] for series_group in grouped_series]
+
+        if inchesperposition is not None:
+            if direction == "vertical":
+                kwargs["awidthininches"] = position * inchesperposition
+
+        if xalim is None:
+            xalim = [None, None]
+
+        if xalim[0] is None:
+            xalim[0] = 0
+
+        if xalim[1] is None:
+            xalim[1] = position
+
+        if yalim is None:
+            yalim = [None, None]
+
+        if yalim[0] is None:
+            yalim[0] = grouped_series.series.min
+
+        if yalim[1] is None:
+            yalim[1] = grouped_series.series.max
+
+        ticks = [np.mean(positions_) for positions_ in positions]
+        kwargs["xticks"] = ticks if direction == "vertical" else kwargs.get("xticks", "auto")
+        kwargs["xticklabels"] = labels if direction == "vertical" else kwargs.get("xticklabels", "auto")
+        kwargs["yticks"] = kwargs.get("yticks", "auto") if direction == "vertical" else ticks
+        kwargs["yticklabels"] = kwargs.get("yticklabels", "auto") if direction == "vertical" else labels
+        super(Barplot, self).__init__(
+            xalim=xalim if direction == "vertical" else yalim,
+            yalim=yalim if direction == "vertical" else xalim,
+            **kwargs)
+
+        self.positions = positions
+        self.colors = colors
+        self.direction=direction
+        self.kwargs = kwargs
+        self.alpha = alpha
+        self.grouped_offsets = grouped_offsets
+        self.plot_barplot(self, grouped_series, positions, colors, alpha, direction, grouped_offsets, **kwargs)
+
+    @staticmethod
+    def plot_barplot(figure, grouped_series, positions, colors, alpha=0.5, direction="vertical", grouped_offsets=None, **kwargs):
+        for i, series_group in enumerate(grouped_series):
+            for j, series in enumerate(series_group):
+                figure.barplot(series, pos=positions[i][j], fc=Figure.get_color(colors[i][j], alpha=alpha), direction=direction, offset=grouped_offsets[i][j] if grouped_offsets is not None else 0, **kwargs)
+
+
 if __name__ == "__main__":
     data = [
         [
@@ -358,6 +439,7 @@ if __name__ == "__main__":
             np.random.rand(100) + 10
         ]
     ]
-    jb = Boxplot(data, yalim=[0, 13], project_stats=False, plot_violin=True, direction="vertical", different_from=1.5, labels=["group1", "group2", "group3", "group4"], l0_stats=True, l1_stats=True, top_extent=2.5, right_extent=0, inchesperposition=1, pairwise=False, use_tex=False)
+    # jb = Boxplot(data, yalim=[0, 13], project_stats=False, plot_violin=True, direction="vertical", different_from=1.5, labels=["group1", "group2", "group3", "group4"], l0_stats=True, l1_stats=True, top_extent=2.5, right_extent=0, inchesperposition=1, pairwise=False, use_tex=True)
+    jb = Barplot(data, yalim=[0, 13], direction="vertical", labels=["group1", "group2", "group3", "group4"], inchesperposition=0.2, print_mean=True, use_tex=True, plot_error_bar=True)
     jb.show()
     jb.savefig("/usr/local/micapollo01/MIC/DATA/STAFF/jberte3/data/phd/pictures/bootstrap_maps/test1.pdf")
