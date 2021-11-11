@@ -34,7 +34,7 @@ class Analysis(object):
             print("Watch out: the given data have overlapping columns!")
 
         all_indices = list(dict.fromkeys(all_indices))
-        max_nb_index_levels = max([len(ind) for ind in all_indices])
+        max_nb_index_levels = max([len(data_.index.names) for data_ in data])
         index_names = [None] * max_nb_index_levels
         for data_ in data:
             if len(data_.index.names) == max_nb_index_levels:

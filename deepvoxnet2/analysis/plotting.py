@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.patches import Rectangle
-from deepvoxnet2.analysis.data import Series, GroupedSeries
+from deepvoxnet2.analysis.data import Series, SeriesGroup, GroupedSeries
 
 
 color_dict = {
@@ -31,7 +31,7 @@ class Figure(object):
             plt.rcParams.update({
                 "text.usetex": True,
                 "font.family": "Helvetica",
-                "text.latex.preamble": r'\usepackage{textcomp}\usepackage{pifont}\usepackage{booktabs}\usepackage{amssymb,amsthm}\usepackage{amsmath}'
+                "text.latex.preamble": r'\usepackage{amssymb,amsthm}\usepackage{amsmath}'
             })
 
         self.xalim, self.yalim = xalim, yalim
@@ -123,7 +123,7 @@ class Figure(object):
 
     def set_xlabel(self, xlabel):
         self.ax.set_xlabel(xlabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='bottom')
-        self.ax.xaxis.set_label_coords(0.5, -(self.bmheightininches - self.rmwidthininches / 5) / self.heightininches)
+        self.ax.xaxis.set_label_coords(0.5, -(self.bmheightininches - self.tmheightininches / 5) / self.heightininches)
 
     def set_ylabel(self, ylabel):
         self.ax.set_ylabel(ylabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='top')
@@ -141,8 +141,72 @@ class Figure(object):
     def set_yticklabels(self, yticklabels):
         self.ax.set_yticklabels(yticklabels)
 
+    def add_patch(self, patch):
+        self.ax.add_patch(patch)
+
+    def text(self, x, y, s, fontdict=None, **kwargs):
+        self.ax.text(x, y, s, fontdict=fontdict, **kwargs)
+
+    def show(self):
+        self.fig.show()
+
+    def savefig(self, file_path, **kwargs):
+        self.fig.savefig(file_path, **kwargs)
+
+    @staticmethod
+    def get_color(color, alpha=None):
+        color_tuple = color_dict[color] if isinstance(color, str) else color
+        if len(color_tuple) == 3:
+            return color_tuple + (1 if alpha is None else alpha,)
+
+        if len(color_tuple) == 4:
+            assert alpha is None or alpha == color_tuple[3]
+            return color_tuple
+
     def plot(self, *args, **kwargs):
         self.ax.plot(*args, **kwargs)
+
+    def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", plot_unity=True, plot_mean=True, nbins=0, **kwargs):
+        series_x, series_y = Series(series_x), Series(series_y)
+        color = self.get_color(color, alpha)
+        if plot_unity:
+            self.plot([self.xamin, self.xamax], [self.xamin, self.xamax], "k", linewidth=self.lw, zorder=1.99)
+
+        if nbins > 0:
+            bins = np.linspace(series_x.min, series_x.max + 1e-7, nbins + 1)
+            bin_locs = np.digitize(series_x, bins)
+            series_y_means = [np.mean(series_y[bin_locs == i]) for i in range(1, nbins + 1)]
+            for i in range(nbins):
+                self.plot([bins[i], bins[i + 1]], [series_y_means[i], series_y_means[i]], color=color, linewidth=self.lw, zorder=1.999)
+                if i < nbins - 1:
+                    self.plot([bins[i + 1], bins[i + 1]], [series_y_means[i], series_y_means[i + 1]], color=color, linewidth=self.lw, zorder=1.999)
+
+        if plot_mean:
+            self.plot(series_x.mean, series_y.mean, color=color, linestyle="None", marker=marker, markersize=self.ms * 3, zorder=1.9999)
+
+        self.plot(series_x, series_y, color=color, linestyle="None", marker=marker, markersize=self.ms)
+
+    def blandaltmanplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", plot_unity=True, nbins=0, **kwargs):
+        series_x, series_y = Series(series_x), Series(series_y)
+        series_mean = Series(np.mean([series_x.series, series_y.series], axis=0))
+        series_diff = Series(series_y.series - series_x.series)
+        color = self.get_color(color, alpha)
+        if plot_unity:
+            self.plot([self.xamin, self.xamax], [0, 0], "k", linewidth=self.lw, zorder=1.99)
+
+        if nbins > 0:
+            bins = np.linspace(series_mean.min, series_mean.max + 1e-7, nbins + 1)
+            bin_locs = np.digitize(series_mean, bins)
+            series_diff_means = [np.mean(series_diff[bin_locs == i]) for i in range(1, nbins + 1)]
+            for i in range(nbins):
+                self.plot([bins[i], bins[i + 1]], [series_diff_means[i], series_diff_means[i]], color=color, linewidth=self.lw, zorder=1.999)
+                if i < nbins - 1:
+                    self.plot([bins[i + 1], bins[i + 1]], [series_diff_means[i], series_diff_means[i + 1]], color=color, linewidth=self.lw, zorder=1.999)
+
+        self.plot([self.xamin, self.xamax], [series_diff.mean, series_diff.mean], color=color, linewidth=self.lw, zorder=1.9999)
+        self.plot([self.xamin, self.xamax], [series_diff.mean + 1.96 * series_diff.std, series_diff.mean + 1.96 * series_diff.std], linestyle=":", color=color, linewidth=self.lw, zorder=1.9999)
+        self.plot([self.xamin, self.xamax], [series_diff.mean - 1.96 * series_diff.std, series_diff.mean - 1.96 * series_diff.std], linestyle=":", color=color, linewidth=self.lw, zorder=1.9999)
+        self.plot(series_mean, series_diff, color=color, linestyle="None", marker=marker, markersize=self.ms)
 
     def boxplot(self, series, pos, direction="vertical", width=0.8, fc=(0, 0, 1, 0.5), ec=None, project_stats=False, plot_violin=False, violin_color=None, print_mean=True, different_from=None, **kwargs):
         series = Series(series)
@@ -154,7 +218,7 @@ class Figure(object):
         if print_mean:
             text += "$"
             text += "{0:.3g}".format(series.mean)
-            text += "^{" + f"{series.nnans if series.nnans > 0 else ''}" + "}"
+            text += "^{" + f"{series.nnaninf if series.nnaninf > 0 else ''}" + "}"
             if different_from is not None:
                 p_value = series.different_from(different_from, **kwargs)
                 p_value_ = min(p_value, 1 - p_value)
@@ -224,28 +288,6 @@ class Figure(object):
             self.text(pos, self.yamax + self.dy, text, rotation=0, ha="center", va="bottom", fontsize=self.fs)
             if plot_error_bar:
                 self.plot([pos, pos], [offset + series.mean - series.ste / 2, offset + series.mean + series.ste / 2], color=ec, linewidth=self.lw)
-
-    def add_patch(self, patch):
-        self.ax.add_patch(patch)
-
-    def text(self, x, y, s, fontdict=None, **kwargs):
-        self.ax.text(x, y, s, fontdict=fontdict, **kwargs)
-
-    def show(self):
-        self.fig.show()
-
-    def savefig(self, file_path, **kwargs):
-        self.fig.savefig(file_path, **kwargs)
-
-    @staticmethod
-    def get_color(color, alpha=None):
-        color_tuple = color_dict[color] if isinstance(color, str) else color
-        if len(color_tuple) == 3:
-            return color_tuple + (1 if alpha is None else alpha,)
-
-        if len(color_tuple) == 4:
-            assert alpha is None or alpha == color_tuple[3]
-            return color_tuple
 
 
 class Boxplot(Figure):
@@ -415,7 +457,82 @@ class Barplot(Figure):
                 figure.barplot(series, pos=positions[i][j], fc=Figure.get_color(colors[i][j], alpha=alpha), direction=direction, offset=grouped_offsets[i][j] if grouped_offsets is not None else 0, **kwargs)
 
 
+class Scatterplot(Figure):
+    def __init__(self, series_group_x, series_group_y, xalim=None, yalim=None, colors=None, alpha=1, **kwargs):
+        series_group_x, series_group_y = SeriesGroup(series_group_x), SeriesGroup(series_group_y)
+        if colors is None:
+            colors = [list(color_dict.keys())[i] for i, series in enumerate(series_group_x)]
+
+        if xalim is None:
+            xalim = [None, None]
+
+        if xalim[0] is None:
+            xalim[0] = series_group_x.series.pmin
+
+        if xalim[1] is None:
+            xalim[1] = series_group_x.series.pmax
+
+        if yalim is None:
+            yalim = [None, None]
+
+        if yalim[0] is None:
+            yalim[0] = series_group_y.series.pmin
+
+        if yalim[1] is None:
+            yalim[1] = series_group_y.series.pmax
+
+        kwargs["xticks"] = kwargs.get("xticks", "auto")
+        kwargs["xticklabels"] = kwargs.get("xticklabels", "auto")
+        kwargs["yticks"] = kwargs.get("yticks", "auto")
+        kwargs["yticklabels"] = kwargs.get("yticklabels", "auto")
+        super(Scatterplot, self).__init__(xalim=xalim, yalim=yalim, **kwargs)
+        self.colors = colors
+        self.kwargs = kwargs
+        self.alpha = alpha
+        for i, (series_x, series_y) in enumerate(zip(series_group_x, series_group_y)):
+            self.scatterplot(series_x, series_y, color=colors[i], alpha=alpha, **kwargs)
+
+
+class Blandaltmanplot(Figure):
+    def __init__(self, series_group_x, series_group_y, xalim=None, yalim=None, colors=None, alpha=1, **kwargs):
+        series_group_x, series_group_y = SeriesGroup(series_group_x), SeriesGroup(series_group_y)
+        series_group_mean = SeriesGroup([np.mean([series_x.series, series_y.series], axis=0) for series_x, series_y in zip(series_group_x, series_group_y)])
+        series_group_diff = SeriesGroup([series_y.series - series_x.series for series_x, series_y in zip(series_group_x, series_group_y)])
+        if colors is None:
+            colors = [list(color_dict.keys())[i] for i, series in enumerate(series_group_x)]
+
+        if xalim is None:
+            xalim = [None, None]
+
+        if xalim[0] is None:
+            xalim[0] = series_group_mean.series.pmin
+
+        if xalim[1] is None:
+            xalim[1] = series_group_mean.series.pmax
+
+        if yalim is None:
+            yalim = [None, None]
+
+        if yalim[0] is None:
+            yalim[0] = series_group_diff.series.pmin
+
+        if yalim[1] is None:
+            yalim[1] = series_group_diff.series.pmax
+
+        kwargs["xticks"] = kwargs.get("xticks", "auto")
+        kwargs["xticklabels"] = kwargs.get("xticklabels", "auto")
+        kwargs["yticks"] = kwargs.get("yticks", "auto")
+        kwargs["yticklabels"] = kwargs.get("yticklabels", "auto")
+        super(Blandaltmanplot, self).__init__(xalim=xalim, yalim=yalim, **kwargs)
+        self.colors = colors
+        self.kwargs = kwargs
+        self.alpha = alpha
+        for i, (series_x, series_y) in enumerate(zip(series_group_x, series_group_y)):
+            self.blandaltmanplot(series_x, series_y, color=colors[i], alpha=alpha, **kwargs)
+
+
 if __name__ == "__main__":
+    # Example data
     data = [
         [
             2 * np.random.rand(250) + 2
@@ -439,7 +556,16 @@ if __name__ == "__main__":
             np.random.rand(100) + 10
         ]
     ]
+    scatter_x = [np.random.rand(250), np.random.rand(250)]
+    scatter_y = [np.random.rand(250), np.random.rand(250)]
+
+    # Example plots
     # jb = Boxplot(data, yalim=[0, 13], project_stats=False, plot_violin=True, direction="vertical", different_from=1.5, labels=["group1", "group2", "group3", "group4"], l0_stats=True, l1_stats=True, top_extent=2.5, right_extent=0, inchesperposition=1, pairwise=False, use_tex=True)
-    jb = Barplot(data, yalim=[0, 13], direction="vertical", labels=["group1", "group2", "group3", "group4"], inchesperposition=0.2, print_mean=True, use_tex=True, plot_error_bar=True)
+    # jb = Barplot(data, yalim=[0, 13], direction="vertical", labels=["group1", "group2", "group3", "group4"], inchesperposition=0.2, print_mean=True, use_tex=True, plot_error_bar=True)
+    # jb = Figure(xalim=[0, 1], yalim=[-1, 1])
+    # jb.scatterplot(scatter_x[0], scatter_y[0], nbins=10)
+    # jb.blandaltmanplot(scatter_x[0], scatter_y[1], nbins=10)
+    #jb = Scatterplot(scatter_x, scatter_y, yalim=[0, 1], yticks=[0, 1], plot_unity=True, plot_mean=True, nbins=10)
+    jb = Blandaltmanplot(scatter_x, scatter_y, nbins=10)
+    # jb.savefig("/usr/local/micapollo01/MIC/DATA/STAFF/jberte3/data/phd/pictures/bootstrap_maps/test1.pdf")
     jb.show()
-    jb.savefig("/usr/local/micapollo01/MIC/DATA/STAFF/jberte3/data/phd/pictures/bootstrap_maps/test1.pdf")

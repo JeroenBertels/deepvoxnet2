@@ -9,10 +9,8 @@ class Series(object):
             series = [series]
 
         self.series = np.array(series)
-        self.series_, self.nnans, self.min, self.p25, self.p50, self.pm, self.p75, self.max, self.iqr, self.pmin, self.pmax, self.outliers = self.get_stats()
+        self.series_, self.nnan, self.ninf, self.nnaninf, self.min, self.p25, self.p50, self.pm, self.p75, self.max, self.iqr, self.pmin, self.pmax, self.outliers, self.std, self.ste = self.get_stats()
         self.median, self.mean = self.p50, self.pm
-        self.std = np.std(self.series_)
-        self.ste = self.std / np.sqrt(len(self.series_))
 
     def __len__(self):
         return len(self.series)
@@ -32,18 +30,27 @@ class Series(object):
     @staticmethod
     def calculate_stats(series):
         series_ = np.array([value for value in series if not np.isnan(value) and not np.isinf(value)])
-        nnans = len([value for value in series if np.isnan(value) or np.isinf(value)])
-        min = np.min(series_)
-        p25 = np.percentile(series_, 25)
-        p50 = np.percentile(series_, 50)
-        pm = np.mean(series_)
-        p75 = np.percentile(series_, 75)
-        max = np.max(series_)
-        iqr = p75 - p25
-        pmin = np.min([value for value in series_ if value >= p25 - 1.5 * iqr])
-        pmax = np.max([value for value in series_ if value <= p75 + 1.5 * iqr])
+        nnan = len([value for value in series if np.isnan(value)])
+        ninf = len([value for value in series if np.isinf(value)])
+        nnaninf = nnan + ninf
+        if len(series_) > 0:
+            min = np.min(series_)
+            p25 = np.percentile(series_, 25)
+            p50 = np.percentile(series_, 50)
+            pm = np.mean(series_)
+            p75 = np.percentile(series_, 75)
+            max = np.max(series_)
+            iqr = p75 - p25
+            pmin = np.min([value for value in series_ if value >= p25 - 1.5 * iqr])
+            pmax = np.max([value for value in series_ if value <= p75 + 1.5 * iqr])
+            std = np.std(series_)
+            ste = std / np.sqrt(len(series_))
+
+        else:
+            min, p25, p50, pm, p75, max, iqr, pmin, pmax, std, ste = [np.nan] * 11
+
         outliers = np.array([value for value in series_ if (value > pmax or value < pmin)])
-        return series_, nnans, min, p25, p50, pm, p75, max, iqr, pmin, pmax, outliers
+        return series_, nnan, ninf, nnaninf, min, p25, p50, pm, p75, max, iqr, pmin, pmax, outliers, std, ste
 
     @staticmethod
     def basic_test(series0, series1=None, n=10000, skipnan=True, skipinf=True, pairwise=True, **kwargs):
@@ -88,7 +95,7 @@ class SeriesGroup(object):
         if not isinstance(series_group, Iterable):
             series_group = [series_group]
 
-        if isinstance(series_group, tuple):
+        elif isinstance(series_group, tuple):
             series_group = list(series_group)
 
         for i, series in enumerate(series_group):
@@ -112,7 +119,7 @@ class GroupedSeries(object):
         if not isinstance(grouped_series, Iterable):
             grouped_series = [grouped_series]
 
-        if isinstance(grouped_series, tuple):
+        elif isinstance(grouped_series, tuple):
             grouped_series = list(grouped_series)
 
         for i, series_group in enumerate(grouped_series):
@@ -337,11 +344,11 @@ class Data(object):
         nnan = self.combine(lambda values: len([value for value in values if (np.isscalar(value) and np.isnan(value)) or (not np.isscalar(value) and value.ndim == 0 and np.isnan(value))]), custom_combine_fn_name="nnan", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_nan=False, exclude_inf=False)
         ninf = self.combine(lambda values: len([value for value in values if (np.isscalar(value) and np.isinf(value)) or (not np.isscalar(value) and value.ndim == 0 and np.isinf(value))]), custom_combine_fn_name="ninf", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_nan=False, exclude_inf=False)
         pmin = self.combine(np.min, axis=0, custom_combine_fn_name="min", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
-        p5 = self.combine(np.percentile, axis=0, q=5, custom_combine_fn_name="p5", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
-        p25 = self.combine(np.percentile, axis=0, q=25, custom_combine_fn_name="p25", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
-        p50 = self.combine(np.percentile, axis=0, q=50, custom_combine_fn_name="p50", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
-        p75 = self.combine(np.percentile, axis=0, q=75, custom_combine_fn_name="p75", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
-        p95 = self.combine(np.percentile, axis=0, q=95, custom_combine_fn_name="p95", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
+        p5 = self.combine(lambda values: np.where(np.isnan(np.percentile(values, axis=0, q=5)), np.percentile(values, axis=0, q=5, interpolation="nearest"), np.percentile(values, axis=0, q=5)), custom_combine_fn_name="p5", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
+        p25 = self.combine(lambda values: np.where(np.isnan(np.percentile(values, axis=0, q=25)), np.percentile(values, axis=0, q=25, interpolation="nearest"), np.percentile(values, axis=0, q=25)), custom_combine_fn_name="p25", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
+        p50 = self.combine(lambda values: np.where(np.isnan(np.percentile(values, axis=0, q=50)), np.percentile(values, axis=0, q=50, interpolation="nearest"), np.percentile(values, axis=0, q=50)), custom_combine_fn_name="p50", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
+        p75 = self.combine(lambda values: np.where(np.isnan(np.percentile(values, axis=0, q=75)), np.percentile(values, axis=0, q=75, interpolation="nearest"), np.percentile(values, axis=0, q=75)), custom_combine_fn_name="p75", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
+        p95 = self.combine(lambda values: np.where(np.isnan(np.percentile(values, axis=0, q=95)), np.percentile(values, axis=0, q=95, interpolation="nearest"), np.percentile(values, axis=0, q=95)), custom_combine_fn_name="p95", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
         pmax = self.combine(np.max, axis=0, custom_combine_fn_name="max", reduction_level=reduction_level, reduce_all_below=reduce_all_below, exclude_inf=False)
         pmean = self.combine_mean(reduction_level=reduction_level, reduce_all_below=reduce_all_below)
         std = self.combine(np.std, axis=0, custom_combine_fn_name="std", reduction_level=reduction_level, reduce_all_below=reduce_all_below)
@@ -372,7 +379,7 @@ class Data(object):
             nnaninf = self.df.at[idx_fn('nnaninf'), column]
             std = self.df.at[idx_fn('std'), column]
             n = self.df.at[idx_fn('n'), column]
-            if n == 0:
+            if n == 0 or np.isnan(n):
                 printing_df.at[printing_idx, column] = "/"
 
             elif printing_type == 0:
