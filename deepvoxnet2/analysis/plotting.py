@@ -96,6 +96,9 @@ class Figure(object):
             else:
                 self.set_xticks(kwargs["xticks"] if kwargs["xticks"] else [])
 
+        else:
+            self.set_xticks([xtick for xtick in self.ax.get_xticks() if self.xamin <= xtick <= self.xamax])
+
         if "xticklabels" in kwargs and kwargs["xticklabels"] is not None and kwargs["xticklabels"] != "auto":
             assert "xticks" in kwargs and kwargs["xticks"] is not None and len(kwargs["xticks"]) == len(kwargs["xticklabels"])
             self.set_xticklabels(kwargs["xticklabels"])
@@ -107,6 +110,9 @@ class Figure(object):
 
             else:
                 self.set_yticks(kwargs["yticks"] if kwargs["yticks"] else [])
+
+        else:
+            self.set_yticks([ytick for ytick in self.ax.get_yticks() if self.yamin <= ytick <= self.yamax])
 
         if "yticklabels" in kwargs and kwargs["yticklabels"] is not None and kwargs["yticklabels"] != "auto":
             assert "yticks" in kwargs and kwargs["yticks"] is not None and len(kwargs["yticks"]) == len(kwargs["yticklabels"])
@@ -154,6 +160,86 @@ class Figure(object):
         self.fig.savefig(file_path, **kwargs)
 
     @staticmethod
+    def prepare(mode, x_and_y_data, xalim=None, yalim=None, colors=None, color_mode="series", **kwargs):
+        if mode == "series":
+            x_and_y_data = [Series(data) if data is not None else None for data in x_and_y_data]
+            colors = list(color_dict.keys())[0] if colors is None else colors
+            position, positions, ticks = None, None, None
+
+        elif mode == "series_group":
+            x_and_y_data = [SeriesGroup(data) if data is not None else None for data in x_and_y_data]
+            if color_mode == "series":
+                colors = [list(color_dict.keys())[i] for i, series in enumerate(x_and_y_data[0])] if colors is None else colors
+
+            else:
+                colors = list(color_dict.keys())[0] if colors is None else colors
+
+            position, positions, ticks = None, None, None
+
+        elif mode == "grouped_series":
+            x_and_y_data = [GroupedSeries(data) if data is not None else None for data in x_and_y_data]
+            if color_mode == "series":
+                colors = [[list(color_dict.keys())[i] for i, series in enumerate(series_group)] for series_group in x_and_y_data[0]] if colors is None else colors
+
+            else:
+                colors = [list(color_dict.keys())[i] for i, series_group in enumerate(x_and_y_data[0])] if colors is None else colors
+
+            position, positions, ticks = None, kwargs.get("positions", None), None
+            if "positions" in kwargs:
+                if positions is None:
+                    position, positions = 0, []
+                    for series_group in x_and_y_data[0]:
+                        position += 1
+                        positions_ = []
+                        for series in series_group:
+                            positions_.append(position)
+                            position += 1
+
+                        positions.append(positions_)
+
+                    kwargs["positions"] = positions
+
+                ticks = [np.mean(positions_) for positions_ in kwargs["positions"]]
+
+        else:
+            raise ValueError("Unknown data prepare mode.")
+
+        if xalim is None:
+            xalim = [None, None]
+
+        if xalim[0] is None:
+            xalim[0] = 0 if positions is not None else x_and_y_data[0].series.min
+
+        if xalim[1] is None:
+            xalim[1] = positions[-1][-1] + 1 if positions is not None else x_and_y_data[0].series.max
+
+        if yalim is None:
+            yalim = [None, None]
+
+        if yalim[0] is None:
+            yalim[0] = x_and_y_data[0].series.min if positions is not None else x_and_y_data[1].series.min
+
+        if yalim[1] is None:
+            yalim[1] = x_and_y_data[0].series.max if positions is not None else x_and_y_data[1].series.max
+
+        inchesperposition = kwargs.get("inchesperposition", None)
+        direction = kwargs.get("direction", None)
+        if direction == "vertical":
+            kwargs["xticks"] = ticks
+            kwargs["xticklabels"] = kwargs.get("labels", None)
+            if inchesperposition is not None:
+                kwargs["awidthininches"] = position * inchesperposition
+
+        elif direction == "horizontal":
+            kwargs["yticks"] = ticks
+            kwargs["yticklabels"] = kwargs.get("labels", None)
+            xalim, yalim = yalim, xalim
+            if inchesperposition is not None:
+                kwargs["aheightininches"] = position * inchesperposition
+
+        return x_and_y_data, xalim, yalim, colors, kwargs
+
+    @staticmethod
     def get_color(color, alpha=None):
         color_tuple = color_dict[color] if isinstance(color, str) else color
         if len(color_tuple) == 3:
@@ -165,6 +251,23 @@ class Figure(object):
 
     def plot(self, *args, **kwargs):
         self.ax.plot(*args, **kwargs)
+
+    def lineplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", linestyle="-", **kwargs):
+        series_x, series_y = Series(series_x), Series(series_y)
+        color = self.get_color(color, alpha)
+        self.plot(series_x, series_y, color=color, linewidth=self.lw, zorder=1.9999, linestyle=linestyle)
+        if marker is not None:
+            self.plot(series_x, series_y, color=color, linestyle="None", marker=marker, markersize=self.ms)
+
+    def lineplotwithstats(self, series_group_x, series_group_y, color=(0, 0, 1, 1), alpha=1, marker=".", alpha_stats=None, **kwargs):
+        series_group_x, series_group_y = SeriesGroup(series_group_x), SeriesGroup(series_group_y)
+        series_x = [Series([series[i] for series in series_group_x]) for i in range(len(series_group_x[0]))]
+        series_y = [Series([series[i] for series in series_group_y]) for i in range(len(series_group_y[0]))]
+        self.lineplot([series.mean for series in series_x], [series.mean for series in series_y], color=color, alpha=alpha, marker=marker, **kwargs)
+        self.lineplot([series.p25 for series in series_x], [series.p25 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=None, linestyle=":", **kwargs)
+        self.lineplot([series.p75 for series in series_x], [series.p75 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=None, linestyle=":", **kwargs)
+        self.lineplot([series.mean - series.ste / 2 for series in series_x], [series.mean - series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=None, linestyle="--", **kwargs)
+        self.lineplot([series.mean + series.ste / 2 for series in series_x], [series.mean + series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=None, linestyle="--", **kwargs)
 
     def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", plot_unity=True, plot_mean=True, nbins=0, **kwargs):
         series_x, series_y = Series(series_x), Series(series_y)
@@ -291,164 +394,72 @@ class Figure(object):
 
 
 class Boxplot(Figure):
-    def __init__(self, grouped_series, labels=None, xalim=None, yalim=None, inchesperposition=None, colors=None, alpha=0.5, direction="vertical", l0_stats=False, l1_stats=False, **kwargs):
-        grouped_series = GroupedSeries(grouped_series)
-        position, positions = 0, []
-        for series_group in grouped_series:
-            position += 1
-            positions_ = []
-            for series in series_group:
-                positions_.append(position)
-                position += 1
-
-            positions.append(positions_)
-
-        if colors is None:
-            colors = [[list(color_dict.keys())[i] for i, series in enumerate(series_group)] for series_group in grouped_series]
-
-        if inchesperposition is not None:
-            if direction == "vertical":
-                kwargs["awidthininches"] = position * inchesperposition
-
-            else:
-                kwargs["aheightininches"] = position * inchesperposition
-
-        if xalim is None:
-            xalim = [None, None]
-
-        if xalim[0] is None:
-            xalim[0] = 0
-
-        if xalim[1] is None:
-            xalim[1] = position
-
-        if yalim is None:
-            yalim = [None, None]
-
-        if yalim[0] is None:
-            yalim[0] = grouped_series.series.min
-
-        if yalim[1] is None:
-            yalim[1] = grouped_series.series.max
-
-        ticks = [np.mean(positions_) for positions_ in positions]
-        kwargs["xticks"] = ticks if direction == "vertical" else kwargs.get("xticks", "auto")
-        kwargs["xticklabels"] = labels if direction == "vertical" else kwargs.get("xticklabels", "auto")
-        kwargs["yticks"] = kwargs.get("yticks", "auto") if direction == "vertical" else ticks
-        kwargs["yticklabels"] = kwargs.get("yticklabels", "auto") if direction == "vertical" else labels
-        super(Boxplot, self).__init__(
-            xalim=xalim if direction == "vertical" else yalim,
-            yalim=yalim if direction == "vertical" else xalim,
-            **kwargs)
-
-        for i, series_group in enumerate(grouped_series):
-            for j, series in enumerate(series_group):
-                self.boxplot(series, pos=positions[i][j], fc=self.get_color(colors[i][j], alpha=alpha), direction=direction, **kwargs)
-
+    def __init__(self, grouped_series, labels=None, xalim=None, yalim=None, positions=None, inchesperposition=None, colors=None, alpha=0.5, direction="vertical", l0_stats=False, l1_stats=False, **kwargs):
+        [grouped_series], xalim, yalim, self.colors, self.kwargs = Figure.prepare("grouped_series", [grouped_series], xalim, yalim, colors, positions=positions, labels=labels, inchesperposition=inchesperposition, direction=direction, **kwargs)
+        self.positions, self.labels, self.inchesperposition, self.direction, self.alpha = self.kwargs.pop("positions"), self.kwargs.pop("labels"), self.kwargs.pop("inchesperposition"), self.kwargs.pop("direction"), alpha
+        super(Boxplot, self).__init__(xalim, yalim, **self.kwargs)
+        self.plot_boxplot(self, grouped_series, self.positions, self.colors, self.alpha, self.direction, **self.kwargs)
+        position = self.positions[-1][-1] + 1
         locs = np.zeros((int((position - 1) * position / 2), position + 1))
-        loc = (self.yamax + 3 * self.dy) if direction == "vertical" else (self.xamax + 3 * self.dx)
+        loc = (self.yamax + 3 * self.dy) if self.direction == "vertical" else (self.xamax + 3 * self.dx)
         if l0_stats:
-            for i, (series_group, positions_) in enumerate(zip(grouped_series, positions)):
+            for i, (series_group, positions_) in enumerate(zip(grouped_series, self.positions)):
                 for j, (series0, position0) in enumerate(zip(series_group, positions_)):
                     for k, (series1, position1) in enumerate(zip(series_group, positions_)):
                         if k > j:
-                            p_value = series0.different_from(series1.series, **kwargs)
+                            p_value = series0.different_from(series1.series, **self.kwargs)
                             p = min([p_value, 1 - p_value])
                             if p < 0.05:
                                 min_loc_pos = np.nonzero(np.sum(locs[:, position0:position1], axis=1) == 0)[0][0]
                                 loc_ = loc + min_loc_pos * self.dy
                                 locs[min_loc_pos, position0:position1] = 1
                                 position01 = (position0 + position1) / 2
-                                self.plot(*[[position0 + self.lwic, position01], [loc_, loc_]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][j]), linewidth=self.lw, zorder=2.01)
-                                self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][j]), linewidth=self.lw, zorder=2.01)
-                                self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][k]), linewidth=self.lw, zorder=2.01)
-                                self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][k]), linewidth=self.lw, zorder=2.01)
-                                self.text(*[position01, loc_][::1 if direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
-                                          rotation=0 if direction == "vertical" else 270,
-                                          ha="center" if direction == "vertical" else "left",
-                                          va="bottom" if direction == "vertical" else "center",
+                                self.plot(*[[position0 + self.lwic, position01], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j]), linewidth=self.lw, zorder=2.01)
+                                self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j]), linewidth=self.lw, zorder=2.01)
+                                self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][k]), linewidth=self.lw, zorder=2.01)
+                                self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][k]), linewidth=self.lw, zorder=2.01)
+                                self.text(*[position01, loc_][::1 if self.direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
+                                          rotation=0 if self.direction == "vertical" else 270,
+                                          ha="center" if self.direction == "vertical" else "left",
+                                          va="bottom" if self.direction == "vertical" else "center",
                                           fontsize=self.ms)
 
         if l1_stats:
-            for i, (series_group_a, positions_a) in enumerate(zip(grouped_series, positions)):
+            for i, (series_group_a, positions_a) in enumerate(zip(grouped_series, self.positions)):
                 for j, (series0, position0) in enumerate(zip(series_group_a, positions_a)):
-                    for k, (series_group_b, positions_b) in enumerate(zip(grouped_series, positions)):
+                    for k, (series_group_b, positions_b) in enumerate(zip(grouped_series, self.positions)):
                         if k > i:
                             for l, (series1, position1) in enumerate(zip(series_group_b, positions_b)):
-                                p_value = series0.different_from(series1.series, **kwargs)
+                                p_value = series0.different_from(series1.series, **self.kwargs)
                                 p = min([p_value, abs(1 - p_value)])
                                 if p < 0.05:
                                     min_loc_pos = np.nonzero(np.sum(locs[:, position0:position1], axis=1) == 0)[0][0]
                                     loc_ = loc + min_loc_pos * self.dy
                                     locs[min_loc_pos, position0:position1] = 1
                                     position01 = (position0 + position1) / 2
-                                    self.plot(*[[position0 + self.lwic, position01], [loc_, loc_]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][j]), linewidth=self.lw, zorder=2.01)
-                                    self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if direction == "vertical" else -1], color=self.get_color(colors[i][j]), linewidth=self.lw, zorder=2.01)
-                                    self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if direction == "vertical" else -1], color=self.get_color(colors[k][l]), linewidth=self.lw, zorder=2.01)
-                                    self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if direction == "vertical" else -1], color=self.get_color(colors[k][l]), linewidth=self.lw, zorder=2.01)
-                                    self.text(*[position01, loc_][::1 if direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
-                                              rotation=0 if direction == "vertical" else 270,
-                                              ha="center" if direction == "vertical" else "left",
-                                              va="bottom" if direction == "vertical" else "center",
+                                    self.plot(*[[position0 + self.lwic, position01], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j]), linewidth=self.lw, zorder=2.01)
+                                    self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j]), linewidth=self.lw, zorder=2.01)
+                                    self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[k][l]), linewidth=self.lw, zorder=2.01)
+                                    self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[k][l]), linewidth=self.lw, zorder=2.01)
+                                    self.text(*[position01, loc_][::1 if self.direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
+                                              rotation=0 if self.direction == "vertical" else 270,
+                                              ha="center" if self.direction == "vertical" else "left",
+                                              va="bottom" if self.direction == "vertical" else "center",
                                               fontsize=self.ms)
+
+    @staticmethod
+    def plot_boxplot(figure, grouped_series, positions, colors, alpha=0.5, direction="vertical", **kwargs):
+        for i, series_group in enumerate(grouped_series):
+            for j, series in enumerate(series_group):
+                figure.boxplot(series, pos=positions[i][j], fc=Figure.get_color(colors[i][j], alpha=alpha), direction=direction, **kwargs)
 
 
 class Barplot(Figure):
-    def __init__(self, grouped_series, labels=None, xalim=None, yalim=None, inchesperposition=None, colors=None, alpha=0.5, direction="vertical", grouped_offsets=None, **kwargs):
-        grouped_series = GroupedSeries(grouped_series)
-        grouped_offsets = GroupedSeries(grouped_offsets) if grouped_offsets is not None else None
-        position, positions = 0, []
-        for series_group in grouped_series:
-            position += 1
-            positions_ = []
-            for series in series_group:
-                positions_.append(position)
-                position += 1
-
-            positions.append(positions_)
-
-        if colors is None:
-            colors = [[list(color_dict.keys())[i] for i, series in enumerate(series_group)] for series_group in grouped_series]
-
-        if inchesperposition is not None:
-            if direction == "vertical":
-                kwargs["awidthininches"] = position * inchesperposition
-
-        if xalim is None:
-            xalim = [None, None]
-
-        if xalim[0] is None:
-            xalim[0] = 0
-
-        if xalim[1] is None:
-            xalim[1] = position
-
-        if yalim is None:
-            yalim = [None, None]
-
-        if yalim[0] is None:
-            yalim[0] = grouped_series.series.min
-
-        if yalim[1] is None:
-            yalim[1] = grouped_series.series.max
-
-        ticks = [np.mean(positions_) for positions_ in positions]
-        kwargs["xticks"] = ticks if direction == "vertical" else kwargs.get("xticks", "auto")
-        kwargs["xticklabels"] = labels if direction == "vertical" else kwargs.get("xticklabels", "auto")
-        kwargs["yticks"] = kwargs.get("yticks", "auto") if direction == "vertical" else ticks
-        kwargs["yticklabels"] = kwargs.get("yticklabels", "auto") if direction == "vertical" else labels
-        super(Barplot, self).__init__(
-            xalim=xalim if direction == "vertical" else yalim,
-            yalim=yalim if direction == "vertical" else xalim,
-            **kwargs)
-
-        self.positions = positions
-        self.colors = colors
-        self.direction=direction
-        self.kwargs = kwargs
-        self.alpha = alpha
-        self.grouped_offsets = grouped_offsets
-        self.plot_barplot(self, grouped_series, positions, colors, alpha, direction, grouped_offsets, **kwargs)
+    def __init__(self, grouped_series, labels=None, xalim=None, yalim=None, positions=None, inchesperposition=None, colors=None, alpha=0.5, direction="vertical", grouped_offsets=None, **kwargs):
+        [grouped_series, self.grouped_offsets], xalim, yalim, self.colors, self.kwargs = Figure.prepare("grouped_series", [grouped_series, grouped_offsets], xalim, yalim, colors, positions=positions, labels=labels, inchesperposition=inchesperposition, direction=direction, **kwargs)
+        self.positions, self.labels, self.inchesperposition, self.direction, self.alpha = self.kwargs.pop("positions"), self.kwargs.pop("labels"), self.kwargs.pop("inchesperposition"), self.kwargs.pop("direction"), alpha
+        super(Barplot, self).__init__(xalim, yalim, **self.kwargs)
+        self.plot_barplot(self, grouped_series, self.positions, self.colors, self.alpha, self.direction, self.grouped_offsets, **self.kwargs)
 
     @staticmethod
     def plot_barplot(figure, grouped_series, positions, colors, alpha=0.5, direction="vertical", grouped_offsets=None, **kwargs):
@@ -457,40 +468,43 @@ class Barplot(Figure):
                 figure.barplot(series, pos=positions[i][j], fc=Figure.get_color(colors[i][j], alpha=alpha), direction=direction, offset=grouped_offsets[i][j] if grouped_offsets is not None else 0, **kwargs)
 
 
+class Lineplot(Figure):
+    def __init__(self, series_group_x, series_group_y, xalim=None, yalim=None, colors=None, alpha=1, **kwargs):
+        [series_group_x, series_group_y], xalim, yalim, self.colors, self.kwargs = Figure.prepare("series_group", [series_group_x, series_group_y], xalim, yalim, colors, **kwargs)
+        self.alpha = alpha
+        super(Lineplot, self).__init__(xalim, yalim, **self.kwargs)
+        self.plot_lineplot(self, series_group_x, series_group_y, self.colors, self.alpha, **self.kwargs)
+
+    @staticmethod
+    def plot_lineplot(figure, series_group_x, series_group_y, colors, alpha, **kwargs):
+        for i, (series_x, series_y) in enumerate(zip(series_group_x, series_group_y)):
+            figure.lineplot(series_x, series_y, color=colors[i], alpha=alpha, **kwargs)
+
+
+class Lineplotwithstats(Figure):
+    def __init__(self, grouped_series_x, grouped_series_y, xalim=None, yalim=None, colors=None, alpha=1, **kwargs):
+        [grouped_series_x, grouped_series_y], xalim, yalim, self.colors, self.kwargs = Figure.prepare("grouped_series", [grouped_series_x, grouped_series_y], xalim, yalim, colors, color_mode="series_group", **kwargs)
+        self.alpha = alpha
+        super(Lineplotwithstats, self).__init__(xalim, yalim, **self.kwargs)
+        self.plot_lineplotwithstats(self, grouped_series_x, grouped_series_y, self.colors, self.alpha, **self.kwargs)
+
+    @staticmethod
+    def plot_lineplotwithstats(figure, grouped_series_x, grouped_series_y, colors, alpha, **kwargs):
+        for i, (series_group_x, series_group_y) in enumerate(zip(grouped_series_x, grouped_series_y)):
+            figure.lineplotwithstats(series_group_x, series_group_y, color=colors[i], alpha=alpha, **kwargs)
+
+
 class Scatterplot(Figure):
     def __init__(self, series_group_x, series_group_y, xalim=None, yalim=None, colors=None, alpha=1, **kwargs):
-        series_group_x, series_group_y = SeriesGroup(series_group_x), SeriesGroup(series_group_y)
-        if colors is None:
-            colors = [list(color_dict.keys())[i] for i, series in enumerate(series_group_x)]
-
-        if xalim is None:
-            xalim = [None, None]
-
-        if xalim[0] is None:
-            xalim[0] = series_group_x.series.pmin
-
-        if xalim[1] is None:
-            xalim[1] = series_group_x.series.pmax
-
-        if yalim is None:
-            yalim = [None, None]
-
-        if yalim[0] is None:
-            yalim[0] = series_group_y.series.pmin
-
-        if yalim[1] is None:
-            yalim[1] = series_group_y.series.pmax
-
-        kwargs["xticks"] = kwargs.get("xticks", "auto")
-        kwargs["xticklabels"] = kwargs.get("xticklabels", "auto")
-        kwargs["yticks"] = kwargs.get("yticks", "auto")
-        kwargs["yticklabels"] = kwargs.get("yticklabels", "auto")
-        super(Scatterplot, self).__init__(xalim=xalim, yalim=yalim, **kwargs)
-        self.colors = colors
-        self.kwargs = kwargs
+        [series_group_x, series_group_y], xalim, yalim, self.colors, self.kwargs = Figure.prepare("series_group", [series_group_x, series_group_y], xalim, yalim, colors, **kwargs)
         self.alpha = alpha
+        super(Scatterplot, self).__init__(xalim, yalim, **self.kwargs)
+        self.plot_scatterplot(self, series_group_x, series_group_y, self.colors, self.alpha, **self.kwargs)
+
+    @staticmethod
+    def plot_scatterplot(figure, series_group_x, series_group_y, colors, alpha, **kwargs):
         for i, (series_x, series_y) in enumerate(zip(series_group_x, series_group_y)):
-            self.scatterplot(series_x, series_y, color=colors[i], alpha=alpha, **kwargs)
+            figure.scatterplot(series_x, series_y, color=colors[i], alpha=alpha, **kwargs)
 
 
 class Blandaltmanplot(Figure):
@@ -498,37 +512,15 @@ class Blandaltmanplot(Figure):
         series_group_x, series_group_y = SeriesGroup(series_group_x), SeriesGroup(series_group_y)
         series_group_mean = SeriesGroup([np.mean([series_x.series, series_y.series], axis=0) for series_x, series_y in zip(series_group_x, series_group_y)])
         series_group_diff = SeriesGroup([series_y.series - series_x.series for series_x, series_y in zip(series_group_x, series_group_y)])
-        if colors is None:
-            colors = [list(color_dict.keys())[i] for i, series in enumerate(series_group_x)]
-
-        if xalim is None:
-            xalim = [None, None]
-
-        if xalim[0] is None:
-            xalim[0] = series_group_mean.series.pmin
-
-        if xalim[1] is None:
-            xalim[1] = series_group_mean.series.pmax
-
-        if yalim is None:
-            yalim = [None, None]
-
-        if yalim[0] is None:
-            yalim[0] = series_group_diff.series.pmin
-
-        if yalim[1] is None:
-            yalim[1] = series_group_diff.series.pmax
-
-        kwargs["xticks"] = kwargs.get("xticks", "auto")
-        kwargs["xticklabels"] = kwargs.get("xticklabels", "auto")
-        kwargs["yticks"] = kwargs.get("yticks", "auto")
-        kwargs["yticklabels"] = kwargs.get("yticklabels", "auto")
-        super(Blandaltmanplot, self).__init__(xalim=xalim, yalim=yalim, **kwargs)
-        self.colors = colors
-        self.kwargs = kwargs
+        [series_group_mean, series_group_diff], xalim, yalim, self.colors, self.kwargs = Figure.prepare("series_group", [series_group_mean, series_group_diff], xalim, yalim, colors, **kwargs)
         self.alpha = alpha
+        super(Blandaltmanplot, self).__init__(xalim, yalim, **self.kwargs)
+        self.plot_blandaltmanplot(self, series_group_x, series_group_y, self.colors, self.alpha, **self.kwargs)
+
+    @staticmethod
+    def plot_blandaltmanplot(figure, series_group_x, series_group_y, colors, alpha, **kwargs):
         for i, (series_x, series_y) in enumerate(zip(series_group_x, series_group_y)):
-            self.blandaltmanplot(series_x, series_y, color=colors[i], alpha=alpha, **kwargs)
+            figure.blandaltmanplot(series_x, series_y, color=colors[i], alpha=alpha, **kwargs)
 
 
 if __name__ == "__main__":
@@ -558,14 +550,30 @@ if __name__ == "__main__":
     ]
     scatter_x = [np.random.rand(250), np.random.rand(250)]
     scatter_y = [np.random.rand(250), np.random.rand(250)]
-
+    line_group = np.array(list(zip(*[np.random.rand(100) + i for i in range(6)])))
     # Example plots
-    # jb = Boxplot(data, yalim=[0, 13], project_stats=False, plot_violin=True, direction="vertical", different_from=1.5, labels=["group1", "group2", "group3", "group4"], l0_stats=True, l1_stats=True, top_extent=2.5, right_extent=0, inchesperposition=1, pairwise=False, use_tex=True)
+    # jb = Boxplot(data, yalim=[0, 13], project_stats=False, plot_violin=True, direction="vertical", different_from=1.5, labels=["group1", "group2", "group3", "group4"], l0_stats=True, l1_stats=True, top_extent=2.5, right_extent=0, inchesperposition=0.2, pairwise=False, use_tex=True)
+    # jb.show()
     # jb = Barplot(data, yalim=[0, 13], direction="vertical", labels=["group1", "group2", "group3", "group4"], inchesperposition=0.2, print_mean=True, use_tex=True, plot_error_bar=True)
-    # jb = Figure(xalim=[0, 1], yalim=[-1, 1])
-    # jb.scatterplot(scatter_x[0], scatter_y[0], nbins=10)
-    # jb.blandaltmanplot(scatter_x[0], scatter_y[1], nbins=10)
-    #jb = Scatterplot(scatter_x, scatter_y, yalim=[0, 1], yticks=[0, 1], plot_unity=True, plot_mean=True, nbins=10)
-    jb = Blandaltmanplot(scatter_x, scatter_y, nbins=10)
-    # jb.savefig("/usr/local/micapollo01/MIC/DATA/STAFF/jberte3/data/phd/pictures/bootstrap_maps/test1.pdf")
+    # jb.show()
+    jb = Figure(xalim=[0, 1], yalim=[-1, 1])
+    jb.scatterplot(scatter_x[0], scatter_y[0], nbins=10)
     jb.show()
+    jb = Scatterplot(scatter_x, scatter_y, yalim=[0, 1], yticks=[0, 1], plot_unity=True, plot_mean=True, nbins=10)
+    jb.show()
+    jb = Figure(xalim=[0, 1], yalim=[-1, 1])
+    jb.blandaltmanplot(scatter_x[0], scatter_y[1], nbins=10)
+    jb.show()
+    jb = Blandaltmanplot(scatter_x, scatter_y, nbins=10)
+    jb.show()
+    jb = Figure([-1, 11], [-1, 11])
+    jb.lineplot(line_group[0], line_group[1])
+    jb.show()
+    jb = Lineplot(line_group[:6], line_group[-6:])
+    jb.show()
+    jb = Figure(xalim=[-1, 6], yalim=[-1, 6])
+    jb.lineplotwithstats(line_group, line_group)
+    jb.show()
+    jb = Lineplotwithstats([line_group, line_group], [line_group, line_group + 2])
+    jb.show()
+    # jb.savefig("/usr/local/micapollo01/MIC/DATA/STAFF/jberte3/data/phd/pictures/bootstrap_maps/test1.pdf")
