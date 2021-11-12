@@ -92,14 +92,15 @@ class Series(object):
 
 class SeriesGroup(object):
     def __init__(self, series_group):
-        if not isinstance(series_group, Iterable):
-            series_group = [series_group]
+        if not isinstance(series_group, SeriesGroup):
+            if not isinstance(series_group, Iterable):
+                series_group = [series_group]
 
-        elif isinstance(series_group, tuple):
-            series_group = list(series_group)
+            elif isinstance(series_group, tuple):
+                series_group = list(series_group)
 
-        for i, series in enumerate(series_group):
-            series_group[i] = Series(series)
+            for i, series in enumerate(series_group):
+                series_group[i] = Series(series)
 
         self.series_group = series_group
         self.series = Series([value for series in series_group for value in series])
@@ -116,14 +117,15 @@ class SeriesGroup(object):
 
 class GroupedSeries(object):
     def __init__(self, grouped_series):
-        if not isinstance(grouped_series, Iterable):
-            grouped_series = [grouped_series]
+        if not isinstance(grouped_series, GroupedSeries):
+            if not isinstance(grouped_series, Iterable):
+                grouped_series = [grouped_series]
 
-        elif isinstance(grouped_series, tuple):
-            grouped_series = list(grouped_series)
+            elif isinstance(grouped_series, tuple):
+                grouped_series = list(grouped_series)
 
-        for i, series_group in enumerate(grouped_series):
-            grouped_series[i] = SeriesGroup(series_group)
+            for i, series_group in enumerate(grouped_series):
+                grouped_series[i] = SeriesGroup(series_group)
 
         self.grouped_series = grouped_series
         self.series = Series([value for series_group in grouped_series for value in series_group.series])
