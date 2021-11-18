@@ -84,41 +84,43 @@ class Figure(object):
         self.ax.add_patch(Rectangle((self.xamax + self.lwic / 2, self.ymin - self.lhic / 2), self.xmax - self.xamax, self.height + self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))  # right vertical patch
         self.ax.add_patch(Rectangle((self.xmin - self.lwic / 2, self.ymin - self.lhic / 2), self.dx, self.dy, fc='w', ec='w', linewidth=0, zorder=2.001))  # small square patch at bottom left
         # optionally set title, labels, ticks and ticklabels
-        if "xlabel" in kwargs and kwargs["xlabel"] is not None:
-            self.set_xlabel(kwargs["xlabel"])
+        if plot_xaxis:
+            if "xlabel" in kwargs and kwargs["xlabel"] is not None:
+                self.set_xlabel(kwargs["xlabel"])
 
-        if "ylabel" in kwargs and kwargs["ylabel"] is not None:
-            self.set_ylabel(kwargs["ylabel"])
+            if "xticks" in kwargs and kwargs["xticks"] is not None:
+                if kwargs["xticks"] == "auto":
+                    assert "xticklabels" in kwargs and kwargs["xticklabels"] == "auto"
+                    self.set_xticks(np.linspace(self.xamin, self.xamax, 5))
 
-        if "xticks" in kwargs and kwargs["xticks"] is not None:
-            if kwargs["xticks"] == "auto":
-                assert "xticklabels" in kwargs and kwargs["xticklabels"] == "auto"
-                self.set_xticks(np.linspace(self.xamin, self.xamax, 5))
-
-            else:
-                self.set_xticks(kwargs["xticks"] if kwargs["xticks"] else [])
-
-        else:
-            self.set_xticks([xtick for xtick in self.ax.get_xticks() if self.xamin <= xtick <= self.xamax])
-
-        if "xticklabels" in kwargs and kwargs["xticklabels"] is not None and kwargs["xticklabels"] != "auto":
-            assert "xticks" in kwargs and kwargs["xticks"] is not None and len(kwargs["xticks"]) == len(kwargs["xticklabels"])
-            self.set_xticklabels(kwargs["xticklabels"])
-
-        if "yticks" in kwargs and kwargs["yticks"] is not None:
-            if kwargs["yticks"] == "auto":
-                assert "yticklabels" in kwargs and kwargs["yticklabels"] == "auto"
-                self.set_yticks(np.linspace(self.yamin, self.yamax, 5))
+                else:
+                    self.set_xticks(kwargs["xticks"] if kwargs["xticks"] else [])
 
             else:
-                self.set_yticks(kwargs["yticks"] if kwargs["yticks"] else [])
+                self.set_xticks([xtick for xtick in self.ax.get_xticks() if self.xamin <= xtick <= self.xamax])
 
-        else:
-            self.set_yticks([ytick for ytick in self.ax.get_yticks() if self.yamin <= ytick <= self.yamax])
+            if "xticklabels" in kwargs and kwargs["xticklabels"] is not None and kwargs["xticklabels"] != "auto":
+                assert "xticks" in kwargs and kwargs["xticks"] is not None and len(kwargs["xticks"]) == len(kwargs["xticklabels"])
+                self.set_xticklabels(kwargs["xticklabels"])
 
-        if "yticklabels" in kwargs and kwargs["yticklabels"] is not None and kwargs["yticklabels"] != "auto":
-            assert "yticks" in kwargs and kwargs["yticks"] is not None and len(kwargs["yticks"]) == len(kwargs["yticklabels"])
-            self.set_yticklabels(kwargs["yticklabels"])
+        if plot_yaxis:
+            if "ylabel" in kwargs and kwargs["ylabel"] is not None:
+                self.set_ylabel(kwargs["ylabel"])
+
+            if "yticks" in kwargs and kwargs["yticks"] is not None:
+                if kwargs["yticks"] == "auto":
+                    assert "yticklabels" in kwargs and kwargs["yticklabels"] == "auto"
+                    self.set_yticks(np.linspace(self.yamin, self.yamax, 5))
+
+                else:
+                    self.set_yticks(kwargs["yticks"] if kwargs["yticks"] else [])
+
+            else:
+                self.set_yticks([ytick for ytick in self.ax.get_yticks() if self.yamin <= ytick <= self.yamax])
+
+            if "yticklabels" in kwargs and kwargs["yticklabels"] is not None and kwargs["yticklabels"] != "auto":
+                assert "yticks" in kwargs and kwargs["yticks"] is not None and len(kwargs["yticks"]) == len(kwargs["yticklabels"])
+                self.set_yticklabels(kwargs["yticklabels"])
 
         if "title" in kwargs and kwargs["title"] is not None:
             self.set_title(kwargs["title"])

@@ -382,7 +382,7 @@ class Data(object):
             std = self.df.at[idx_fn('std'), column]
             n = self.df.at[idx_fn('n'), column]
             if n == 0 or np.isnan(n):
-                printing_df.at[printing_idx, column] = "/"
+                printing_df.at[printing_idx, column] = "/" + (f" [{nnaninf}]" if nnaninf > 0 else "")
 
             elif printing_type == 0:
                 s = f"{formatting} [{formatting}-{formatting}] {{}}"  # p50 [p25 - p75] [nnaninf]
