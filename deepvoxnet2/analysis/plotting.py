@@ -1,4 +1,5 @@
 import numpy as np
+import seaborn as sb
 from matplotlib import pyplot as plt
 from matplotlib.patches import Rectangle
 from deepvoxnet2.analysis.data import Series, SeriesGroup, GroupedSeries
@@ -77,10 +78,11 @@ class Figure(object):
         # add whitespace in between x- and y-axis in the dx and dy regions
         self.lwic = self.lw / self.fig.get_dpi() * self.awidth / self.awidthininches
         self.lhic = self.lh / self.fig.get_dpi() * self.aheight / self.aheightininches
-        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.yamax + self.lhic / 2), self.width - self.lwic, self.ymax - self.yamax - self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))
-        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.ymin + self.lhic / 2), self.width - self.lwic, self.dy - self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))
-        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.ymin + self.lhic / 2), self.dx - self.lwic, self.height - self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))
-        self.ax.add_patch(Rectangle((self.xamax + self.lwic / 2, self.ymin + self.lhic / 2), self.xmax - self.xamax - self.lwic, self.height - self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))
+        self.ax.add_patch(Rectangle((self.xmin - self.lwic / 2, self.yamax + self.lhic / 2), self.width + self.lwic, self.ymax - self.yamax, fc='w', ec='w', linewidth=0, zorder=2.001))  # top horizontal patch
+        self.ax.add_patch(Rectangle((self.xmin - self.lwic / 2, self.ymin + self.lhic / 2), self.width + self.lwic, self.dy - self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))  # bottom horizontal patch
+        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.ymin - self.lhic / 2), self.dx - self.lwic, self.height + self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))  # left vertical patch
+        self.ax.add_patch(Rectangle((self.xamax + self.lwic / 2, self.ymin - self.lhic / 2), self.xmax - self.xamax, self.height + self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))  # right vertical patch
+        self.ax.add_patch(Rectangle((self.xmin - self.lwic / 2, self.ymin - self.lhic / 2), self.dx, self.dy, fc='w', ec='w', linewidth=0, zorder=2.001))  # small square patch at bottom left
         # optionally set title, labels, ticks and ticklabels
         if "xlabel" in kwargs and kwargs["xlabel"] is not None:
             self.set_xlabel(kwargs["xlabel"])
@@ -269,46 +271,67 @@ class Figure(object):
         self.lineplot([series.mean - series.ste / 2 for series in series_x], [series.mean - series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=None, linestyle="--", **kwargs)
         self.lineplot([series.mean + series.ste / 2 for series in series_x], [series.mean + series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=None, linestyle="--", **kwargs)
 
-    def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", plot_unity=True, plot_mean=True, nbins=0, **kwargs):
+    def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", plot_unity=True, plot_mean=True, nbins=0, groupn=0, **kwargs):
         series_x, series_y = Series(series_x), Series(series_y)
-        color = self.get_color(color, alpha)
         if plot_unity:
-            self.plot([self.xamin, self.xamax], [self.xamin, self.xamax], "k", linewidth=self.lw, zorder=1.99)
+            self.plot([self.xamin, self.xamax], [self.xamin, self.xamax], "k", linewidth=self.lw, zorder=1.9)
+
+        color = self.get_color(color, alpha)
+        self.plot(series_x, series_y, color=color, linestyle="None", marker=marker, markersize=self.ms, zorder=1.99)
+        if plot_mean:
+            self.plot(series_x.mean, series_y.mean, color=color[:3], alpha=1, linestyle="None", marker=".", markersize=self.ms * 3, zorder=1.999)
 
         if nbins > 0:
-            bins = np.linspace(series_x.min, series_x.max + 1e-7, nbins + 1)
-            bin_locs = np.digitize(series_x, bins)
-            series_y_means = [np.mean(series_y[bin_locs == i]) for i in range(1, nbins + 1)]
-            for i in range(nbins):
-                self.plot([bins[i], bins[i + 1]], [series_y_means[i], series_y_means[i]], color=color, linewidth=self.lw, zorder=1.999)
-                if i < nbins - 1:
-                    self.plot([bins[i + 1], bins[i + 1]], [series_y_means[i], series_y_means[i + 1]], color=color, linewidth=self.lw, zorder=1.999)
+            assert groupn == 0
+            color = self.get_color(color[:3], alpha * 0.25)
+            sort_idx = np.argsort(series_x)
+            series_x_for_binning = [x for x in series_x[sort_idx] for _ in range(nbins)]
+            series_y_for_binning = [y for y in series_y[sort_idx] for _ in range(nbins)]
+            series_x_means = [np.percentile(series_x, 100 * b / nbins) for b in range(nbins + 1)]
+            series_y_means = [np.mean(series_y_for_binning[len(series_x) * b:len(series_x) * (b + 1)]) for b in range(nbins)]
+            for b in range(nbins):
+                self.plot([series_x_means[b], series_x_means[b + 1]], [series_y_means[b], series_y_means[b]], color=color[:3], alpha=1, linewidth=self.lw, zorder=1.9999)
+                if b < nbins - 1:
+                    self.plot([series_x_means[b + 1], series_x_means[b + 1]], [series_y_means[b], series_y_means[b + 1]], color=color[:3], alpha=1, linewidth=self.lw, zorder=1.9999)
 
-        if plot_mean:
-            self.plot(series_x.mean, series_y.mean, color=color, linestyle="None", marker=marker, markersize=self.ms * 3, zorder=1.9999)
+        elif groupn > 0:
+            color = self.get_color(color[:3], alpha * 0.25)
+            sort_idx = np.argsort(series_x)
+            series_x_for_grouping = series_x[sort_idx]
+            series_y_for_grouping = series_y[sort_idx]
+            ngroups = int(np.floor(len(series_x) / groupn))
+            series_x_means = [series_x_for_grouping[g * groupn if g < ngroups else -1] for g in range(ngroups + 1)]
+            series_y_means = [np.mean(series_y_for_grouping[g * groupn:(g + 1) * groupn]) for g in range(ngroups)]
+            for g in range(ngroups):
+                self.plot([series_x_means[g], series_x_means[g + 1]], [series_y_means[g], series_y_means[g]], color=color[:3], alpha=1, linewidth=self.lw, zorder=1.9999)
+                if g < ngroups - 1:
+                    self.plot([series_x_means[g + 1], series_x_means[g + 1]], [series_y_means[g], series_y_means[g + 1]], color=color[:3], alpha=1, linewidth=self.lw, zorder=1.9999)
 
-        self.plot(series_x, series_y, color=color, linestyle="None", marker=marker, markersize=self.ms)
-
-    def blandaltmanplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", plot_unity=True, nbins=0, **kwargs):
+    def blandaltmanplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", plot_unity=True, nbins=0, alpha_stats=None, **kwargs):
         series_x, series_y = Series(series_x), Series(series_y)
         series_mean = Series(np.mean([series_x.series, series_y.series], axis=0))
         series_diff = Series(series_y.series - series_x.series)
-        color = self.get_color(color, alpha)
         if plot_unity:
             self.plot([self.xamin, self.xamax], [0, 0], "k", linewidth=self.lw, zorder=1.99)
 
         if nbins > 0:
-            bins = np.linspace(series_mean.min, series_mean.max + 1e-7, nbins + 1)
-            bin_locs = np.digitize(series_mean, bins)
-            series_diff_means = [np.mean(series_diff[bin_locs == i]) for i in range(1, nbins + 1)]
-            for i in range(nbins):
-                self.plot([bins[i], bins[i + 1]], [series_diff_means[i], series_diff_means[i]], color=color, linewidth=self.lw, zorder=1.999)
-                if i < nbins - 1:
-                    self.plot([bins[i + 1], bins[i + 1]], [series_diff_means[i], series_diff_means[i + 1]], color=color, linewidth=self.lw, zorder=1.999)
+            color = self.get_color(color[:3], alpha * 0.5)
+            sort_idx = np.argsort(series_mean)
+            series_mean_for_binning = [x for x in series_mean[sort_idx] for _ in range(nbins)]
+            series_diff_for_binning = [y for y in series_diff[sort_idx] for _ in range(nbins)]
+            series_mean_means = [np.percentile(series_mean, 100 * b / nbins) for b in range(nbins + 1)]
+            series_diff_means = [np.mean(series_diff_for_binning[len(series_mean) * b:len(series_mean) * (b + 1)]) for b in range(nbins)]
+            for b in range(nbins):
+                self.plot([series_mean_means[b], series_mean_means[b + 1]], [series_diff_means[b], series_diff_means[b]], color=color[:3], alpha=alpha, linewidth=self.lw, zorder=1.999)
+                if b < nbins - 1:
+                    self.plot([series_mean_means[b + 1], series_mean_means[b + 1]], [series_diff_means[b], series_diff_means[b + 1]], color=color[:3], alpha=alpha, linewidth=self.lw, zorder=1.999)
 
-        self.plot([self.xamin, self.xamax], [series_diff.mean, series_diff.mean], color=color, linewidth=self.lw, zorder=1.9999)
-        self.plot([self.xamin, self.xamax], [series_diff.mean + 1.96 * series_diff.std, series_diff.mean + 1.96 * series_diff.std], linestyle=":", color=color, linewidth=self.lw, zorder=1.9999)
-        self.plot([self.xamin, self.xamax], [series_diff.mean - 1.96 * series_diff.std, series_diff.mean - 1.96 * series_diff.std], linestyle=":", color=color, linewidth=self.lw, zorder=1.9999)
+        else:
+            color = self.get_color(color, alpha)
+
+        self.plot([self.xamin, self.xamax], [series_diff.mean, series_diff.mean], color=color, alpha=alpha if alpha_stats is None else alpha_stats, linewidth=self.lw, zorder=1.9999)
+        self.plot([self.xamin, self.xamax], [series_diff.mean + 1.96 * series_diff.std, series_diff.mean + 1.96 * series_diff.std], linestyle=":", color=color, alpha=alpha if alpha_stats is None else alpha_stats, linewidth=self.lw, zorder=1.9999)
+        self.plot([self.xamin, self.xamax], [series_diff.mean - 1.96 * series_diff.std, series_diff.mean - 1.96 * series_diff.std], linestyle=":", color=color, alpha=alpha if alpha_stats is None else alpha_stats, linewidth=self.lw, zorder=1.9999)
         self.plot(series_mean, series_diff, color=color, linestyle="None", marker=marker, markersize=self.ms)
 
     def boxplot(self, series, pos, direction="vertical", width=0.8, fc=(0, 0, 1, 0.5), ec=None, project_stats=False, plot_violin=False, violin_color=None, print_mean=True, different_from=None, **kwargs):
