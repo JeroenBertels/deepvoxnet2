@@ -136,11 +136,12 @@ class DvnModel(object):
 
         if optimizer is not None:
             assert isinstance(self.outputs[key][0].transformer, KerasModel), "When using compile with an optimizer specified the output and index 0 (i.e. x/y_) must be after a KerasTransformer."
-            if isinstance(optimizer, str):
+            if isinstance(optimizer, (str, dict)):
                 optimizer = tf.keras.optimizers.get(optimizer)
 
-            self.optimizer[key] = optimizer
-            self.outputs[key][0].transformer.keras_model.compile(optimizer=self.optimizer[key], loss=self.losses[key], metrics=self.metrics[key], loss_weights=self.losses_weights[key], weighted_metrics=self.weighted_metrics[key])
+            assert isinstance(optimizer, tf.keras.optimizers.Optimizer), "Please specify the optimizer as a Keras optimizer or a str/dict representation thereof."
+            self.optimizer[key] = optimizer.get_config()
+            self.outputs[key][0].transformer.keras_model.compile(optimizer=optimizer, loss=self.losses[key], metrics=self.metrics[key], loss_weights=self.losses_weights[key], weighted_metrics=self.weighted_metrics[key])
 
     def fit(self, key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, verbose=1, logs_dir=None, initial_epoch=0, steps_per_epoch=None):
         assert key in self.outputs, "There are no outputs available for this key."
