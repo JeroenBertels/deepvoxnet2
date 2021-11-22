@@ -304,6 +304,9 @@ def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False,
     elif reduction_mode == "mean":
         return tf.reduce_mean(result, axis=reduction_axes, keepdims=True)
 
+    elif reduction_mode == "sum":
+        return tf.reduce_sum(result, axis=reduction_axes, keepdims=True)
+
     elif reduction_mode == "median" or (reduction_mode == "percentile" and (percentile is None or percentile == 50)):
         return tfp.stats.percentile(result, 50, axis=reduction_axes, interpolation="midpoint", keepdims=True)
 
@@ -437,6 +440,9 @@ def get_metric(
 
     elif reduction_mode == "mean":
         metric.__name__ = "mean_" + metric_name
+
+    elif reduction_mode == "sum":
+        metric.__name__ = "sum_" + metric_name
 
     elif reduction_mode == "median" or (reduction_mode == "percentile" and (percentile is None or percentile == 50)):
         metric.__name__ = "median_" + metric_name
