@@ -54,23 +54,20 @@ class Series(object):
 
     @staticmethod
     def basic_test(series0, series1=None, n=10000, skipnan=True, skipinf=True, pairwise=True, **kwargs):
-        series0 = np.array(series0)
-        if series1 is None:
-            series1 = np.zeros_like(series0)
-
-        else:
-            series1 = np.array(series1)
-
+        series0 = Series(series0).series
+        series1 = np.zeros_like(series0) if series1 is None else Series(series1).series
         if pairwise:
             assert len(series0) == len(series1), "For a pairwise test the original series must be of equal length."
             series0 = series0 - series1
-            series1 = np.zeros_like(series0)
+            series1 = np.array([s0 if np.isnan(s0) or np.isinf(s0) else 0 for s0 in series0])
 
         if skipnan:
-            series0, series1 = zip(*[(s0, s1) for s0, s1 in zip(series0, series1) if not np.isnan(s0) and not np.isnan(s1)])
+            series0 = series0[~np.isnan(series0)]
+            series1 = series1[~np.isnan(series1)]
 
         if skipinf:
-            series0, series1 = zip(*[(s0, s1) for s0, s1 in zip(series0, series1) if not np.isinf(s0) and not np.isinf(s1)])
+            series0 = series0[~np.isinf(series0)]
+            series1 = series1[~np.isinf(series1)]
 
         if len(series0) > 0 and len(series1) > 0 and np.sum(np.isnan(series0)) == 0 and np.sum(np.isinf(series0)) == 0 and np.sum(np.isnan(series1)) == 0 and np.sum(np.isinf(series1)) == 0:
             if pairwise and np.all(series0 == 0):
@@ -88,6 +85,37 @@ class Series(object):
 
         else:
             return np.nan
+
+    @staticmethod
+    def rank_series(series_group, threshold=0.05, mode="max", **kwargs):
+        series_group = SeriesGroup(series_group)
+        series_group = [Series((-1 if mode == "min" else 1) * series.series) for series in series_group]
+        ranking = list(range(len(series_group)))
+        p_values = np.full((len(series_group), len(series_group)), 0.5)
+        mean_values = np.full((len(series_group), len(series_group)), np.nan)
+        for i, series_i in enumerate(series_group):
+            mean_values[i, i] = series_i.mean
+            for j, series_j in enumerate(series_group):
+                p_value = Series.basic_test(series_i.series, series_j.series, **kwargs)
+                p_values[i, j] = p_value
+                series_i_idx, series_j_idx = ranking.index(i), ranking.index(j)
+                if not np.isnan(p_value):
+                    if (p_value > 1 - threshold and series_i_idx > series_j_idx) or (p_value < threshold and series_i_idx < series_j_idx):
+                        ranking[series_i_idx], ranking[series_j_idx] = j, i
+
+        ranking_ = [None] * len(series_group)
+        prev_rank = 0
+        prev_lead = ranking[0]
+        for i in ranking:
+            p_value = p_values[min(i, prev_lead), max(i, prev_lead)]
+            if p_value > 1 - threshold or p_value < threshold:
+                prev_rank += 1
+                prev_lead = i
+
+            ranking_[i] = prev_rank
+        print(p_values)
+        print(mean_values)
+        return ranking_
 
 
 class SeriesGroup(object):
@@ -113,6 +141,9 @@ class SeriesGroup(object):
 
     def __iter__(self):
         return iter(self.series_group)
+
+    def rank(self, threshold=0.05, mode="max", **kwargs):
+        return Series.rank_series(self, threshold=threshold, mode=mode, **kwargs)
 
 
 class GroupedSeries(object):
@@ -385,16 +416,16 @@ class Data(object):
                 printing_df.at[printing_idx, column] = "/" + (f" [{nnaninf}]" if nnaninf > 0 else "")
 
             elif printing_type == 0:
-                s = f"{formatting} [{formatting}-{formatting}] {{}}"  # p50 [p25 - p75] [nnaninf]
-                printing_df.at[printing_idx, column] = s.format(p50, p25, p75, "[{:.0f}]".format(float(nnaninf)) if float(nnaninf) > 0 else "")
+                s = f"{formatting} [{formatting}-{formatting}]{{}}"  # p50 [p25 - p75] [nnaninf]
+                printing_df.at[printing_idx, column] = s.format(p50, p25, p75, " [{:.0f}]".format(float(nnaninf)) if float(nnaninf) > 0 else "")
 
             elif printing_type == 1:  # mean ± std [nnaninf]
-                s = f"{formatting} ± {formatting} {{}}"
-                printing_df.at[printing_idx, column] = s.format(pmean, std, "[{:.0f}]".format(float(nnaninf)) if float(nnaninf) > 0 else "")
+                s = f"{formatting} ± {formatting}{{}}"
+                printing_df.at[printing_idx, column] = s.format(pmean, std, " [{:.0f}]".format(float(nnaninf)) if float(nnaninf) > 0 else "")
 
             elif printing_type == 2:  # mean [nnaninf]
-                s = f"{formatting} {{}}"
-                printing_df.at[printing_idx, column] = s.format(pmean, "[{:.0f}]".format(float(nnaninf)) if float(nnaninf) > 0 else "")
+                s = f"{formatting}{{}}"
+                printing_df.at[printing_idx, column] = s.format(pmean, " [{:.0f}]".format(float(nnaninf)) if float(nnaninf) > 0 else "")
 
             elif printing_type == 3:  # n
                 s = f"{formatting}"
