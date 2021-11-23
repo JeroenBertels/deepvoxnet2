@@ -113,8 +113,7 @@ class Series(object):
                 prev_lead = i
 
             ranking_[i] = prev_rank
-        print(p_values)
-        print(mean_values)
+
         return ranking_
 
 
