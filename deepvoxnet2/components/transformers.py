@@ -885,16 +885,37 @@ class Flip(Transformer):
 class GaussianNoise(Transformer):
     def __init__(self, mean=0, std=1, **kwargs):
         super(GaussianNoise, self).__init__(**kwargs)
-        self.mean = mean
-        self.std = std
+        mean, std = np.array(mean), np.array(std)
+        assert mean.ndim <= 5 and std.ndim <= 5, "mean and std must be broadcastable with the shape of the samples that pass through and may have a maximum of 5 dimensions."
+        self.mean = np.expand_dims(mean, list(range(5 - mean.ndim))) if mean.ndim < 5 else mean
+        self.std = np.expand_dims(std, list(range(5 - std.ndim))) if std.ndim < 5 else std
+        self.mean_std_shape = np.broadcast(self.mean, self.std).shape
 
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
-            self.outputs[idx][idx_] = sample + np.random.normal(self.mean, self.std, sample.shape)
+            b = np.broadcast(self.mean, self.std, sample)
+            self.outputs[idx][idx_] = sample + np.random.normal(np.broadcast_to(self.mean, b.shape), np.broadcast_to(self.std, b.shape))
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        return self.connections[idx][0].shapes
+        output_shapes = []
+        for shape in self.connections[idx][0].shapes:
+            new_shape = []
+            for shape_, mean_std_shape_ in zip(shape, self.mean_std_shape):
+                if shape_ is None:
+                    assert mean_std_shape_ == 1, "Since the shape is unknown for this axis, the shape of the broadcasted mean and std must be one, such that it can broadcast to any shape."
+                    new_shape.append(None)
+
+                elif shape_ == 1:
+                    new_shape.append(mean_std_shape_)
+
+                else:
+                    assert shape_ == mean_std_shape_ or mean_std_shape_ == 1, "Shape of sample is not broadcastable with shape of mean and/or std."
+                    new_shape.append(shape_)
+
+            output_shapes.append(tuple(new_shape))
+
+        return output_shapes
 
     def _randomize(self):
         pass
