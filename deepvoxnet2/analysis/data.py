@@ -87,7 +87,7 @@ class Series(object):
             return np.nan
 
     @staticmethod
-    def rank_series(series_group, threshold=0.05, mode="max", **kwargs):
+    def rank_series(series_group, p_value_threshold=0.05, mode="max", **kwargs):
         series_group = SeriesGroup(series_group)
         series_group = [Series((-1 if mode == "min" else 1) * series.series) for series in series_group]
         ranking = list(range(len(series_group)))
@@ -100,7 +100,7 @@ class Series(object):
                 p_values[i, j] = p_value
                 series_i_idx, series_j_idx = ranking.index(i), ranking.index(j)
                 if not np.isnan(p_value):
-                    if (p_value > 1 - threshold and series_i_idx > series_j_idx) or (p_value < threshold and series_i_idx < series_j_idx):
+                    if (p_value > 1 - p_value_threshold and series_i_idx > series_j_idx) or (p_value < p_value_threshold and series_i_idx < series_j_idx):
                         ranking[series_i_idx], ranking[series_j_idx] = j, i
 
         ranking_ = [None] * len(series_group)
@@ -108,7 +108,7 @@ class Series(object):
         prev_lead = ranking[0]
         for i in ranking:
             p_value = p_values[min(i, prev_lead), max(i, prev_lead)]
-            if p_value > 1 - threshold or p_value < threshold:
+            if p_value > 1 - p_value_threshold or p_value < p_value_threshold:
                 prev_rank += 1
                 prev_lead = i
 

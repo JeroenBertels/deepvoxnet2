@@ -12,7 +12,8 @@ color_dict = {
     "c": (0, 1, 1),
     "m": (1, 0, 1),
     "y": (1, 1, 0),
-    "k": (0, 0, 0)
+    "k": (0, 0, 0),
+    "w": (1, 1, 1)
 }
 
 
@@ -25,6 +26,7 @@ class Figure(object):
                  bmheightininches=1, tmheightininches=0.5,
                  top_extent=0, right_extent=0,
                  fs=20, lw=2, ms=10,
+                 mask_inner_region=True, mask_outer_region=True,
                  plot_xaxis=True, plot_yaxis=True,
                  use_tex=True, **kwargs):
 
@@ -78,11 +80,14 @@ class Figure(object):
         # add whitespace in between x- and y-axis in the dx and dy regions
         self.lwic = self.lw / self.fig.get_dpi() * self.awidth / self.awidthininches
         self.lhic = self.lh / self.fig.get_dpi() * self.aheight / self.aheightininches
-        self.ax.add_patch(Rectangle((self.xmin - self.lwic / 2, self.yamax + self.lhic / 2), self.width + self.lwic, self.ymax - self.yamax, fc='w', ec='w', linewidth=0, zorder=2.001))  # top horizontal patch
-        self.ax.add_patch(Rectangle((self.xmin - self.lwic / 2, self.ymin + self.lhic / 2), self.width + self.lwic, self.dy - self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))  # bottom horizontal patch
-        self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.ymin - self.lhic / 2), self.dx - self.lwic, self.height + self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))  # left vertical patch
-        self.ax.add_patch(Rectangle((self.xamax + self.lwic / 2, self.ymin - self.lhic / 2), self.xmax - self.xamax, self.height + self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))  # right vertical patch
-        self.ax.add_patch(Rectangle((self.xmin - self.lwic / 2, self.ymin - self.lhic / 2), self.dx, self.dy, fc='w', ec='w', linewidth=0, zorder=2.001))  # small square patch at bottom left
+        if mask_outer_region:
+            self.ax.add_patch(Rectangle((self.xmin - self.lwic / 2, self.yamax + self.lhic / 2), self.width + self.lwic, self.ymax - self.yamax, fc='w', ec='w', linewidth=0, zorder=2.001))  # top horizontal patch
+            self.ax.add_patch(Rectangle((self.xamax + self.lwic / 2, self.ymin - self.lhic / 2), self.xmax - self.xamax, self.height + self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))  # right vertical patch
+
+        if mask_inner_region:
+            self.ax.add_patch(Rectangle((self.xmin - self.lwic / 2, self.ymin + self.lhic / 2), self.width + self.lwic, self.dy - self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))  # bottom horizontal patch
+            self.ax.add_patch(Rectangle((self.xmin + self.lwic / 2, self.ymin - self.lhic / 2), self.dx - self.lwic, self.height + self.lhic, fc='w', ec='w', linewidth=0, zorder=2.001))  # left vertical patch
+            self.ax.add_patch(Rectangle((self.xmin - self.lwic / 2, self.ymin - self.lhic / 2), self.dx, self.dy, fc='w', ec='w', linewidth=0, zorder=2.001))  # small square patch at bottom left
         # optionally set title, labels, ticks and ticklabels
         if plot_xaxis:
             if "xlabel" in kwargs and kwargs["xlabel"] is not None:
@@ -94,7 +99,7 @@ class Figure(object):
                     self.set_xticks(np.linspace(self.xamin, self.xamax, 5))
 
                 else:
-                    self.set_xticks(kwargs["xticks"] if kwargs["xticks"] else [])
+                    self.set_xticks(kwargs["xticks"] if kwargs["xticks"] is not None else [])
 
             else:
                 self.set_xticks([xtick for xtick in self.ax.get_xticks() if self.xamin <= xtick <= self.xamax])
@@ -113,7 +118,7 @@ class Figure(object):
                     self.set_yticks(np.linspace(self.yamin, self.yamax, 5))
 
                 else:
-                    self.set_yticks(kwargs["yticks"] if kwargs["yticks"] else [])
+                    self.set_yticks(kwargs["yticks"] if kwargs["yticks"] is not None else [])
 
             else:
                 self.set_yticks([ytick for ytick in self.ax.get_yticks() if self.yamin <= ytick <= self.yamax])
@@ -273,15 +278,17 @@ class Figure(object):
         self.lineplot([series.mean - series.ste / 2 for series in series_x], [series.mean - series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=None, linestyle="--", **kwargs)
         self.lineplot([series.mean + series.ste / 2 for series in series_x], [series.mean + series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=None, linestyle="--", **kwargs)
 
-    def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", plot_unity=True, plot_mean=True, nbins=0, groupn=0, **kwargs):
+    def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", markerfill="none", plot_scatter=True, plot_unity=False, plot_mean=False, plot_kde=False, nbins=0, groupn=0, linestyle="-", ncontours=10, markeredgewidth=0, **kwargs):
         series_x, series_y = Series(series_x), Series(series_y)
         if plot_unity:
             self.plot([self.xamin, self.xamax], [self.xamin, self.xamax], "k", linewidth=self.lw, zorder=1.9)
 
         color = self.get_color(color, alpha)
-        self.plot(series_x, series_y, color=color, linestyle="None", marker=marker, markersize=self.ms, zorder=1.99)
+        if plot_scatter:
+            self.plot(series_x, series_y, color=color, linestyle="None", marker=marker, fillstyle=markerfill, markersize=self.ms, markeredgewidth=markeredgewidth, zorder=1.99)
+
         if plot_mean:
-            self.plot(series_x.mean, series_y.mean, color=color[:3], alpha=1, linestyle="None", marker=".", markersize=self.ms * 3, zorder=1.999)
+            self.plot(series_x.mean, series_y.mean, color=color[:3], alpha=1, linestyle="None", fillstyle=markerfill, marker=marker, markeredgewidth=markeredgewidth, markersize=self.ms * 3, zorder=1.999)
 
         if nbins > 0:
             assert groupn == 0
@@ -292,9 +299,9 @@ class Figure(object):
             series_x_means = [np.percentile(series_x, 100 * b / nbins) for b in range(nbins + 1)]
             series_y_means = [np.mean(series_y_for_binning[len(series_x) * b:len(series_x) * (b + 1)]) for b in range(nbins)]
             for b in range(nbins):
-                self.plot([series_x_means[b], series_x_means[b + 1]], [series_y_means[b], series_y_means[b]], color=color[:3], alpha=1, linewidth=self.lw, zorder=1.9999)
+                self.plot([series_x_means[b], series_x_means[b + 1]], [series_y_means[b], series_y_means[b]], color=color[:3], alpha=1, linewidth=self.lw, linestyle=linestyle, zorder=1.9999)
                 if b < nbins - 1:
-                    self.plot([series_x_means[b + 1], series_x_means[b + 1]], [series_y_means[b], series_y_means[b + 1]], color=color[:3], alpha=1, linewidth=self.lw, zorder=1.9999)
+                    self.plot([series_x_means[b + 1], series_x_means[b + 1]], [series_y_means[b], series_y_means[b + 1]], color=color[:3], alpha=1, linewidth=self.lw, linestyle=linestyle, zorder=1.9999)
 
         elif groupn > 0:
             color = self.get_color(color[:3], alpha * 0.25)
@@ -302,12 +309,15 @@ class Figure(object):
             series_x_for_grouping = series_x[sort_idx]
             series_y_for_grouping = series_y[sort_idx]
             ngroups = int(np.floor(len(series_x) / groupn))
-            series_x_means = [series_x_for_grouping[g * groupn if g < ngroups else -1] for g in range(ngroups + 1)]
-            series_y_means = [np.mean(series_y_for_grouping[g * groupn:(g + 1) * groupn]) for g in range(ngroups)]
+            series_x_means = [series_x_for_grouping[0] if g == 0 else (series_x_for_grouping[-1] if g == ngroups else np.mean(series_x_for_grouping[g * groupn - 1:g * groupn + 1])) for g in range(ngroups + 1)]
+            series_y_means = [np.mean(series_y_for_grouping[g * groupn:(g + 1) * groupn if g < ngroups - 1 else None]) for g in range(ngroups)]
             for g in range(ngroups):
-                self.plot([series_x_means[g], series_x_means[g + 1]], [series_y_means[g], series_y_means[g]], color=color[:3], alpha=1, linewidth=self.lw, zorder=1.9999)
+                self.plot([series_x_means[g], series_x_means[g + 1]], [series_y_means[g], series_y_means[g]], color=color[:3], alpha=1, linewidth=self.lw, linestyle=linestyle, zorder=1.9999)
                 if g < ngroups - 1:
-                    self.plot([series_x_means[g + 1], series_x_means[g + 1]], [series_y_means[g], series_y_means[g + 1]], color=color[:3], alpha=1, linewidth=self.lw, zorder=1.9999)
+                    self.plot([series_x_means[g + 1], series_x_means[g + 1]], [series_y_means[g], series_y_means[g + 1]], color=color[:3], alpha=1, linewidth=self.lw, linestyle=linestyle, zorder=1.9999)
+
+        if plot_kde:
+            sb.kdeplot(ax=self.ax, x=series_x, y=series_y, colors=[color[:3]], alpha=alpha, linewidths=self.lw, zorder=1.9999, linestyles=linestyle, levels=ncontours)
 
     def blandaltmanplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", plot_unity=True, nbins=0, alpha_stats=None, **kwargs):
         series_x, series_y = Series(series_x), Series(series_y)
@@ -336,7 +346,7 @@ class Figure(object):
         self.plot([self.xamin, self.xamax], [series_diff.mean - 1.96 * series_diff.std, series_diff.mean - 1.96 * series_diff.std], linestyle=":", color=color, alpha=alpha if alpha_stats is None else alpha_stats, linewidth=self.lw, zorder=1.9999)
         self.plot(series_mean, series_diff, color=color, linestyle="None", marker=marker, markersize=self.ms)
 
-    def boxplot(self, series, pos, direction="vertical", width=0.8, fc=(0, 0, 1, 0.5), ec=None, project_stats=False, plot_violin=False, violin_color=None, print_mean=True, different_from=None, **kwargs):
+    def boxplot(self, series, pos, direction="vertical", width=0.8, fc=(0, 0, 1, 0.5), ec=None, project_stats=False, plot_violin=False, violin_color=None, print_mean=True, different_from=None, mean_formatting="{0:.3g}", **kwargs):
         series = Series(series)
         width2 = width / 2
         if ec is None:
@@ -345,14 +355,14 @@ class Figure(object):
         text = ""
         if print_mean:
             text += "$"
-            text += "{0:.3g}".format(series.mean)
+            text += mean_formatting.format(series.mean)
             text += "^{" + f"{series.nnaninf if series.nnaninf > 0 else ''}" + "}"
-            if different_from is not None:
-                p_value = series.different_from(different_from, **kwargs)
-                p_value_ = min(p_value, 1 - p_value)
-                if p_value_ < 0.05:
-                    text += "_{>" if p_value > 0.95 else "_{<"
-                    text += "*}" if 0.01 < p_value_ < 0.05 else ("**}" if 0.001 < p_value_ < 0.01 else "***}")
+            # if different_from is not None:
+            #     p_value = series.different_from(different_from, **kwargs)
+            #     p_value_ = min(p_value, 1 - p_value)
+            #     if p_value_ < 0.05:
+            #         text += "_{>" if p_value > 0.95 else "_{<"
+            #         text += "*}" if 0.01 < p_value_ < 0.05 else ("**}" if 0.001 < p_value_ < 0.01 else "***}")
 
             text += "$"
 
@@ -369,9 +379,9 @@ class Figure(object):
             self.add_patch(Rectangle((pos - width2, series.p25), width, series.iqr, fc=fc, ec=ec, linewidth=self.lw))
             self.plot([pos, pos], [series.p75, series.pmax], color=ec, linewidth=self.lw)
             self.plot([pos, pos], [series.pmin, series.p25], color=ec, linewidth=self.lw)
-            self.plot([pos] * len(series.outliers), series.outliers, color=fc, linestyle="None", marker=".", markersize=self.ms)
+            self.plot([pos] * len(series.outliers), series.outliers, color=ec, linestyle="None", marker=".", markersize=self.ms)
             self.plot([pos - width2, pos + width2], [series.p50, series.p50], color=ec, linewidth=self.lw)
-            self.plot([pos - width2, pos + width2], [series.pm, series.pm], color=fc, linestyle="dashed", linewidth=self.lw)
+            self.plot([pos - width2, pos + width2], [series.pm, series.pm], color=ec, linestyle="dashed", linewidth=self.lw)
             self.plot([pos - width2, pos + width2], [series.pmax, series.pmax], color=ec, linewidth=self.lw)
             self.plot([pos - width2, pos + width2], [series.pmin, series.pmin], color=ec, linewidth=self.lw)
             if project_stats:
@@ -381,17 +391,17 @@ class Figure(object):
                 self.plot([self.xmin, pos - width2], [series.p25, series.p25], color=ec, linewidth=self.lw, zorder=2.01)
 
             self.text(pos, self.yamax + self.dy, text, rotation=0, ha="center", va="bottom", fontsize=self.fs)
-            if different_from:
-                self.plot([pos - 0.5, pos + 0.5], [different_from, different_from], "k--", linewidth=self.lw, zorder=2.01)
+            if different_from is not None:
+                self.plot([pos - 0.5, pos + 0.5], [different_from, different_from], "k", linewidth=self.lw, zorder=1.99)
 
         else:
             assert direction == "horizontal"
             self.add_patch(Rectangle((series.p25, pos - width2), series.iqr, width, fc=fc, ec=ec, linewidth=self.lw))
             self.plot([series.p75, series.pmax], [pos, pos], color=ec, linewidth=self.lw)
             self.plot([series.pmin, series.p25], [pos, pos], color=ec, linewidth=self.lw)
-            self.plot(series.outliers, [pos] * len(series.outliers), color=fc, linestyle="None", marker=".", markersize=self.ms)
+            self.plot(series.outliers, [pos] * len(series.outliers), color=ec, linestyle="None", marker=".", markersize=self.ms)
             self.plot([series.p50, series.p50], [pos - width2, pos + width2], color=ec, linewidth=self.lw)
-            self.plot([series.pm, series.pm], [pos - width2, pos + width2], color=fc, linestyle="dashed", linewidth=self.lw)
+            self.plot([series.pm, series.pm], [pos - width2, pos + width2], color=ec, linestyle="dashed", linewidth=self.lw)
             self.plot([series.pmax, series.pmax], [pos - width2, pos + width2], color=ec, linewidth=self.lw)
             self.plot([series.pmin, series.pmin], [pos - width2, pos + width2], color=ec, linewidth=self.lw)
             if project_stats:
@@ -401,8 +411,8 @@ class Figure(object):
                 self.plot([series.p25, series.p25], [self.ymin, pos - width2], color=ec, linewidth=self.lw, zorder=2.01)
 
             self.text(self.xamax + self.dx, pos, text, rotation=270, ha="left", va="center", fontsize=self.fs)
-            if different_from:
-                self.plot([different_from, different_from], [pos - 0.5, pos + 0.5], "k--", linewidth=self.lw, zorder=2.01)
+            if different_from is not None:
+                self.plot([different_from, different_from], [pos - 0.5, pos + 0.5], "k--", linewidth=self.lw, zorder=1.99)
 
     def barplot(self, series, pos, offset=0, direction="vertical", width=0.8, fc=(0, 0, 1, 0.5), ec=None, print_mean=False, plot_error_bar=False, **kwargs):
         series = Series(series)
@@ -439,10 +449,10 @@ class Boxplot(Figure):
                                 loc_ = loc + min_loc_pos * self.dy
                                 locs[min_loc_pos, position0:position1] = 1
                                 position01 = (position0 + position1) / 2
-                                self.plot(*[[position0 + self.lwic, position01], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j]), linewidth=self.lw, zorder=2.01)
-                                self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j]), linewidth=self.lw, zorder=2.01)
-                                self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][k]), linewidth=self.lw, zorder=2.01)
-                                self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][k]), linewidth=self.lw, zorder=2.01)
+                                self.plot(*[[position0 + self.lwic, position01], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j])[:3], linewidth=self.lw, zorder=2.01)
+                                self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j])[:3], linewidth=self.lw, zorder=2.01)
+                                self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][k])[:3], linewidth=self.lw, zorder=2.01)
+                                self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][k])[:3], linewidth=self.lw, zorder=2.01)
                                 self.text(*[position01, loc_][::1 if self.direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
                                           rotation=0 if self.direction == "vertical" else 270,
                                           ha="center" if self.direction == "vertical" else "left",
@@ -462,10 +472,10 @@ class Boxplot(Figure):
                                     loc_ = loc + min_loc_pos * self.dy
                                     locs[min_loc_pos, position0:position1] = 1
                                     position01 = (position0 + position1) / 2
-                                    self.plot(*[[position0 + self.lwic, position01], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j]), linewidth=self.lw, zorder=2.01)
-                                    self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j]), linewidth=self.lw, zorder=2.01)
-                                    self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[k][l]), linewidth=self.lw, zorder=2.01)
-                                    self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[k][l]), linewidth=self.lw, zorder=2.01)
+                                    self.plot(*[[position0 + self.lwic, position01], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j])[:3], linewidth=self.lw, zorder=2.01)
+                                    self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j])[:3], linewidth=self.lw, zorder=2.01)
+                                    self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[k][l])[:3], linewidth=self.lw, zorder=2.01)
+                                    self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[k][l])[:3], linewidth=self.lw, zorder=2.01)
                                     self.text(*[position01, loc_][::1 if self.direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
                                               rotation=0 if self.direction == "vertical" else 270,
                                               ha="center" if self.direction == "vertical" else "left",
