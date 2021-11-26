@@ -1,8 +1,9 @@
 import numpy as np
 import seaborn as sb
+from copy import deepcopy
+from collections import Iterable
 from matplotlib import pyplot as plt
 from matplotlib.patches import Rectangle
-from deepvoxnet2.analysis.data import Series, SeriesGroup, GroupedSeries
 
 
 color_dict = {
@@ -15,6 +16,175 @@ color_dict = {
     "k": (0, 0, 0),
     "w": (1, 1, 1)
 }
+
+class Series(object):
+    def __init__(self, series):
+        series = deepcopy(series)
+        if not isinstance(series, Iterable):
+            series = [series]
+
+        self.series = np.array(series)
+        self.series_, self.nnan, self.ninf, self.nnaninf, self.min, self.p25, self.p50, self.pm, self.p75, self.max, self.iqr, self.pmin, self.pmax, self.outliers, self.std, self.ste = self.get_stats()
+        self.median, self.mean = self.p50, self.pm
+
+    def __len__(self):
+        return len(self.series)
+
+    def __getitem__(self, idx):
+        return self.series[idx]
+
+    def __iter__(self):
+        return iter(self.series)
+
+    def different_from(self, value=0, **kwargs):
+        return self.basic_test(self.series, value if isinstance(value, Iterable) else [value] * len(self.series), **kwargs)
+
+    def get_stats(self):
+        return self.calculate_stats(self.series)
+
+    @staticmethod
+    def calculate_stats(series):
+        series_ = np.array([value for value in series if not np.isnan(value) and not np.isinf(value)])
+        nnan = len([value for value in series if np.isnan(value)])
+        ninf = len([value for value in series if np.isinf(value)])
+        nnaninf = nnan + ninf
+        if len(series_) > 0:
+            min = np.min(series_)
+            p25 = np.percentile(series_, 25)
+            p50 = np.percentile(series_, 50)
+            pm = np.mean(series_)
+            p75 = np.percentile(series_, 75)
+            max = np.max(series_)
+            iqr = p75 - p25
+            pmin = np.min([value for value in series_ if value >= p25 - 1.5 * iqr])
+            pmax = np.max([value for value in series_ if value <= p75 + 1.5 * iqr])
+            std = np.std(series_)
+            ste = std / np.sqrt(len(series_))
+
+        else:
+            min, p25, p50, pm, p75, max, iqr, pmin, pmax, std, ste = [np.nan] * 11
+
+        outliers = np.array([value for value in series_ if (value > pmax or value < pmin)])
+        return series_, nnan, ninf, nnaninf, min, p25, p50, pm, p75, max, iqr, pmin, pmax, outliers, std, ste
+
+    @staticmethod
+    def basic_test(series0, series1=None, n=10000, skipnan=True, skipinf=True, pairwise=True, **kwargs):
+        series0 = Series(series0).series
+        series1 = np.zeros_like(series0) if series1 is None else Series(series1).series
+        if pairwise:
+            assert len(series0) == len(series1), "For a pairwise test the original series must be of equal length."
+            series0 = series0 - series1
+            series1 = np.array([s0 if np.isnan(s0) or np.isinf(s0) else 0 for s0 in series0])
+
+        if skipnan:
+            series0 = series0[~np.isnan(series0)]
+            series1 = series1[~np.isnan(series1)]
+
+        if skipinf:
+            series0 = series0[~np.isinf(series0)]
+            series1 = series1[~np.isinf(series1)]
+
+        if len(series0) > 0 and len(series1) > 0 and np.sum(np.isnan(series0)) == 0 and np.sum(np.isinf(series0)) == 0 and np.sum(np.isnan(series1)) == 0 and np.sum(np.isinf(series1)) == 0:
+            if pairwise and np.all(series0 == 0):
+                return 0.5
+
+            else:
+                count = 0
+                for i in range(n):
+                    series0_ = np.random.choice(series0, len(series0))
+                    series1_ = np.random.choice(series1, len(series1))
+                    if np.mean(series0_) - np.mean(series1_) > 0:
+                        count += 1
+
+                return count / n
+
+        else:
+            return np.nan
+
+    @staticmethod
+    def rank_series(series_group, p_value_threshold=0.05, mode="max", **kwargs):
+        series_group = SeriesGroup(series_group)
+        series_group = [Series((-1 if mode == "min" else 1) * series.series) for series in series_group]
+        ranking = list(range(len(series_group)))
+        p_values = np.full((len(series_group), len(series_group)), 0.5)
+        mean_values = np.full((len(series_group), len(series_group)), np.nan)
+        for i, series_i in enumerate(series_group):
+            mean_values[i, i] = series_i.mean
+            for j, series_j in enumerate(series_group):
+                p_value = Series.basic_test(series_i.series, series_j.series, **kwargs)
+                p_values[i, j] = p_value
+                series_i_idx, series_j_idx = ranking.index(i), ranking.index(j)
+                if not np.isnan(p_value):
+                    if (p_value > 1 - p_value_threshold and series_i_idx > series_j_idx) or (p_value < p_value_threshold and series_i_idx < series_j_idx):
+                        ranking[series_i_idx], ranking[series_j_idx] = j, i
+
+        ranking_ = [None] * len(series_group)
+        prev_rank = 0
+        prev_lead = ranking[0]
+        for i in ranking:
+            p_value = p_values[min(i, prev_lead), max(i, prev_lead)]
+            if p_value > 1 - p_value_threshold or p_value < p_value_threshold:
+                prev_rank += 1
+                prev_lead = i
+
+            ranking_[i] = prev_rank
+
+        return ranking_
+
+
+class SeriesGroup(object):
+    def __init__(self, series_group):
+        series_group = deepcopy(series_group)
+        if not isinstance(series_group, SeriesGroup):
+            if not isinstance(series_group, Iterable):
+                series_group = [series_group]
+
+            elif isinstance(series_group, tuple):
+                series_group = list(series_group)
+
+            for i, series in enumerate(series_group):
+                series_group[i] = Series(series)
+
+        self.series_group = series_group
+        self.series = Series([value for series in series_group for value in series])
+
+    def __len__(self):
+        return len(self.series_group)
+
+    def __getitem__(self, idx):
+        return self.series_group[idx]
+
+    def __iter__(self):
+        return iter(self.series_group)
+
+    def rank(self, threshold=0.05, mode="max", **kwargs):
+        return Series.rank_series(self, threshold=threshold, mode=mode, **kwargs)
+
+
+class GroupedSeries(object):
+    def __init__(self, grouped_series):
+        grouped_series = deepcopy(grouped_series)
+        if not isinstance(grouped_series, GroupedSeries):
+            if not isinstance(grouped_series, Iterable):
+                grouped_series = [grouped_series]
+
+            elif isinstance(grouped_series, tuple):
+                grouped_series = list(grouped_series)
+
+            for i, series_group in enumerate(grouped_series):
+                grouped_series[i] = SeriesGroup(series_group)
+
+        self.grouped_series = grouped_series
+        self.series = Series([value for series_group in grouped_series for value in series_group.series])
+
+    def __len__(self):
+        return len(self.grouped_series)
+
+    def __getitem__(self, idx):
+        return self.grouped_series[idx]
+
+    def __iter__(self):
+        return iter(self.grouped_series)
 
 
 class Figure(object):
@@ -261,22 +431,29 @@ class Figure(object):
     def plot(self, *args, **kwargs):
         self.ax.plot(*args, **kwargs)
 
-    def lineplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", linestyle="-", **kwargs):
+    def lineplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", linestyle="-", linewidth=None, markersize=None, **kwargs):
         series_x, series_y = Series(series_x), Series(series_y)
         color = self.get_color(color, alpha)
-        self.plot(series_x, series_y, color=color, linewidth=self.lw, zorder=1.9999, linestyle=linestyle)
+        self.plot(series_x, series_y, color=color, linewidth=self.lw if linewidth is None else linewidth, zorder=1.9999, linestyle=linestyle)
         if marker is not None:
-            self.plot(series_x, series_y, color=color, linestyle="None", marker=marker, markersize=self.ms)
+            self.plot(series_x, series_y, color=color, linestyle="None", marker=marker, markersize=self.ms if markersize is None else markersize)
 
-    def lineplotwithstats(self, series_group_x, series_group_y, color=(0, 0, 1, 1), alpha=1, marker=".", alpha_stats=None, **kwargs):
+    def lineplotwithstats(self, series_group_x, series_group_y, color=(0, 0, 1, 1), alpha=1, marker=".", linestyle="-", alpha_stats=0.5, linestyle_stats=None, plot_std=False, plot_ste=True, plot_iqr=False, **kwargs):
         series_group_x, series_group_y = SeriesGroup(series_group_x), SeriesGroup(series_group_y)
         series_x = [Series([series[i] for series in series_group_x]) for i in range(len(series_group_x[0]))]
         series_y = [Series([series[i] for series in series_group_y]) for i in range(len(series_group_y[0]))]
-        self.lineplot([series.mean for series in series_x], [series.mean for series in series_y], color=color, alpha=alpha, marker=marker, **kwargs)
-        self.lineplot([series.p25 for series in series_x], [series.p25 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=None, linestyle=":", **kwargs)
-        self.lineplot([series.p75 for series in series_x], [series.p75 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=None, linestyle=":", **kwargs)
-        self.lineplot([series.mean - series.ste / 2 for series in series_x], [series.mean - series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=None, linestyle="--", **kwargs)
-        self.lineplot([series.mean + series.ste / 2 for series in series_x], [series.mean + series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=None, linestyle="--", **kwargs)
+        self.lineplot([series.mean for series in series_x], [series.mean for series in series_y], color=color, alpha=alpha, marker=marker, linestyle=linestyle, **kwargs)
+        if plot_iqr:
+            self.lineplot([series.p25 for series in series_x], [series.p25 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
+            self.lineplot([series.p75 for series in series_x], [series.p75 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
+
+        if plot_std:
+            self.lineplot([series.mean - series.std / 2 for series in series_x], [series.mean - series.std / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
+            self.lineplot([series.mean + series.std / 2 for series in series_x], [series.mean + series.std / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
+
+        if plot_ste:
+            self.lineplot([series.mean - series.ste / 2 for series in series_x], [series.mean - series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
+            self.lineplot([series.mean + series.ste / 2 for series in series_x], [series.mean + series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
 
     def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", markerfill="none", plot_scatter=True, plot_unity=False, plot_mean=False, plot_kde=False, nbins=0, groupn=0, linestyle="-", ncontours=10, markeredgewidth=0, **kwargs):
         series_x, series_y = Series(series_x), Series(series_y)
@@ -429,7 +606,7 @@ class Figure(object):
 
 
 class Boxplot(Figure):
-    def __init__(self, grouped_series, labels=None, xalim=None, yalim=None, positions=None, inchesperposition=None, colors=None, alpha=0.5, direction="vertical", l0_stats=False, l1_stats=False, **kwargs):
+    def __init__(self, grouped_series, labels=None, xalim=None, yalim=None, positions=None, inchesperposition=None, colors=None, alpha=0.5, direction="vertical", l0_stats=False, l1_stats=False, p_value_threshold=None, **kwargs):
         [grouped_series], xalim, yalim, self.colors, self.kwargs = Figure.prepare("grouped_series", [grouped_series], xalim, yalim, colors, positions=positions, labels=labels, inchesperposition=inchesperposition, direction=direction, **kwargs)
         self.positions, self.labels, self.inchesperposition, self.direction, self.alpha = self.kwargs.pop("positions"), self.kwargs.pop("labels"), self.kwargs.pop("inchesperposition"), self.kwargs.pop("direction"), alpha
         super(Boxplot, self).__init__(xalim, yalim, **self.kwargs)
@@ -444,7 +621,7 @@ class Boxplot(Figure):
                         if k > j:
                             p_value = series0.different_from(series1.series, **self.kwargs)
                             p = min([p_value, 1 - p_value])
-                            if p < 0.05:
+                            if (p_value_threshold is None and p < 0.05) or p < p_value_threshold:
                                 min_loc_pos = np.nonzero(np.sum(locs[:, position0:position1], axis=1) == 0)[0][0]
                                 loc_ = loc + min_loc_pos * self.dy
                                 locs[min_loc_pos, position0:position1] = 1
@@ -453,11 +630,12 @@ class Boxplot(Figure):
                                 self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j])[:3], linewidth=self.lw, zorder=2.01)
                                 self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][k])[:3], linewidth=self.lw, zorder=2.01)
                                 self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][k])[:3], linewidth=self.lw, zorder=2.01)
-                                self.text(*[position01, loc_][::1 if self.direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
-                                          rotation=0 if self.direction == "vertical" else 270,
-                                          ha="center" if self.direction == "vertical" else "left",
-                                          va="bottom" if self.direction == "vertical" else "center",
-                                          fontsize=self.ms)
+                                if p_value_threshold is None:
+                                    self.text(*[position01, loc_][::1 if self.direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
+                                              rotation=0 if self.direction == "vertical" else 270,
+                                              ha="center" if self.direction == "vertical" else "left",
+                                              va="bottom" if self.direction == "vertical" else "center",
+                                              fontsize=self.ms)
 
         if l1_stats:
             for i, (series_group_a, positions_a) in enumerate(zip(grouped_series, self.positions)):
@@ -467,7 +645,7 @@ class Boxplot(Figure):
                             for l, (series1, position1) in enumerate(zip(series_group_b, positions_b)):
                                 p_value = series0.different_from(series1.series, **self.kwargs)
                                 p = min([p_value, abs(1 - p_value)])
-                                if p < 0.05:
+                                if (p_value_threshold is None and p < 0.05) or p < p_value_threshold:
                                     min_loc_pos = np.nonzero(np.sum(locs[:, position0:position1], axis=1) == 0)[0][0]
                                     loc_ = loc + min_loc_pos * self.dy
                                     locs[min_loc_pos, position0:position1] = 1
@@ -476,11 +654,12 @@ class Boxplot(Figure):
                                     self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j])[:3], linewidth=self.lw, zorder=2.01)
                                     self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[k][l])[:3], linewidth=self.lw, zorder=2.01)
                                     self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[k][l])[:3], linewidth=self.lw, zorder=2.01)
-                                    self.text(*[position01, loc_][::1 if self.direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
-                                              rotation=0 if self.direction == "vertical" else 270,
-                                              ha="center" if self.direction == "vertical" else "left",
-                                              va="bottom" if self.direction == "vertical" else "center",
-                                              fontsize=self.ms)
+                                    if p_value_threshold is None:
+                                        self.text(*[position01, loc_][::1 if self.direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
+                                                  rotation=0 if self.direction == "vertical" else 270,
+                                                  ha="center" if self.direction == "vertical" else "left",
+                                                  va="bottom" if self.direction == "vertical" else "center",
+                                                  fontsize=self.ms)
 
     @staticmethod
     def plot_boxplot(figure, grouped_series, positions, colors, alpha=0.5, direction="vertical", **kwargs):
