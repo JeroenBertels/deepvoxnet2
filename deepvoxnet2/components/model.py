@@ -112,6 +112,7 @@ class DvnModel(object):
 
         if metrics is not None:
             assert isinstance(metrics, list) and len(metrics) == len(self.outputs[key][0]), "The metrics must be given as a list of metrics lists with length equal to the number of outputs  (i.e. length of x/y_)."
+            self.metrics[key] = []
             for i, metric in enumerate(metrics):
                 self.metrics[key].append([])
                 for metric_ in metric if isinstance(metric, list) else [metric]:
@@ -124,6 +125,7 @@ class DvnModel(object):
 
         if weighted_metrics is not None:
             assert isinstance(weighted_metrics, list) and len(weighted_metrics) == len(self.outputs[key][0]), "The weighted_metrics must be given as a list of weighted_metrics lists with length equal to the number of outputs  (i.e. length of x/y_)."
+            self.weighted_metrics[key] = []
             for i, weighted_metric in enumerate(weighted_metrics):
                 self.weighted_metrics[key].append([])
                 for weighted_metric_ in weighted_metric if isinstance(weighted_metric, list) else [weighted_metric]:
