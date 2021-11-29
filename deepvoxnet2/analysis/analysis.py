@@ -25,11 +25,11 @@ class Analysis(object):
         if any([len(data_.columns.names) != len(data[0].columns.names) for data_ in data[1:]]):
             print("Watch out: not all columns have the same number of levels across all the data!")
 
-        all_indices = [ind for data_ in data for ind in data_.index]
+        all_indices = self.replace_nans([ind for data_ in data for ind in data_.index])
         if any([set(data_.index) != set(data[0].index) for data_ in data]):
             print("Watch out: the given data have different indices!")
 
-        all_columns = [col for data_ in data for col in data_.columns]
+        all_columns = self.replace_nans([col for data_ in data for col in data_.columns])
         if len(set(all_columns)) != len(all_columns):
             print("Watch out: the given data have overlapping columns!")
 
@@ -49,7 +49,7 @@ class Analysis(object):
                 column_names = data_.columns.names
                 break
 
-        self.df = pd.DataFrame(index=pd.MultiIndex.from_tuples(all_indices, names=index_names), columns=pd.MultiIndex.from_tuples(all_columns, names=column_names)).sort_index()
+        self.df = pd.DataFrame(index=pd.MultiIndex.from_tuples(self.replace_nans(all_indices, reverse=True), names=index_names), columns=pd.MultiIndex.from_tuples(self.replace_nans(all_columns, reverse=True), names=column_names)).sort_index()
         self.index = self.df.index
         self.columns = self.df.columns
         self.shape = self.df.shape
@@ -122,6 +122,14 @@ class Analysis(object):
         printed_analysis = Analysis(*[data.print_stats(**kwargs) for data in self])
         # print(printed_analysis.df.transpose().to_latex(escape=True))
         return printed_analysis
+
+    @staticmethod
+    def replace_nans(list_of_tuples, replacement_value=1234567890, reverse=False):
+        if reverse:
+            return [tuple([np.nan if isinstance(idx, replacement_value.__class__) and idx == replacement_value else idx for idx in tuple_]) for tuple_ in list_of_tuples]
+
+        else:
+            return [tuple([replacement_value if isinstance(idx, float) and np.isnan(idx) else idx for idx in tuple_]) for tuple_ in list_of_tuples]
 
 
 if __name__ == "__main__":

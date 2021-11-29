@@ -102,31 +102,42 @@ class Series(object):
             return np.nan
 
     @staticmethod
-    def rank_series(series_group, p_value_threshold=0.05, mode="max", **kwargs):
+    def rank_series(series_group, ranking_mode="all", p_value_threshold=0.05, value_mode="max", n_iterations=10, **kwargs):
         series_group = SeriesGroup(series_group)
-        series_group = [Series((-1 if mode == "min" else 1) * series.series) for series in series_group]
+        series_group = [Series((-1 if value_mode == "min" else 1) * series.series) for series in series_group]
         ranking = list(range(len(series_group)))
         p_values = np.full((len(series_group), len(series_group)), 0.5)
-        mean_values = np.full((len(series_group), len(series_group)), np.nan)
         for i, series_i in enumerate(series_group):
-            mean_values[i, i] = series_i.mean
             for j, series_j in enumerate(series_group):
                 p_value = Series.basic_test(series_i.series, series_j.series, **kwargs)
                 p_values[i, j] = p_value
-                series_i_idx, series_j_idx = ranking.index(i), ranking.index(j)
-                if not np.isnan(p_value):
-                    if (p_value > 1 - p_value_threshold and series_i_idx > series_j_idx) or (p_value < p_value_threshold and series_i_idx < series_j_idx):
-                        ranking[series_i_idx], ranking[series_j_idx] = j, i
+
+        for _ in range(n_iterations):
+            for i, series_i in enumerate(series_group):
+                for j, series_j in enumerate(series_group):
+                    series_i_idx, series_j_idx = ranking.index(i), ranking.index(j)
+                    if not np.isnan(p_values[i, j]):
+                        if (p_values[i, j] > 1 - p_value_threshold and series_i_idx > series_j_idx) or (p_values[i, j] < p_value_threshold and series_i_idx < series_j_idx):
+                            ranking[series_i_idx], ranking[series_j_idx] = j, i
 
         ranking_ = [None] * len(series_group)
         prev_rank = 0
-        prev_lead = ranking[0]
+        prev_leads = []
         for i in ranking:
-            p_value = p_values[min(i, prev_lead), max(i, prev_lead)]
-            if p_value > 1 - p_value_threshold or p_value < p_value_threshold:
-                prev_rank += 1
-                prev_lead = i
+            tests = []
+            for prev_lead in prev_leads:
+                p_value = p_values[min(i, prev_lead), max(i, prev_lead)]
+                if p_value > 1 - p_value_threshold or p_value < p_value_threshold:
+                    tests.append(True)
 
+                else:
+                    tests.append(False)
+
+            if len(tests) > 0 and (all(tests) if ranking_mode == "all" else any(tests)):
+                prev_rank += 1
+                prev_leads = []
+
+            prev_leads.append(i)
             ranking_[i] = prev_rank
 
         return ranking_
