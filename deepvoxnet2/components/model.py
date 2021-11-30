@@ -107,8 +107,9 @@ class DvnModel(object):
                 self.losses[key].append(combined_loss)
                 self.losses_weights[key].append(1)
 
-        else:
+        elif len(self.losses[key]) == 0:
             self.losses[key] = [[] for _ in range(len(self.outputs[key][0]))]
+            self.losses_weights[key] = [1] * len(self.losses[key])
 
         if metrics is not None:
             assert isinstance(metrics, list) and len(metrics) == len(self.outputs[key][0]), "The metrics must be given as a list of metrics lists with length equal to the number of outputs  (i.e. length of x/y_)."
@@ -120,7 +121,7 @@ class DvnModel(object):
                     metric__.__name__ = f"{metric_.__name__}__s{i}"
                     self.metrics[key][i].append(metric__)
 
-        else:
+        elif len(self.metrics[key]) == 0:
             self.metrics[key] = [[] for _ in range(len(self.outputs[key][0]))]
 
         if weighted_metrics is not None:
@@ -133,7 +134,7 @@ class DvnModel(object):
                     weighted_metric__.__name__ = f"{weighted_metric_.__name__}__s{i}"
                     self.weighted_metrics[key][i].append(weighted_metric__)
 
-        else:
+        elif len(self.weighted_metrics[key]) == 0:
             self.weighted_metrics[key] = [[] for _ in range(len(self.outputs[key][0]))]
 
         if optimizer is not None:
