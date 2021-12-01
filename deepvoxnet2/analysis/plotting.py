@@ -102,32 +102,25 @@ class Series(object):
             return np.nan
 
     @staticmethod
-    def rank_series(series_group, ranking_mode="all", p_value_threshold=0.05, value_mode="max", n_iterations=10, **kwargs):
+    def rank_series(series_group, ranking_mode="any", p_value_threshold=0.05, value_mode="max", **kwargs):
         series_group = SeriesGroup(series_group)
         series_group = [Series((-1 if value_mode == "min" else 1) * series.series) for series in series_group]
-        ranking = list(range(len(series_group)))
+        mean_sort_idx = np.argsort([series.mean for series in series_group])[::-1]
+        series_group = [series_group[i] for i in mean_sort_idx]
         p_values = np.full((len(series_group), len(series_group)), 0.5)
         for i, series_i in enumerate(series_group):
             for j, series_j in enumerate(series_group):
                 p_value = Series.basic_test(series_i.series, series_j.series, **kwargs)
                 p_values[i, j] = p_value
 
-        for _ in range(n_iterations):
-            for i, series_i in enumerate(series_group):
-                for j, series_j in enumerate(series_group):
-                    series_i_idx, series_j_idx = ranking.index(i), ranking.index(j)
-                    if not np.isnan(p_values[i, j]):
-                        if (p_values[i, j] > 1 - p_value_threshold and series_i_idx > series_j_idx) or (p_values[i, j] < p_value_threshold and series_i_idx < series_j_idx):
-                            ranking[series_i_idx], ranking[series_j_idx] = j, i
-
+        ranking = list(range(len(series_group)))
         ranking_ = [None] * len(series_group)
         prev_rank = 0
         prev_leads = []
         for i in ranking:
             tests = []
             for prev_lead in prev_leads:
-                p_value = p_values[min(i, prev_lead), max(i, prev_lead)]
-                if p_value > 1 - p_value_threshold or p_value < p_value_threshold:
+                if p_values[ranking.index(prev_lead), i] > 1 - p_value_threshold:
                     tests.append(True)
 
                 else:
@@ -138,7 +131,7 @@ class Series(object):
                 prev_leads = []
 
             prev_leads.append(i)
-            ranking_[i] = prev_rank
+            ranking_[mean_sort_idx[i]] = prev_rank
 
         return ranking_
 
@@ -466,7 +459,7 @@ class Figure(object):
             self.lineplot([series.mean - series.ste / 2 for series in series_x], [series.mean - series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
             self.lineplot([series.mean + series.ste / 2 for series in series_x], [series.mean + series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
 
-    def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", markerfill="none", plot_scatter=True, plot_unity=False, plot_mean=False, plot_kde=False, nbins=0, groupn=0, linestyle="-", ncontours=10, markeredgewidth=0, **kwargs):
+    def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", markerfill="full", plot_scatter=True, plot_unity=False, plot_mean=False, plot_kde=False, nbins=0, groupn=0, linestyle="-", ncontours=10, markeredgewidth=0, **kwargs):
         series_x, series_y = Series(series_x), Series(series_y)
         if plot_unity:
             self.plot([self.xamin, self.xamax], [self.xamin, self.xamax], "k", linewidth=self.lw, zorder=1.9)
@@ -496,7 +489,7 @@ class Figure(object):
             sort_idx = np.argsort(series_x)
             series_x_for_grouping = series_x[sort_idx]
             series_y_for_grouping = series_y[sort_idx]
-            ngroups = int(np.floor(len(series_x) / groupn))
+            ngroups = max(int(np.floor(len(series_x) / groupn)), 1)
             series_x_means = [series_x_for_grouping[0] if g == 0 else (series_x_for_grouping[-1] if g == ngroups else np.mean(series_x_for_grouping[g * groupn - 1:g * groupn + 1])) for g in range(ngroups + 1)]
             series_y_means = [np.mean(series_y_for_grouping[g * groupn:(g + 1) * groupn if g < ngroups - 1 else None]) for g in range(ngroups)]
             for g in range(ngroups):
@@ -545,12 +538,12 @@ class Figure(object):
             text += "$"
             text += mean_formatting.format(series.mean)
             text += "^{" + f"{series.nnaninf if series.nnaninf > 0 else ''}" + "}"
-            # if different_from is not None:
-            #     p_value = series.different_from(different_from, **kwargs)
-            #     p_value_ = min(p_value, 1 - p_value)
-            #     if p_value_ < 0.05:
-            #         text += "_{>" if p_value > 0.95 else "_{<"
-            #         text += "*}" if 0.01 < p_value_ < 0.05 else ("**}" if 0.001 < p_value_ < 0.01 else "***}")
+            if different_from is not None:
+                p_value = series.different_from(different_from, **kwargs)
+                p_value_ = min(p_value, 1 - p_value)
+                if p_value_ < 0.05:
+                    text += "_{>" if p_value > 0.95 else "_{<"
+                    text += "*}" if 0.01 < p_value_ < 0.05 else ("**}" if 0.001 < p_value_ < 0.01 else "***}")
 
             text += "$"
 
@@ -580,7 +573,7 @@ class Figure(object):
 
             self.text(pos, self.yamax + self.dy, text, rotation=0, ha="center", va="bottom", fontsize=self.fs)
             if different_from is not None:
-                self.plot([pos - 0.5, pos + 0.5], [different_from, different_from], "k", linewidth=self.lw, zorder=1.99)
+                self.plot([pos - 0.5, pos + 0.5], [different_from, different_from], "k:", linewidth=self.lw, zorder=1.99)
 
         else:
             assert direction == "horizontal"
@@ -600,13 +593,16 @@ class Figure(object):
 
             self.text(self.xamax + self.dx, pos, text, rotation=270, ha="left", va="center", fontsize=self.fs)
             if different_from is not None:
-                self.plot([different_from, different_from], [pos - 0.5, pos + 0.5], "k--", linewidth=self.lw, zorder=1.99)
+                self.plot([different_from, different_from], [pos - 0.5, pos + 0.5], "k:", linewidth=self.lw, zorder=1.99)
 
     def barplot(self, series, pos, offset=0, direction="vertical", width=0.8, fc=(0, 0, 1, 0.5), ec=None, print_mean=False, plot_error_bar=False, **kwargs):
         series = Series(series)
         width2 = width / 2
         if ec is None:
             ec = (fc[0], fc[1], fc[2], 1)
+
+        elif ec is False:
+            ec = None
 
         text = "{0:.3g}".format(series.mean) if print_mean else ""
         if direction == "vertical":
@@ -729,7 +725,8 @@ class Scatterplot(Figure):
     @staticmethod
     def plot_scatterplot(figure, series_group_x, series_group_y, colors, alpha, **kwargs):
         for i, (series_x, series_y) in enumerate(zip(series_group_x, series_group_y)):
-            figure.scatterplot(series_x, series_y, color=colors[i], alpha=alpha, **kwargs)
+            if len(series_x) > 0:
+                figure.scatterplot(series_x, series_y, color=colors[i], alpha=alpha, **kwargs)
 
 
 class Blandaltmanplot(Figure):
