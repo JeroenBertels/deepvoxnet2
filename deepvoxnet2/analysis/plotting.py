@@ -39,6 +39,9 @@ class Series(object):
     def different_from(self, value=0, **kwargs):
         return self.basic_test(self.series, value if isinstance(value, Iterable) else [value] * len(self.series), **kwargs)
 
+    def correlate_with(self, series):
+        return self.pearson_correlation(self, series)
+
     def get_stats(self):
         return self.calculate_stats(self.series)
 
@@ -134,6 +137,10 @@ class Series(object):
             ranking_[mean_sort_idx[i]] = prev_rank
 
         return ranking_
+
+    @staticmethod
+    def pearson_correlation(series0, series1):
+        return np.corrcoef(Series(series0).series_, Series(series1).series_)[0, 1]
 
 
 class SeriesGroup(object):
@@ -312,11 +319,11 @@ class Figure(object):
 
     def set_xlabel(self, xlabel):
         self.ax.set_xlabel(xlabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='bottom')
-        self.ax.xaxis.set_label_coords(0.5, -(self.bmheightininches - self.tmheightininches / 5) / self.heightininches)
+        self.ax.xaxis.set_label_coords(0.5, -self.bmheightininches / self.heightininches)
 
     def set_ylabel(self, ylabel):
         self.ax.set_ylabel(ylabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='top')
-        self.ax.yaxis.set_label_coords(-(self.lmwidthininches - self.rmwidthininches / 5) / self.widthininches, 0.5)
+        self.ax.yaxis.set_label_coords(-self.lmwidthininches / self.widthininches, 0.5)
 
     def set_xticks(self, xticks):
         self.ax.set_xticks(xticks)
@@ -459,17 +466,22 @@ class Figure(object):
             self.lineplot([series.mean - series.ste / 2 for series in series_x], [series.mean - series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
             self.lineplot([series.mean + series.ste / 2 for series in series_x], [series.mean + series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
 
-    def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", markerfill="full", plot_scatter=True, plot_unity=False, plot_mean=False, plot_kde=False, nbins=0, groupn=0, linestyle="-", ncontours=10, markeredgewidth=0, **kwargs):
+    def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", markerfill="full", markersize=None, plot_scatter=True, plot_unity=False, plot_mean=False, plot_kde=False, nbins=0, groupn=0, linestyle="-", ncontours=10, markeredgewidth=0, print_correlation=False, **kwargs):
         series_x, series_y = Series(series_x), Series(series_y)
+        ms = self.ms if markersize is None else markersize
+        if print_correlation:
+            text = "Pearson correlation: {:.2f}".format(Series.pearson_correlation(series_x, series_y))
+            self.text((self.xamin + self.xamax) / 2, self.yamax + self.dy, text, rotation=0, ha="center", va="bottom", fontsize=self.fs)
+
         if plot_unity:
-            self.plot([self.xamin, self.xamax], [self.xamin, self.xamax], "k", linewidth=self.lw, zorder=1.9)
+            self.plot([self.xamin, self.xamax], [self.xamin, self.xamax], "k:", linewidth=self.lw, zorder=1.9)
 
         color = self.get_color(color, alpha)
         if plot_scatter:
-            self.plot(series_x, series_y, color=color, linestyle="None", marker=marker, fillstyle=markerfill, markersize=self.ms, markeredgewidth=markeredgewidth, zorder=1.99)
+            self.plot(series_x, series_y, color=color, linestyle="None", marker=marker, fillstyle=markerfill, markersize=ms, markeredgewidth=markeredgewidth, zorder=1.99)
 
         if plot_mean:
-            self.plot(series_x.mean, series_y.mean, color=color[:3], alpha=1, linestyle="None", fillstyle=markerfill, marker=marker, markeredgewidth=markeredgewidth, markersize=self.ms * 3, zorder=1.999)
+            self.plot(series_x.mean, series_y.mean, color=color[:3], alpha=1, linestyle="None", fillstyle=markerfill, marker=marker, markeredgewidth=markeredgewidth, markersize=ms * 3, zorder=1.999)
 
         if nbins > 0:
             assert groupn == 0
@@ -534,6 +546,7 @@ class Figure(object):
             ec = (fc[0], fc[1], fc[2], 1)
 
         text = ""
+        sig_text = ""
         if print_mean:
             text += "$"
             text += mean_formatting.format(series.mean)
@@ -542,8 +555,10 @@ class Figure(object):
                 p_value = series.different_from(different_from, **kwargs)
                 p_value_ = min(p_value, 1 - p_value)
                 if p_value_ < 0.05:
-                    text += "_{>" if p_value > 0.95 else "_{<"
-                    text += "*}" if 0.01 < p_value_ < 0.05 else ("**}" if 0.001 < p_value_ < 0.01 else "***}")
+                    sig_text += "$"
+                    sig_text += ">" if p_value > 0.95 else "<"
+                    sig_text += "*" if 0.01 < p_value_ < 0.05 else ("**" if 0.001 < p_value_ < 0.01 else "***")
+                    sig_text += "$"
 
             text += "$"
 
@@ -572,6 +587,7 @@ class Figure(object):
                 self.plot([self.xmin, pos - width2], [series.p25, series.p25], color=ec, linewidth=self.lw, zorder=2.01)
 
             self.text(pos, self.yamax + self.dy, text, rotation=0, ha="center", va="bottom", fontsize=self.fs)
+            self.text(pos, self.yamax + self.dy - (self.fs / 2 * self.lhic / self.lw), sig_text, rotation=0, ha="center", va="bottom", fontsize=self.fs / 2)
             if different_from is not None:
                 self.plot([pos - 0.5, pos + 0.5], [different_from, different_from], "k:", linewidth=self.lw, zorder=1.99)
 
@@ -592,6 +608,7 @@ class Figure(object):
                 self.plot([series.p25, series.p25], [self.ymin, pos - width2], color=ec, linewidth=self.lw, zorder=2.01)
 
             self.text(self.xamax + self.dx, pos, text, rotation=270, ha="left", va="center", fontsize=self.fs)
+            self.text(self.xamax + self.dx - (self.fs / 2 * self.lwic / self.lw), pos, sig_text, rotation=270, ha="left", va="bottom", fontsize=self.fs / 2)
             if different_from is not None:
                 self.plot([different_from, different_from], [pos - 0.5, pos + 0.5], "k:", linewidth=self.lw, zorder=1.99)
 
@@ -613,11 +630,11 @@ class Figure(object):
 
 
 class Boxplot(Figure):
-    def __init__(self, grouped_series, labels=None, xalim=None, yalim=None, positions=None, inchesperposition=None, colors=None, alpha=0.5, direction="vertical", l0_stats=False, l1_stats=False, p_value_threshold=None, **kwargs):
+    def __init__(self, grouped_series, labels=None, xalim=None, yalim=None, positions=None, inchesperposition=None, colors=None, alpha=0.5, direction="vertical", l0_stats=False, l1_stats=False, p_value_threshold=None, different_from=None, **kwargs):
         [grouped_series], xalim, yalim, self.colors, self.kwargs = Figure.prepare("grouped_series", [grouped_series], xalim, yalim, colors, positions=positions, labels=labels, inchesperposition=inchesperposition, direction=direction, **kwargs)
-        self.positions, self.labels, self.inchesperposition, self.direction, self.alpha = self.kwargs.pop("positions"), self.kwargs.pop("labels"), self.kwargs.pop("inchesperposition"), self.kwargs.pop("direction"), alpha
+        self.positions, self.labels, self.inchesperposition, self.direction, self.alpha, self.different_from = self.kwargs.pop("positions"), self.kwargs.pop("labels"), self.kwargs.pop("inchesperposition"), self.kwargs.pop("direction"), alpha, different_from
         super(Boxplot, self).__init__(xalim, yalim, **self.kwargs)
-        self.plot_boxplot(self, grouped_series, self.positions, self.colors, self.alpha, self.direction, **self.kwargs)
+        self.plot_boxplot(self, grouped_series, self.positions, self.colors, self.alpha, self.direction, self.different_from, **self.kwargs)
         position = self.positions[-1][-1] + 1
         locs = np.zeros((int((position - 1) * position / 2), position + 1))
         loc = (self.yamax + 3 * self.dy) if self.direction == "vertical" else (self.xamax + 3 * self.dx)
@@ -628,7 +645,7 @@ class Boxplot(Figure):
                         if k > j:
                             p_value = series0.different_from(series1.series, **self.kwargs)
                             p = min([p_value, 1 - p_value])
-                            if (p_value_threshold is None and p < 0.05) or p < p_value_threshold:
+                            if (p_value_threshold is None and p < 0.05) or (p_value_threshold is not None and p < p_value_threshold):
                                 min_loc_pos = np.nonzero(np.sum(locs[:, position0:position1], axis=1) == 0)[0][0]
                                 loc_ = loc + min_loc_pos * self.dy
                                 locs[min_loc_pos, position0:position1] = 1
@@ -642,7 +659,7 @@ class Boxplot(Figure):
                                               rotation=0 if self.direction == "vertical" else 270,
                                               ha="center" if self.direction == "vertical" else "left",
                                               va="bottom" if self.direction == "vertical" else "center",
-                                              fontsize=self.ms)
+                                              fontsize=self.fs / 2)
 
         if l1_stats:
             for i, (series_group_a, positions_a) in enumerate(zip(grouped_series, self.positions)):
@@ -652,7 +669,7 @@ class Boxplot(Figure):
                             for l, (series1, position1) in enumerate(zip(series_group_b, positions_b)):
                                 p_value = series0.different_from(series1.series, **self.kwargs)
                                 p = min([p_value, abs(1 - p_value)])
-                                if (p_value_threshold is None and p < 0.05) or p < p_value_threshold:
+                                if (p_value_threshold is None and p < 0.05) or (p_value_threshold is not None and p < p_value_threshold):
                                     min_loc_pos = np.nonzero(np.sum(locs[:, position0:position1], axis=1) == 0)[0][0]
                                     loc_ = loc + min_loc_pos * self.dy
                                     locs[min_loc_pos, position0:position1] = 1
@@ -666,13 +683,13 @@ class Boxplot(Figure):
                                                   rotation=0 if self.direction == "vertical" else 270,
                                                   ha="center" if self.direction == "vertical" else "left",
                                                   va="bottom" if self.direction == "vertical" else "center",
-                                                  fontsize=self.ms)
+                                                  fontsize=self.fs / 2)
 
     @staticmethod
-    def plot_boxplot(figure, grouped_series, positions, colors, alpha=0.5, direction="vertical", **kwargs):
+    def plot_boxplot(figure, grouped_series, positions, colors, alpha=0.5, direction="vertical", different_from=None, **kwargs):
         for i, series_group in enumerate(grouped_series):
             for j, series in enumerate(series_group):
-                figure.boxplot(series, pos=positions[i][j], fc=Figure.get_color(colors[i][j], alpha=alpha), direction=direction, **kwargs)
+                figure.boxplot(series, pos=positions[i][j], fc=Figure.get_color(colors[i][j], alpha=alpha[i][j] if isinstance(alpha, (tuple, list)) else alpha), direction=direction, different_from=different_from[i][j] if isinstance(different_from, (tuple, list)) else different_from, **kwargs)
 
 
 class Barplot(Figure):
@@ -686,7 +703,7 @@ class Barplot(Figure):
     def plot_barplot(figure, grouped_series, positions, colors, alpha=0.5, direction="vertical", grouped_offsets=None, **kwargs):
         for i, series_group in enumerate(grouped_series):
             for j, series in enumerate(series_group):
-                figure.barplot(series, pos=positions[i][j], fc=Figure.get_color(colors[i][j], alpha=alpha), direction=direction, offset=grouped_offsets[i][j] if grouped_offsets is not None else 0, **kwargs)
+                figure.barplot(series, pos=positions[i][j], fc=Figure.get_color(colors[i][j], alpha=alpha[i][j] if isinstance(alpha, (tuple, list)) else alpha), direction=direction, offset=grouped_offsets[i][j] if grouped_offsets is not None else 0, **kwargs)
 
 
 class Lineplot(Figure):
