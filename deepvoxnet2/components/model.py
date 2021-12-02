@@ -80,9 +80,9 @@ class DvnModel(object):
             self.optimizer[key] = None
             self.losses[key] = []
             self.losses_weights[key] = []
-            self.metrics[key] = []
-            self.weighted_metrics[key] = []
-            i += len(outputs[key])
+            self.metrics[key] = [[]] * len(self.outputs[key][0])
+            self.weighted_metrics[key] = [[]] * len(self.outputs[key][0])
+            i += len(self.outputs[key])
 
     def compile(self, key, optimizer=None, losses=None, metrics=None, losses_weights=None, weighted_metrics=None):
         assert key in self.outputs, "There are no outputs available for this key."
@@ -107,10 +107,6 @@ class DvnModel(object):
                 self.losses[key].append(combined_loss)
                 self.losses_weights[key].append(1)
 
-        elif len(self.losses[key]) == 0:
-            self.losses[key] = [[] for _ in range(len(self.outputs[key][0]))]
-            self.losses_weights[key] = [1] * len(self.losses[key])
-
         if metrics is not None:
             assert isinstance(metrics, list) and len(metrics) == len(self.outputs[key][0]), "The metrics must be given as a list of metrics lists with length equal to the number of outputs  (i.e. length of x/y_)."
             self.metrics[key] = []
@@ -121,9 +117,6 @@ class DvnModel(object):
                     metric__.__name__ = f"{metric_.__name__}__s{i}"
                     self.metrics[key][i].append(metric__)
 
-        elif len(self.metrics[key]) == 0:
-            self.metrics[key] = [[] for _ in range(len(self.outputs[key][0]))]
-
         if weighted_metrics is not None:
             assert isinstance(weighted_metrics, list) and len(weighted_metrics) == len(self.outputs[key][0]), "The weighted_metrics must be given as a list of weighted_metrics lists with length equal to the number of outputs  (i.e. length of x/y_)."
             self.weighted_metrics[key] = []
@@ -133,9 +126,6 @@ class DvnModel(object):
                     weighted_metric__ = partial(weighted_metric_)
                     weighted_metric__.__name__ = f"{weighted_metric_.__name__}__s{i}"
                     self.weighted_metrics[key][i].append(weighted_metric__)
-
-        elif len(self.weighted_metrics[key]) == 0:
-            self.weighted_metrics[key] = [[] for _ in range(len(self.outputs[key][0]))]
 
         if optimizer is not None:
             assert isinstance(self.outputs[key][0].transformer, KerasModel), "When using compile with an optimizer specified the output and index 0 (i.e. x/y_) must be after a KerasTransformer."
