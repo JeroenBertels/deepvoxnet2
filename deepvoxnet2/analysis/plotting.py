@@ -12,6 +12,8 @@ color_dict = {
     "b": (0, 0, 1),
     "c": (0, 1, 1),
     "m": (1, 0, 1),
+    "tab:orange": (1.0, 0.4980392156862745, 0.054901960784313725),  # to find rgb(a) values use: from matplotlib import colors; colors.to_rgba(color_name)
+    "tab:brown": (0.5490196078431373, 0.33725490196078434, 0.29411764705882354),
     "y": (1, 1, 0),
     "k": (0, 0, 0),
     "w": (1, 1, 1)
@@ -203,8 +205,8 @@ class Figure(object):
                  xalim, yalim,
                  awidthininches=5, aheightininches=5,
                  dxininches=0.25, dyininches=0.25,
-                 lmwidthininches=1.5, rmwidthininches=0.5,
-                 bmheightininches=1, tmheightininches=0.5,
+                 lmwidthininches=1, rmwidthininches=0,
+                 bmheightininches=1, tmheightininches=0,
                  top_extent=0, right_extent=0,
                  fs=20, lw=2, ms=10,
                  mask_inner_region=True, mask_outer_region=True,
@@ -459,14 +461,14 @@ class Figure(object):
             self.lineplot([series.p75 for series in series_x], [series.p75 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
 
         if plot_std:
-            self.lineplot([series.mean - series.std / 2 for series in series_x], [series.mean - series.std / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
-            self.lineplot([series.mean + series.std / 2 for series in series_x], [series.mean + series.std / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
+            self.lineplot([series.mean - series.std for series in series_x], [series.mean - series.std for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
+            self.lineplot([series.mean + series.std for series in series_x], [series.mean + series.std for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
 
         if plot_ste:
-            self.lineplot([series.mean - series.ste / 2 for series in series_x], [series.mean - series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
-            self.lineplot([series.mean + series.ste / 2 for series in series_x], [series.mean + series.ste / 2 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
+            self.lineplot([series.mean - series.ste for series in series_x], [series.mean - series.ste for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
+            self.lineplot([series.mean + series.ste for series in series_x], [series.mean + series.ste for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
 
-    def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", markerfill="full", markersize=None, plot_scatter=True, plot_unity=False, plot_mean=False, plot_kde=False, nbins=0, groupn=0, linestyle="-", ncontours=10, markeredgewidth=0, print_correlation=False, **kwargs):
+    def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", markerfill="full", markersize=None, plot_scatter=True, plot_unity=False, plot_mean=False, plot_kde=False, nbins=0, groupn=0, linestyle="-", ncontours=10, fillcontours=False, markeredgewidth=0, print_correlation=False, **kwargs):
         series_x, series_y = Series(series_x), Series(series_y)
         ms = self.ms if markersize is None else markersize
         if print_correlation:
@@ -510,7 +512,7 @@ class Figure(object):
                     self.plot([series_x_means[g + 1], series_x_means[g + 1]], [series_y_means[g], series_y_means[g + 1]], color=color[:3], alpha=1, linewidth=self.lw, linestyle=linestyle, zorder=1.9999)
 
         if plot_kde:
-            sb.kdeplot(ax=self.ax, x=series_x, y=series_y, colors=[color[:3]], alpha=alpha, linewidths=self.lw, zorder=1.9999, linestyles=linestyle, levels=ncontours)
+            sb.kdeplot(ax=self.ax, x=series_x, y=series_y, colors=[color[:3]], alpha=alpha, linewidths=self.lw, zorder=1.9999, linestyles=linestyle, levels=ncontours, fill=fillcontours)
 
     def blandaltmanplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", plot_unity=True, nbins=0, alpha_stats=None, **kwargs):
         series_x, series_y = Series(series_x), Series(series_y)

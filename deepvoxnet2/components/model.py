@@ -80,8 +80,8 @@ class DvnModel(object):
             self.optimizer[key] = None
             self.losses[key] = []
             self.losses_weights[key] = []
-            self.metrics[key] = [[]] * len(self.outputs[key][0])
-            self.weighted_metrics[key] = [[]] * len(self.outputs[key][0])
+            self.metrics[key] = [[] for _ in range(len(self.outputs[key][0]))]
+            self.weighted_metrics[key] = [[] for _ in range(len(self.outputs[key][0]))]
             i += len(self.outputs[key])
 
     def compile(self, key, optimizer=None, losses=None, metrics=None, losses_weights=None, weighted_metrics=None):
