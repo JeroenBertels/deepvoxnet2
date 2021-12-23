@@ -253,6 +253,21 @@ def _get_threshold_fn(threshold_mode="greater"):
 
 def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False, feature_dim_as_spatial_dim=False, threshold=None, argmax=False, map_batch=False, map_features=False, reduction_mode=None, percentile=None, reduction_axes=(0, 1, 2, 3, 4), threshold_mode="greater", **kwargs):
     assert len(tf.keras.backend.int_shape(y_true)) == 5 and len(tf.keras.backend.int_shape(y_pred)) == 5, "The input tensors/arrays y_true and y_pred to a metric function must be 5D!"
+    if hasattr(y_true, "affine") and hasattr(y_pred, "affine"):
+        voxel_size = tf.norm(y_true.affine[0][:3, :3], ord=2, axis=0)
+        assert np.allclose(voxel_size, tf.norm(y_pred.affine[0][:3, :3], ord=2, axis=0)), "Calculated voxel size of y_true is different from y_pred."
+        voxel_volume = tf.math.reduce_prod(voxel_size) / 1000
+
+    else:
+        voxel_size = 1
+        voxel_volume = 1
+
+    if kwargs.get("voxel_size") == "auto":
+        kwargs["voxel_size"] = voxel_size
+
+    if kwargs.get("voxel_volume") == "auto":
+        kwargs["voxel_volume"] = voxel_volume
+
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
     if batch_dim_as_spatial_dim:
