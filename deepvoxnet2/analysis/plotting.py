@@ -321,11 +321,11 @@ class Figure(object):
 
     def set_xlabel(self, xlabel):
         self.ax.set_xlabel(xlabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='bottom')
-        self.ax.xaxis.set_label_coords(0.5, -self.bmheightininches / self.heightininches)
+        self.ax.xaxis.set_label_coords((self.dxininches + self.awidthininches / 2) / self.widthininches, -self.bmheightininches / self.heightininches)
 
     def set_ylabel(self, ylabel):
         self.ax.set_ylabel(ylabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='top')
-        self.ax.yaxis.set_label_coords(-self.lmwidthininches / self.widthininches, 0.5)
+        self.ax.yaxis.set_label_coords(-self.lmwidthininches / self.widthininches, (self.dyininches + self.aheightininches / 2) / self.heightininches)
 
     def set_xticks(self, xticks):
         self.ax.set_xticks(xticks)
@@ -417,14 +417,14 @@ class Figure(object):
         inchesperposition = kwargs.get("inchesperposition", None)
         direction = kwargs.get("direction", None)
         if direction == "vertical":
-            kwargs["xticks"] = ticks
-            kwargs["xticklabels"] = kwargs.get("labels", None)
+            kwargs["xticks"] = kwargs.get("xticks", ticks)
+            kwargs["xticklabels"] = kwargs.get("xticklabels", kwargs.get("labels", None))
             if inchesperposition is not None:
                 kwargs["awidthininches"] = position * inchesperposition
 
         elif direction == "horizontal":
-            kwargs["yticks"] = ticks
-            kwargs["yticklabels"] = kwargs.get("labels", None)
+            kwargs["yticks"] = kwargs.get("yticks", ticks)
+            kwargs["yticklabels"] = kwargs.get("yticklabels", kwargs.get("labels", None))
             xalim, yalim = yalim, xalim
             if inchesperposition is not None:
                 kwargs["aheightininches"] = position * inchesperposition
@@ -632,66 +632,99 @@ class Figure(object):
 
 
 class Boxplot(Figure):
-    def __init__(self, grouped_series, labels=None, xalim=None, yalim=None, positions=None, inchesperposition=None, colors=None, alpha=0.5, direction="vertical", l0_stats=False, l1_stats=False, p_value_threshold=None, different_from=None, **kwargs):
+    def __init__(self, grouped_series, labels=None, xalim=None, yalim=None, positions=None, inchesperposition=None, colors=None, alpha=0.5, direction="vertical", l0_stats=False, l1_stats=False, p_value_threshold=None, different_from=None, incremental_stats=False, **kwargs):
         [grouped_series], xalim, yalim, self.colors, self.kwargs = Figure.prepare("grouped_series", [grouped_series], xalim, yalim, colors, positions=positions, labels=labels, inchesperposition=inchesperposition, direction=direction, **kwargs)
-        self.positions, self.labels, self.inchesperposition, self.direction, self.alpha, self.different_from = self.kwargs.pop("positions"), self.kwargs.pop("labels"), self.kwargs.pop("inchesperposition"), self.kwargs.pop("direction"), alpha, different_from
+        self.positions, self.labels, self.inchesperposition, self.direction, self.alpha, self.different_from, self.l0_stats, self.l1_stats, self.p_value_threshold, self.incremental_stats = self.kwargs.pop("positions"), self.kwargs.pop("labels"), self.kwargs.pop("inchesperposition"), self.kwargs.pop("direction"), alpha, different_from, l0_stats, l1_stats, p_value_threshold, incremental_stats
         super(Boxplot, self).__init__(xalim, yalim, **self.kwargs)
-        self.plot_boxplot(self, grouped_series, self.positions, self.colors, self.alpha, self.direction, self.different_from, **self.kwargs)
-        position = self.positions[-1][-1] + 1
-        locs = np.zeros((int((position - 1) * position / 2), position + 1))
-        loc = (self.yamax + 3 * self.dy) if self.direction == "vertical" else (self.xamax + 3 * self.dx)
-        if l0_stats:
-            for i, (series_group, positions_) in enumerate(zip(grouped_series, self.positions)):
-                for j, (series0, position0) in enumerate(zip(series_group, positions_)):
-                    for k, (series1, position1) in enumerate(zip(series_group, positions_)):
-                        if k > j:
-                            p_value = series0.different_from(series1.series, **self.kwargs)
-                            p = min([p_value, 1 - p_value])
-                            if (p_value_threshold is None and p < 0.05) or (p_value_threshold is not None and p < p_value_threshold):
-                                min_loc_pos = np.nonzero(np.sum(locs[:, position0:position1], axis=1) == 0)[0][0]
-                                loc_ = loc + min_loc_pos * self.dy
-                                locs[min_loc_pos, position0:position1] = 1
-                                position01 = (position0 + position1) / 2
-                                self.plot(*[[position0 + self.lwic, position01], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j])[:3], linewidth=self.lw, zorder=2.01)
-                                self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j])[:3], linewidth=self.lw, zorder=2.01)
-                                self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][k])[:3], linewidth=self.lw, zorder=2.01)
-                                self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][k])[:3], linewidth=self.lw, zorder=2.01)
-                                if p_value_threshold is None:
-                                    self.text(*[position01, loc_][::1 if self.direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
-                                              rotation=0 if self.direction == "vertical" else 270,
-                                              ha="center" if self.direction == "vertical" else "left",
-                                              va="bottom" if self.direction == "vertical" else "center",
-                                              fontsize=self.fs / 2)
-
-        if l1_stats:
-            for i, (series_group_a, positions_a) in enumerate(zip(grouped_series, self.positions)):
-                for j, (series0, position0) in enumerate(zip(series_group_a, positions_a)):
-                    for k, (series_group_b, positions_b) in enumerate(zip(grouped_series, self.positions)):
-                        if k > i:
-                            for l, (series1, position1) in enumerate(zip(series_group_b, positions_b)):
-                                p_value = series0.different_from(series1.series, **self.kwargs)
-                                p = min([p_value, abs(1 - p_value)])
-                                if (p_value_threshold is None and p < 0.05) or (p_value_threshold is not None and p < p_value_threshold):
-                                    min_loc_pos = np.nonzero(np.sum(locs[:, position0:position1], axis=1) == 0)[0][0]
-                                    loc_ = loc + min_loc_pos * self.dy
-                                    locs[min_loc_pos, position0:position1] = 1
-                                    position01 = (position0 + position1) / 2
-                                    self.plot(*[[position0 + self.lwic, position01], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j])[:3], linewidth=self.lw, zorder=2.01)
-                                    self.plot(*[[position0 + self.lwic, position0 + self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[i][j])[:3], linewidth=self.lw, zorder=2.01)
-                                    self.plot(*[[position01, position1 - self.lwic], [loc_, loc_]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[k][l])[:3], linewidth=self.lw, zorder=2.01)
-                                    self.plot(*[[position1 - self.lwic, position1 - self.lwic], [loc_, loc_ - self.dy / 4]][::1 if self.direction == "vertical" else -1], color=self.get_color(self.colors[k][l])[:3], linewidth=self.lw, zorder=2.01)
-                                    if p_value_threshold is None:
-                                        self.text(*[position01, loc_][::1 if self.direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
-                                                  rotation=0 if self.direction == "vertical" else 270,
-                                                  ha="center" if self.direction == "vertical" else "left",
-                                                  va="bottom" if self.direction == "vertical" else "center",
-                                                  fontsize=self.fs / 2)
+        self.plot_boxplot(
+            self,
+            grouped_series=grouped_series,
+            positions=self.positions,
+            colors=self.colors,
+            alpha=self.alpha,
+            direction=self.direction,
+            different_from=self.different_from,
+            l0_stats=self.l0_stats,
+            l1_stats=self.l1_stats,
+            p_value_threshold=self.p_value_threshold,
+            incremental_stats=incremental_stats,
+            **self.kwargs
+        )
 
     @staticmethod
-    def plot_boxplot(figure, grouped_series, positions, colors, alpha=0.5, direction="vertical", different_from=None, **kwargs):
+    def plot_boxplot(figure, grouped_series, positions, colors, alpha=0.5, direction="vertical", l0_stats=False, l1_stats=False, p_value_threshold=None, different_from=None, incremental_stats=False, **kwargs):
+        grouped_series = GroupedSeries(grouped_series)
         for i, series_group in enumerate(grouped_series):
             for j, series in enumerate(series_group):
                 figure.boxplot(series, pos=positions[i][j], fc=Figure.get_color(colors[i][j], alpha=alpha[i][j] if isinstance(alpha, (tuple, list)) else alpha), direction=direction, different_from=different_from[i][j] if isinstance(different_from, (tuple, list)) else different_from, **kwargs)
+
+        positions_count, positions_indices = 0, []
+        for positions_ in positions:
+            positions_indices_ = []
+            for position in positions_:
+                positions_indices_.append(positions_count)
+                positions_count += 1
+
+            positions_indices.append(positions_indices_)
+
+        locs = np.zeros((int(positions_count ** 2 / 2), positions_count))
+        loc = (figure.yamax + 3 * figure.dy) if direction == "vertical" else (figure.xamax + 3 * figure.dx)
+        if l0_stats:
+            for i, (series_group, positions_) in enumerate(zip(grouped_series, positions)):
+                for j, (series0, position0) in enumerate(zip(series_group, positions_)):
+                    for k, (series1, position1) in enumerate(zip(series_group, positions_)):
+                        if k > j:
+                            if incremental_stats and k > j + 1:
+                                continue
+
+                            p_value = series0.different_from(series1.series, **kwargs)
+                            p = min([p_value, 1 - p_value])
+                            if (p_value_threshold is None and p < 0.05) or (p_value_threshold is not None and p < p_value_threshold):
+                                lwic = figure.lwic if direction == "vertical" else figure.lhic
+                                dy = figure.dy if direction == "vertical" else figure.dx
+                                min_loc_pos = np.nonzero(np.sum(locs[:, positions_indices[i][j]:positions_indices[i][k]], axis=1) == 0)[0][0]
+                                loc_ = loc + min_loc_pos * dy
+                                locs[min_loc_pos, positions_indices[i][j]:positions_indices[i][k]] = 1
+                                position01 = (position0 + position1) / 2
+                                figure.plot(*[[position0 + lwic, position01], [loc_, loc_]][::1 if direction == "vertical" else -1], color=figure.get_color(colors[i][j])[:3], linewidth=figure.lw, zorder=2.01)
+                                figure.plot(*[[position0 + lwic, position0 + lwic], [loc_, loc_ - dy / 4]][::1 if direction == "vertical" else -1], color=figure.get_color(colors[i][j])[:3], linewidth=figure.lw, zorder=2.01)
+                                figure.plot(*[[position01, position1 - lwic], [loc_, loc_]][::1 if direction == "vertical" else -1], color=figure.get_color(colors[i][k])[:3], linewidth=figure.lw, zorder=2.01)
+                                figure.plot(*[[position1 - lwic, position1 - lwic], [loc_, loc_ - dy / 4]][::1 if direction == "vertical" else -1], color=figure.get_color(colors[i][k])[:3], linewidth=figure.lw, zorder=2.01)
+                                if p_value_threshold is None:
+                                    figure.text(*[position01, loc_][::1 if direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
+                                              rotation=0 if direction == "vertical" else 270,
+                                              ha="center" if direction == "vertical" else "left",
+                                              va="bottom" if direction == "vertical" else "center",
+                                              fontsize=figure.fs / 2)
+
+        if l1_stats:
+            for i, (series_group_a, positions_a) in enumerate(zip(grouped_series, positions)):
+                for j, (series0, position0) in enumerate(zip(series_group_a, positions_a)):
+                    for k, (series_group_b, positions_b) in enumerate(zip(grouped_series, positions)):
+                        if k > i:
+                            if incremental_stats and k > i + 1:
+                                continue
+
+                            for l, (series1, position1) in enumerate(zip(series_group_b, positions_b)):
+                                p_value = series0.different_from(series1.series, **kwargs)
+                                p = min([p_value, abs(1 - p_value)])
+                                if (p_value_threshold is None and p < 0.05) or (p_value_threshold is not None and p < p_value_threshold):
+                                    lwic = figure.lwic if direction == "vertical" else figure.lhic
+                                    dy = figure.dy if direction == "vertical" else figure.dx
+                                    min_loc_pos = np.nonzero(np.sum(locs[:, positions_indices[i][j]:positions_indices[k][l]], axis=1) == 0)[0][0]
+                                    loc_ = loc + min_loc_pos * dy
+                                    locs[min_loc_pos, positions_indices[i][j]:positions_indices[k][l]] = 1
+                                    position01 = (position0 + position1) / 2
+                                    figure.plot(*[[position0 + lwic, position01], [loc_, loc_]][::1 if direction == "vertical" else -1], color=figure.get_color(colors[i][j])[:3], linewidth=figure.lw, zorder=2.01)
+                                    figure.plot(*[[position0 + lwic, position0 + lwic], [loc_, loc_ - dy / 4]][::1 if direction == "vertical" else -1], color=figure.get_color(colors[i][j])[:3], linewidth=figure.lw, zorder=2.01)
+                                    figure.plot(*[[position01, position1 - lwic], [loc_, loc_]][::1 if direction == "vertical" else -1], color=figure.get_color(colors[k][l])[:3], linewidth=figure.lw, zorder=2.01)
+                                    figure.plot(*[[position1 - lwic, position1 - lwic], [loc_, loc_ - dy / 4]][::1 if direction == "vertical" else -1], color=figure.get_color(colors[k][l])[:3], linewidth=figure.lw, zorder=2.01)
+                                    if p_value_threshold is None:
+                                        figure.text(*[position01, loc_][::1 if direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
+                                                  rotation=0 if direction == "vertical" else 270,
+                                                  ha="center" if direction == "vertical" else "left",
+                                                  va="bottom" if direction == "vertical" else "center",
+                                                  fontsize=figure.fs / 2)
 
 
 class Barplot(Figure):
