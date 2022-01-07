@@ -548,21 +548,21 @@ class Figure(object):
             ec = (fc[0], fc[1], fc[2], 1)
 
         text = ""
-        sig_text = ""
         if print_mean:
             text += "$"
             text += mean_formatting.format(series.mean)
             text += "^{" + f"{series.nnaninf if series.nnaninf > 0 else ''}" + "}"
-            if different_from is not None:
-                p_value = series.different_from(different_from, **kwargs)
-                p_value_ = min(p_value, 1 - p_value)
-                if p_value_ < 0.05:
-                    sig_text += "$"
-                    sig_text += ">" if p_value > 0.95 else "<"
-                    sig_text += "*" if 0.01 < p_value_ < 0.05 else ("**" if 0.001 < p_value_ < 0.01 else "***")
-                    sig_text += "$"
-
             text += "$"
+
+        sig_text = ""
+        if different_from is not None:
+            p_value = series.different_from(different_from, **kwargs)
+            p_value_ = min(p_value, 1 - p_value)
+            if p_value_ < 0.05:
+                sig_text += "$"
+                sig_text += ">" if p_value > 0.95 else "<"
+                sig_text += "*" if 0.01 < p_value_ < 0.05 else ("**" if 0.001 < p_value_ < 0.01 else "***")
+                sig_text += "$"
 
         if plot_violin:
             violin_parts = self.ax.violinplot(series.series_, positions=[pos], vert=direction == "vertical", widths=width, showmeans=False, showmedians=False, showextrema=False, points=1000)
