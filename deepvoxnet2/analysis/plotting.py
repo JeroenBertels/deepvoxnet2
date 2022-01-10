@@ -2,6 +2,7 @@ import numpy as np
 import seaborn as sb
 from copy import deepcopy
 from collections import Iterable
+from scipy import stats
 from matplotlib import pyplot as plt
 from matplotlib.patches import Rectangle
 
@@ -28,6 +29,7 @@ class Series(object):
         self.series = np.array(series)
         self.series_, self.nnan, self.ninf, self.nnaninf, self.min, self.p25, self.p50, self.pm, self.p75, self.max, self.iqr, self.pmin, self.pmax, self.outliers, self.std, self.ste = self.get_stats()
         self.median, self.mean = self.p50, self.pm
+        self.n = len(self.series_)
 
     def __len__(self):
         return len(self.series)
@@ -73,7 +75,7 @@ class Series(object):
         return series_, nnan, ninf, nnaninf, min, p25, p50, pm, p75, max, iqr, pmin, pmax, outliers, std, ste
 
     @staticmethod
-    def basic_test(series0, series1=None, n=10000, skipnan=True, skipinf=True, pairwise=True, **kwargs):
+    def basic_test(series0, series1=None, n=10000, skipnan=True, skipinf=True, pairwise=True, confidences=False, **kwargs):
         series0 = Series(series0).series
         series1 = np.zeros_like(series0) if series1 is None else Series(series1).series
         if pairwise:
@@ -93,6 +95,18 @@ class Series(object):
             if pairwise and np.all(series0 == 0):
                 return 0.5
 
+            elif confidences:  # https://courses.lumenlearning.com/boundless-statistics/chapter/hypothesis-testing-two-samples/
+                x0, s0, n0 = np.mean(series0), np.std(series0), len(series0)
+                x1, s1, n1 = np.mean(series1), np.std(series1), len(series1)
+                t = (x0 - x1) / np.sqrt(s0 ** 2 + s1 ** 2)
+                df = (s0 ** 2 + s1 ** 2) ** 2 / (1 / (n0 - 1) * s0 ** 4 + 1 / (n1 - 1) * s1 ** 4)
+                p = 2 * stats.t.sf(np.abs(t), df)  # https://www.statology.org/p-value-from-t-score-python/
+                if t > 0:
+                    return 1 - (p / 2)
+
+                else:
+                    return p / 2
+
             else:
                 count = 0
                 for i in range(n):
@@ -107,7 +121,7 @@ class Series(object):
             return np.nan
 
     @staticmethod
-    def rank_series(series_group, ranking_mode="any", p_value_threshold=0.05, value_mode="max", **kwargs):
+    def rank_series(series_group, ranking_mode="any", p_value_threshold=0.1, value_mode="max", **kwargs):
         series_group = SeriesGroup(series_group)
         series_group = [Series((-1 if value_mode == "min" else 1) * series.series) for series in series_group]
         mean_sort_idx = np.argsort([series.mean for series in series_group])[::-1]
@@ -541,7 +555,7 @@ class Figure(object):
         self.plot([self.xamin, self.xamax], [series_diff.mean - 1.96 * series_diff.std, series_diff.mean - 1.96 * series_diff.std], linestyle=":", color=color, alpha=alpha if alpha_stats is None else alpha_stats, linewidth=self.lw, zorder=1.9999)
         self.plot(series_mean, series_diff, color=color, linestyle="None", marker=marker, markersize=self.ms)
 
-    def boxplot(self, series, pos, direction="vertical", width=0.8, fc=(0, 0, 1, 0.5), ec=None, project_stats=False, plot_violin=False, violin_color=None, print_mean=True, different_from=None, mean_formatting="{0:.3g}", **kwargs):
+    def boxplot(self, series, pos, direction="vertical", width=0.8, fc=(0, 0, 1, 0.5), ec=None, project_stats=False, plot_violin=False, violin_color=None, print_mean=True, different_from=None, mean_formatting="{0:.3g}", confidences=False, **kwargs):
         series = Series(series)
         width2 = width / 2
         if ec is None:
@@ -558,10 +572,10 @@ class Figure(object):
         if different_from is not None:
             p_value = series.different_from(different_from, **kwargs)
             p_value_ = min(p_value, 1 - p_value)
-            if p_value_ < 0.05:
+            if p_value_ < 0.1:
                 sig_text += "$"
-                sig_text += ">" if p_value > 0.95 else "<"
-                sig_text += "*" if 0.01 < p_value_ < 0.05 else ("**" if 0.001 < p_value_ < 0.01 else "***")
+                sig_text += ">" if p_value > 0.9 else "<"
+                sig_text += "*" if 0.01 < p_value_ < 0.1 else ("**" if 0.001 < p_value_ < 0.01 else "***")
                 sig_text += "$"
 
         if plot_violin:
@@ -574,19 +588,27 @@ class Figure(object):
             width2 = width2 / 2
 
         if direction == "vertical":
-            self.add_patch(Rectangle((pos - width2, series.p25), width, series.iqr, fc=fc, ec=ec, linewidth=self.lw))
-            self.plot([pos, pos], [series.p75, series.pmax], color=ec, linewidth=self.lw)
-            self.plot([pos, pos], [series.pmin, series.p25], color=ec, linewidth=self.lw)
-            self.plot([pos] * len(series.outliers), series.outliers, color=ec, linestyle="None", marker=".", markersize=self.ms)
-            self.plot([pos - width2, pos + width2], [series.p50, series.p50], color=ec, linewidth=self.lw)
-            self.plot([pos - width2, pos + width2], [series.pm, series.pm], color=ec, linestyle="dashed", linewidth=self.lw)
-            self.plot([pos - width2, pos + width2], [series.pmax, series.pmax], color=ec, linewidth=self.lw)
-            self.plot([pos - width2, pos + width2], [series.pmin, series.pmin], color=ec, linewidth=self.lw)
-            if project_stats:
-                self.plot([self.xmin, pos - width2], [series.p50, series.p50], color=ec, linewidth=self.lw, zorder=2.01)
-                self.plot([self.xmin, pos - width2], [series.pm, series.pm], color=ec, linestyle="dashed", linewidth=self.lw, zorder=2.01)
-                self.plot([self.xmin, pos - width2], [series.p75, series.p75], color=ec, linewidth=self.lw, zorder=2.01)
-                self.plot([self.xmin, pos - width2], [series.p25, series.p25], color=ec, linewidth=self.lw, zorder=2.01)
+            if confidences:
+                # self.text(pos, series.pm, "X", rotation=0, ha="center", va="center", color=ec, fontsize=self.fs)
+                self.plot([pos], [series.pm], color=ec, linestyle="None", marker="x", markersize=self.ms)
+                self.plot([pos, pos], [series.pm - series.std, series.pm + series.std], color=ec, linewidth=self.lw)
+                self.plot([pos - width2, pos + width2], [series.pm - series.std, series.pm - series.std], color=ec, linewidth=self.lw)
+                self.plot([pos - width2, pos + width2], [series.pm + series.std, series.pm + series.std], color=ec, linewidth=self.lw)
+
+            else:
+                self.add_patch(Rectangle((pos - width2, series.p25), width, series.iqr, fc=fc, ec=ec, linewidth=self.lw))
+                self.plot([pos, pos], [series.p75, series.pmax], color=ec, linewidth=self.lw)
+                self.plot([pos, pos], [series.pmin, series.p25], color=ec, linewidth=self.lw)
+                self.plot([pos] * len(series.outliers), series.outliers, color=ec, linestyle="None", marker=".", markersize=self.ms)
+                self.plot([pos - width2, pos + width2], [series.p50, series.p50], color=ec, linewidth=self.lw)
+                self.plot([pos - width2, pos + width2], [series.pm, series.pm], color=ec, linestyle="dashed", linewidth=self.lw)
+                self.plot([pos - width2, pos + width2], [series.pmax, series.pmax], color=ec, linewidth=self.lw)
+                self.plot([pos - width2, pos + width2], [series.pmin, series.pmin], color=ec, linewidth=self.lw)
+                if project_stats:
+                    self.plot([self.xmin, pos - width2], [series.p50, series.p50], color=ec, linewidth=self.lw, zorder=2.01)
+                    self.plot([self.xmin, pos - width2], [series.pm, series.pm], color=ec, linestyle="dashed", linewidth=self.lw, zorder=2.01)
+                    self.plot([self.xmin, pos - width2], [series.p75, series.p75], color=ec, linewidth=self.lw, zorder=2.01)
+                    self.plot([self.xmin, pos - width2], [series.p25, series.p25], color=ec, linewidth=self.lw, zorder=2.01)
 
             self.text(pos, self.yamax + self.dy, text, rotation=0, ha="center", va="bottom", fontsize=self.fs)
             self.text(pos, self.yamax + self.dy - (self.fs / 2 * self.lhic / self.lw), sig_text, rotation=0, ha="center", va="bottom", fontsize=self.fs / 2)
@@ -679,7 +701,7 @@ class Boxplot(Figure):
 
                             p_value = series0.different_from(series1.series, **kwargs)
                             p = min([p_value, 1 - p_value])
-                            if (p_value_threshold is None and p < 0.05) or (p_value_threshold is not None and p < p_value_threshold):
+                            if (p_value_threshold is None and p < 0.1) or (p_value_threshold is not None and p < p_value_threshold):
                                 lwic = figure.lwic if direction == "vertical" else figure.lhic
                                 dy = figure.dy if direction == "vertical" else figure.dx
                                 min_loc_pos = np.nonzero(np.sum(locs[:, positions_indices[i][j]:positions_indices[i][k]], axis=1) == 0)[0][0]
@@ -691,7 +713,7 @@ class Boxplot(Figure):
                                 figure.plot(*[[position01, position1 - lwic], [loc_, loc_]][::1 if direction == "vertical" else -1], color=figure.get_color(colors[i][k])[:3], linewidth=figure.lw, zorder=2.01)
                                 figure.plot(*[[position1 - lwic, position1 - lwic], [loc_, loc_ - dy / 4]][::1 if direction == "vertical" else -1], color=figure.get_color(colors[i][k])[:3], linewidth=figure.lw, zorder=2.01)
                                 if p_value_threshold is None:
-                                    figure.text(*[position01, loc_][::1 if direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
+                                    figure.text(*[position01, loc_][::1 if direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.9 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
                                               rotation=0 if direction == "vertical" else 270,
                                               ha="center" if direction == "vertical" else "left",
                                               va="bottom" if direction == "vertical" else "center",
@@ -708,7 +730,7 @@ class Boxplot(Figure):
                             for l, (series1, position1) in enumerate(zip(series_group_b, positions_b)):
                                 p_value = series0.different_from(series1.series, **kwargs)
                                 p = min([p_value, abs(1 - p_value)])
-                                if (p_value_threshold is None and p < 0.05) or (p_value_threshold is not None and p < p_value_threshold):
+                                if (p_value_threshold is None and p < 0.1) or (p_value_threshold is not None and p < p_value_threshold):
                                     lwic = figure.lwic if direction == "vertical" else figure.lhic
                                     dy = figure.dy if direction == "vertical" else figure.dx
                                     min_loc_pos = np.nonzero(np.sum(locs[:, positions_indices[i][j]:positions_indices[k][l]], axis=1) == 0)[0][0]
@@ -720,7 +742,7 @@ class Boxplot(Figure):
                                     figure.plot(*[[position01, position1 - lwic], [loc_, loc_]][::1 if direction == "vertical" else -1], color=figure.get_color(colors[k][l])[:3], linewidth=figure.lw, zorder=2.01)
                                     figure.plot(*[[position1 - lwic, position1 - lwic], [loc_, loc_ - dy / 4]][::1 if direction == "vertical" else -1], color=figure.get_color(colors[k][l])[:3], linewidth=figure.lw, zorder=2.01)
                                     if p_value_threshold is None:
-                                        figure.text(*[position01, loc_][::1 if direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.95 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
+                                        figure.text(*[position01, loc_][::1 if direction == "vertical" else -1], "${} {}$".format(">" if p_value > 0.9 else "<", "***" if p < 0.001 else ("**" if p < 0.01 else "*")),
                                                   rotation=0 if direction == "vertical" else 270,
                                                   ha="center" if direction == "vertical" else "left",
                                                   va="bottom" if direction == "vertical" else "center",
