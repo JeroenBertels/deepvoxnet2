@@ -256,16 +256,17 @@ def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False,
     if hasattr(y_true, "affine") and hasattr(y_pred, "affine"):
         voxel_size = tf.norm(y_true.affine[0][:3, :3], ord=2, axis=0)
         assert np.allclose(voxel_size, tf.norm(y_pred.affine[0][:3, :3], ord=2, axis=0)), "Calculated voxel size of y_true is different from y_pred."
+        voxel_size = tf.concat([tf.constant([1], tf.float32), voxel_size, tf.constant([1], tf.float32)], axis=0)
         voxel_volume = tf.math.reduce_prod(voxel_size) / 1000
 
     else:
         voxel_size = 1
         voxel_volume = 1
 
-    if kwargs.get("voxel_size") == "auto":
+    if isinstance(kwargs.get("voxel_size"), str) and  kwargs.get("voxel_size") == "auto":
         kwargs["voxel_size"] = voxel_size
 
-    if kwargs.get("voxel_volume") == "auto":
+    if isinstance(kwargs.get("voxel_volume"), str) and kwargs.get("voxel_volume") == "auto":
         kwargs["voxel_volume"] = voxel_volume
 
     y_true = tf.cast(y_true, tf.float32)
