@@ -132,14 +132,14 @@ def ece_from_bin_stats(y_true, y_pred, **kwargs):
     return tf.reduce_sum(tf.abs(bin_confidence - bin_accuracy) * bin_count, axis=1, keepdims=True) / tf.reduce_sum(bin_count, axis=1, keepdims=True)
 
 
-def ece(y_true, y_pred, nbins=21, quantiles_as_bins=False, return_bin_stats=False, from_bin_stats=True, **kwargs):
+def ece(y_true, y_pred, nbins=21, quantiles_as_bins=False, return_bin_stats=False, from_bin_stats=True, binary_bin_stats=False, **kwargs):
     y_true, y_pred = _expand_binary(y_true, y_pred)
     y_true, y_pred = tf.reshape(y_true, [-1, y_true.shape[4]]), tf.reshape(y_pred, [-1, y_pred.shape[4]])
     labels_true, labels_pred = tf.math.argmax(y_true, axis=-1), tf.math.argmax(y_pred, axis=-1)
     confidence = tf.math.reduce_max(y_pred, axis=-1)
     hits = tf.equal(labels_true, labels_pred)
     if quantiles_as_bins:
-        edges = tfp.stats.percentile(confidence, tf.linspace(0, 100, nbins), interpolation="midpoint")
+        edges = tfp.stats.percentile(y_pred[..., 1] if binary_bin_stats else confidence, tf.linspace(0, 100, nbins), interpolation="midpoint")
         if not return_bin_stats and not from_bin_stats:
             return tfp.stats.expected_calibration_error_quantiles(hits, tf.math.log(confidence), nbins)[0][None, None, None, None, None]
 
@@ -148,12 +148,12 @@ def ece(y_true, y_pred, nbins=21, quantiles_as_bins=False, return_bin_stats=Fals
         if not return_bin_stats and not from_bin_stats:
             return tfp.stats.expected_calibration_error(nbins, tf.math.log(y_pred), labels_true, labels_pred)[None, None, None, None, None]
 
-    bins = tfp.stats.find_bins(confidence, edges=edges)
+    bins = tfp.stats.find_bins(y_pred[..., 1] if binary_bin_stats else confidence, edges=edges)
     stats = []
     for i in range(nbins):
         mask = tf.equal(bins, i)
-        bin_confidence = tf.reduce_mean(tf.boolean_mask(confidence, mask))
-        bin_accuracy = tf.reduce_mean(tf.boolean_mask(tf.cast(hits, tf.float32), mask))
+        bin_confidence = tf.reduce_mean(tf.boolean_mask(y_pred[..., 1] if binary_bin_stats else confidence, mask))
+        bin_accuracy = tf.reduce_mean(tf.boolean_mask(y_true[..., 1] if binary_bin_stats else tf.cast(hits, tf.float32), mask))
         bin_count = tf.reduce_sum(tf.cast(mask, tf.float32))
         stats.append([bin_confidence, bin_accuracy, bin_count])
 

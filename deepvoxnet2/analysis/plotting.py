@@ -359,6 +359,9 @@ class Figure(object):
     def text(self, x, y, s, fontdict=None, **kwargs):
         self.ax.text(x, y, s, fontdict=fontdict, **kwargs)
 
+    def legend(self, *args, **kwargs):
+        self.ax.legend(*args, **kwargs)
+
     def show(self):
         self.fig.show()
 
@@ -461,9 +464,12 @@ class Figure(object):
     def lineplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", linestyle="-", linewidth=None, markersize=None, **kwargs):
         series_x, series_y = Series(series_x), Series(series_y)
         color = self.get_color(color, alpha)
-        self.plot(series_x, series_y, color=color, linewidth=self.lw if linewidth is None else linewidth, zorder=1.9999, linestyle=linestyle)
-        if marker is not None:
-            self.plot(series_x, series_y, color=color, linestyle="None", marker=marker, markersize=self.ms if markersize is None else markersize)
+        # self.plot(series_x, series_y, color=color, linewidth=self.lw if linewidth is None else linewidth, zorder=1.9999, linestyle=linestyle)
+        if marker is None:
+            self.plot(series_x, series_y, color=color, linewidth=self.lw if linewidth is None else linewidth, zorder=1.9999, linestyle=linestyle)
+
+        else:
+            self.plot(series_x, series_y, color=color, linewidth=self.lw if linewidth is None else linewidth, zorder=1.9999, linestyle=linestyle, marker=marker, markersize=self.ms if markersize is None else markersize)
 
     def lineplotwithstats(self, series_group_x, series_group_y, color=(0, 0, 1, 1), alpha=1, marker=".", linestyle="-", alpha_stats=0.5, linestyle_stats=None, plot_std=False, plot_ste=True, plot_iqr=False, **kwargs):
         series_group_x, series_group_y = SeriesGroup(series_group_x), SeriesGroup(series_group_y)
