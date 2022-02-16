@@ -2,7 +2,7 @@ import os
 import pickle
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.callbacks import Callback, LearningRateScheduler, History
+from tensorflow.keras.callbacks import Callback, LearningRateScheduler, History, ReduceLROnPlateau, EarlyStopping
 
 
 class DvnHistory(History):
