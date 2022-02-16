@@ -1164,6 +1164,21 @@ class GridCrop(Crop):
                 raise StopIteration
 
 
+class GeometricCrop(Crop):
+    def __init__(self, reference_connection, segment_size, subsample_factors=(1, 1, 1), default_value=0, prefilter=None, **kwargs):
+        super(GeometricCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, prefilter, **kwargs)
+
+    def _randomize(self):
+        if self.n_ == 0:
+            assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
+            nonzero_indices = np.where(np.any(self.reference_connection[0] != 0, axis=(0, 4)))
+            if len(nonzero_indices[0]) == 0:
+                raise StopIteration
+
+            else:
+                self.coordinates = [tuple([int(np.mean(idx)) for idx in nonzero_indices])] * self.n
+
+
 class KerasModel(Transformer):
     def __init__(self, keras_model, output_affines=None, **kwargs):
         super(KerasModel, self).__init__(**kwargs)
@@ -1190,6 +1205,35 @@ class KerasModel(Transformer):
 
     def _randomize(self):
         pass
+
+
+# class KerasModel(Transformer):
+#     def __init__(self, keras_model, output_affines=None, output_to_input=0, **kwargs):
+#         super(KerasModel, self).__init__(**kwargs)
+#         self.keras_model = keras_model
+#         self.output_affines = output_affines if isinstance(output_affines, list) else [output_affines] * len(self.keras_model.outputs)
+#         self.output_to_input = output_to_input if isinstance(output_to_input, list) else [output_to_input] * len(self.keras_model.outputs)
+#         assert len(self.output_affines) == len(self.output_to_input) == len(self.keras_model.outputs)
+#
+#     def _update_idx(self, idx):
+#         y = self.keras_model.predict(self.connections[idx][0].get())
+#         y = y if isinstance(y, list) else [y]
+#         for idx_, (y_, output_affine, output_to_input) in enumerate(zip(y, self.output_affines, self.output_to_input)):
+#             if output_affine is None:
+#                 output_affine = Sample.update_affine(translation=[-(out_shape // 2) + (in_shape // 2) for in_shape, out_shape in zip(self.connections[idx][0][output_to_input].shape[1:4], y_.shape[1:4])])
+#
+#             self.outputs[idx][idx_] = Sample(y_, Sample.update_affine(self.connections[idx][0][output_to_input].affine, transformation_matrix=output_affine))
+#
+#     def _calculate_output_shape_at_idx(self, idx):
+#         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+#         output_shapes = self.keras_model.output_shape if isinstance(self.keras_model.output_shape, list) else [self.keras_model.output_shape]
+#         for idx_, output_shape in enumerate(output_shapes):
+#             output_shapes[idx_] = (output_shape[0] or self.connections[idx][0].shapes[0][0], output_shape[1], output_shape[2], output_shape[3], output_shape[4])
+#
+#         return output_shapes
+#
+#     def _randomize(self):
+#         pass
 
 
 class Put(Transformer):
