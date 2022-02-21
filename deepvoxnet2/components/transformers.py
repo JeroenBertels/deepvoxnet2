@@ -586,6 +586,27 @@ class Normalize(Transformer):
         pass
 
 
+class NormalizeIndividual(Transformer):
+    def __init__(self, ignore_value=None, replace_value=None, axis=(1, 2, 3), **kwargs):
+        super(NormalizeIndividual, self).__init__(**kwargs)
+        self.ignore_value = ignore_value
+        self.replace_value = ignore_value if replace_value is None else replace_value
+        self.axis = axis
+
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            mask = np.logical_not(np.logical_or(np.isnan(sample), np.isinf(sample))) if self.ignore_value is None or np.isnan(self.ignore_value) or np.isinf(self.ignore_value) else (sample != self.ignore_value)
+            normalized_array = (sample - np.mean(sample, axis=self.axis, keepdims=True, where=mask)) / np.std(sample, axis=self.axis, keepdims=True, where=mask)
+            self.outputs[idx][idx_] = Sample(np.where(mask, normalized_array, self.replace_value), sample.affine)
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        return self.connections[idx][0].shapes
+
+    def _randomize(self):
+        pass
+
+
 class WindowNormalize(Transformer):
     def __init__(self, lower_window=0, higher_window=1, **kwargs):
         super(WindowNormalize, self).__init__(**kwargs)
