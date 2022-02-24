@@ -244,6 +244,25 @@ class NiftyFileModality(Modality):
 NiftiFileModality = NiftyFileModality
 
 
+class NiftiFileMultiModality(Modality):
+    def __init__(self, modality_id, file_paths, axis=-1, mode="stack"):
+        super(NiftiFileMultiModality, self).__init__(modality_id)
+        self.file_paths = file_paths
+        self.axis = axis
+        self.mode = mode
+
+    def load(self):
+        niis = [nib.load(file_path) for file_path in self.file_paths]
+        assert all([np.allclose(niis[0].affine, nii.affine) for nii in niis[1:]]), "Not all affines are equal!"
+        if self.mode == "concat":
+            array = np.concatenate([nii.get_fdata(caching="unchanged") for nii in niis], axis=self.axis)
+
+        else:
+            array = np.stack([nii.get_fdata(caching="unchanged") for nii in niis], axis=self.axis)
+
+        return Sample(array, niis[0].affine)
+
+
 class ImageFileModality(Modality):
     def __init__(self, modality_id, file_path, **kwargs):  # check documentation of Image.convert for **kwargs: e.g. mode, which can be "1" (binary), "RGB" (color), "L" grayscale
         super(ImageFileModality, self).__init__(modality_id, os.path.dirname(file_path))
