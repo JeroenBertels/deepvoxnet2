@@ -124,3 +124,30 @@ class DvnModelEvaluator(Callback):
 
             assert metric_name not in logs
             logs[metric_name] = np.mean(self.history[metric_name][-1])
+
+
+class MovingAverage(Callback):
+    def __init__(self, period=10, exponential=False, metric_names=None):
+        super(MovingAverage, self).__init__()
+        self.period = period
+        self.exponential = exponential
+        self.metric_names = metric_names
+        self.history = {}
+        self.ma_history = {}
+
+    def on_epoch_end(self, epoch, logs=None):
+        if logs is not None:
+            for metric_name in logs:
+                if self.metric_names is None or metric_name in self.metric_names:
+                    self.history[metric_name] = self.history.get(metric_name, []) + [logs[metric_name]]
+                    if not self.exponential:
+                        self.ma_history[metric_name] = self.ma_history.get(metric_name, []) + [np.mean(self.history[metric_name][-self.period:])]
+
+                    elif len(self.history[metric_name]) == 1:
+                        self.ma_history[metric_name] = [self.history[metric_name][-1]]
+
+                    else:
+                        alpha = 1 - 1 / self.period
+                        self.ma_history[metric_name].append((1 - alpha) * self.ma_history[metric_name][-1] + alpha * self.history[metric_name][-1])
+
+                    logs[metric_name] = self.ma_history[metric_name][-1]
