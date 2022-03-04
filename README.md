@@ -3,8 +3,8 @@ Deep learning processing framework for Keras.
 Partly based on [DeepVoxNet](https://github.com/JeroenBertels/deepvoxnet).
 
 ## Get started
-This package can be added to your python 3.9 environment via:
-- First cloning/downloading the repository and then via:
+This package can be added to your python 3.9 environment via: 
+- First cloning/downloading the repository and then via: 
 ```
 pip install -e /path/to/deepvoxnet2
 ```
