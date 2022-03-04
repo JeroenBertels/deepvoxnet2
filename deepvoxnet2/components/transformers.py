@@ -415,6 +415,27 @@ class Threshold(Transformer):
         pass
 
 
+class NonZeroMask(Transformer):
+    def __init__(self, zero_value=0, compensate_zeros=False, axis=(1, 2, 3, 4), **kwargs):
+        super(NonZeroMask, self).__init__(**kwargs)
+        self.zero_value = zero_value
+        self.compensate_zeros = compensate_zeros
+        self.axis = axis
+
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            self.outputs[idx][idx_] = Sample(sample != self.zero_value, sample.affine)
+            if self.compensate_zeros:
+                self.outputs[idx][idx_] *= np.prod([s for i, s in enumerate(self.outputs[idx][idx_].shape) if i in self.axis]) / np.sum(self.outputs[idx][idx_], axis=self.axis, keepdims=True)
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        return self.connections[idx][0].shapes
+
+    def _randomize(self):
+        pass
+
+
 class Multiply(Transformer):
     def __init__(self, **kwargs):
         super(Multiply, self).__init__(**kwargs)
@@ -1201,20 +1222,24 @@ class GeometricCrop(Crop):
 
 
 class KerasModel(Transformer):
-    def __init__(self, keras_model, output_affines=None, **kwargs):
+    def __init__(self, keras_model, output_affines=None, output_to_input=0, **kwargs):
         super(KerasModel, self).__init__(**kwargs)
         self.keras_model = keras_model
         self.output_affines = output_affines if isinstance(output_affines, list) else [output_affines] * len(self.keras_model.outputs)
-        assert len(self.output_affines) == len(self.keras_model.outputs)
+        self.output_to_input = output_to_input if isinstance(output_to_input, list) else [output_to_input] * len(self.keras_model.outputs)
+        assert len(self.output_affines) == len(self.output_to_input) == len(self.keras_model.outputs)
 
     def _update_idx(self, idx):
+        if not hasattr(self, "output_to_input"):
+            self.output_to_input = [0] * len(self.keras_model.outputs)
+
         y = self.keras_model.predict(self.connections[idx][0].get())
         y = y if isinstance(y, list) else [y]
-        for idx_, (y_, output_affine) in enumerate(zip(y, self.output_affines)):
+        for idx_, (y_, output_affine, output_to_input) in enumerate(zip(y, self.output_affines, self.output_to_input)):
             if output_affine is None:
-                output_affine = Sample.update_affine(translation=[-(out_shape // 2) + (in_shape // 2) for in_shape, out_shape in zip(self.connections[idx][0][0].shape[1:4], y_.shape[1:4])])
+                output_affine = Sample.update_affine(translation=[-(out_shape // 2) + (in_shape // 2) for in_shape, out_shape in zip(self.connections[idx][0][output_to_input].shape[1:4], y_.shape[1:4])])
 
-            self.outputs[idx][idx_] = Sample(y_, Sample.update_affine(self.connections[idx][0][0].affine, transformation_matrix=output_affine))
+            self.outputs[idx][idx_] = Sample(y_, Sample.update_affine(self.connections[idx][0][output_to_input].affine, transformation_matrix=output_affine))
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -1226,35 +1251,6 @@ class KerasModel(Transformer):
 
     def _randomize(self):
         pass
-
-
-# class KerasModel(Transformer):
-#     def __init__(self, keras_model, output_affines=None, output_to_input=0, **kwargs):
-#         super(KerasModel, self).__init__(**kwargs)
-#         self.keras_model = keras_model
-#         self.output_affines = output_affines if isinstance(output_affines, list) else [output_affines] * len(self.keras_model.outputs)
-#         self.output_to_input = output_to_input if isinstance(output_to_input, list) else [output_to_input] * len(self.keras_model.outputs)
-#         assert len(self.output_affines) == len(self.output_to_input) == len(self.keras_model.outputs)
-#
-#     def _update_idx(self, idx):
-#         y = self.keras_model.predict(self.connections[idx][0].get())
-#         y = y if isinstance(y, list) else [y]
-#         for idx_, (y_, output_affine, output_to_input) in enumerate(zip(y, self.output_affines, self.output_to_input)):
-#             if output_affine is None:
-#                 output_affine = Sample.update_affine(translation=[-(out_shape // 2) + (in_shape // 2) for in_shape, out_shape in zip(self.connections[idx][0][output_to_input].shape[1:4], y_.shape[1:4])])
-#
-#             self.outputs[idx][idx_] = Sample(y_, Sample.update_affine(self.connections[idx][0][output_to_input].affine, transformation_matrix=output_affine))
-#
-#     def _calculate_output_shape_at_idx(self, idx):
-#         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-#         output_shapes = self.keras_model.output_shape if isinstance(self.keras_model.output_shape, list) else [self.keras_model.output_shape]
-#         for idx_, output_shape in enumerate(output_shapes):
-#             output_shapes[idx_] = (output_shape[0] or self.connections[idx][0].shapes[0][0], output_shape[1], output_shape[2], output_shape[3], output_shape[4])
-#
-#         return output_shapes
-#
-#     def _randomize(self):
-#         pass
 
 
 class Put(Transformer):
