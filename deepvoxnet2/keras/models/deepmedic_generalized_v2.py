@@ -13,7 +13,7 @@ import numpy as np
 from deepvoxnet2.utilities.calculate_gpu_memory import get_model_memory_usage
 
 
-def create_generalized_deepmedic_siam_extra_model(
+def create_generalized_deepmedic_v2_model(
         number_input_features_per_pathway=(4, 4),
         subsample_factors_per_pathway=(
                 (1, 1, 1),
