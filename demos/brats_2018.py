@@ -4,70 +4,81 @@ from demos.create_dataset import create_dataset
 from deepvoxnet2 import DEMO_DIR
 from deepvoxnet2.components.mirc import Mirc
 from deepvoxnet2.components.sampler import MircSampler
-from deepvoxnet2.keras.models.unet_generalized import create_generalized_unet_model
-from deepvoxnet2.components.transformers import Normalize, AffineDeformation, MircInput, ElasticDeformation, GridCrop, Flip, Put, KerasModel, Concat, Multiply, Threshold, Buffer
+from deepvoxnet2.keras.models.unet_generalized_v2 import create_generalized_unet_v2_model
+from deepvoxnet2.components.transformers import NormalizeIndividual, AffineDeformation, MircInput, ElasticDeformation, GridCrop, Flip, Put, KerasModel, Buffer, IntensityTransform
 from deepvoxnet2.components.model import DvnModel
 from deepvoxnet2.components.creator import Creator
 from deepvoxnet2.keras.optimizers import Adam
 from deepvoxnet2.keras.losses import get_loss
 from deepvoxnet2.keras.metrics import get_metric
-from deepvoxnet2.keras.callbacks import DvnModelEvaluator, LearningRateScheduler, DvnModelCheckpoint
+from deepvoxnet2.keras.callbacks import DvnModelEvaluator, ReduceLROnPlateau, EarlyStopping, DvnModelCheckpoint
 from deepvoxnet2.factories.directory_structure import MircStructure
 
 
 def train(run_name, experiment_name, fold_i=0):
     train_data = Mirc()
     train_data.add(create_dataset("train"))
-    val_data = Mirc()
-    val_data.add(create_dataset("val"))
+    val_data = Mirc(create_dataset("val"))  # note the two different ways of adding datasets to a Mirc object :-)
 
     # for many training pipelines it's good practice to normalize the data; look how easy it is to get the mean and standard deviation of a certain modality when grouped in a Mirc object
     # this calculation (when no n argument is specified) often takes some time so you can better comment out with calculated value after the first run (or specify n)
+    # note that we not use it here as we will use the NormalizeIndividual (instead of Normalize) Transformer later
     flair_mean, flair_std = train_data.mean_and_std("flair", n=2)
     t1_mean, t1_std = train_data.mean_and_std("t1", n=2)
 
-    # building mirc samplers: here the sampler randomly samples a record out of train_data or val_data --> depending on what objects these samplers return, you must choose an appropriate Input later on when building your Dvn network/creator
+    # building mirc samplers: here we create the sampler that randomly samples a record out of train_data or val_data
+    # --> depending on what objects these samplers return, you must choose an appropriate Input later when building your Dvn network/creator
+    # more specifically, a doing my_sampler[i] will return a "Identifier" object; this can be anything: a numpy array, a pointer to a record in a Mirc object, ... (just make sure you use the corresponding Input later (e.g. MircInput, SampleInput, ...)
     train_sampler = MircSampler(train_data, shuffle=True)
     val_sampler = MircSampler(val_data)
 
     # let's create a keras model and put it in a Transformer layer to be used in our Dvn network (see "create_samples.py" for other examples on Transformers and sample creation)
     # have a look at the print-outs when this model is created; you'll see some interesting properties like # parameters, field of view, output/input sizes, etc.
-    keras_model = create_generalized_unet_model(
+    keras_model = create_generalized_unet_v2_model(
         number_input_features=2,
-        output_size=(112, 112, 96),
-        padding="same"
+        subsample_factors_per_pathway=(
+            (1, 1, 1),
+            (3, 3, 3),
+            (9, 9, 9)
+        ),
+        kernel_sizes_per_pathway=(
+            (((3, 3, 3), (3, 3, 3)), ((3, 3, 3), (3, 3, 3))),
+            (((3, 3, 3), (3, 3, 3)), ((3, 3, 3), (3, 3, 3))),
+            (((3, 3, 3), (3, 3, 3)), ())
+        ),
+        number_features_per_pathway=(
+            ((30, 30), (30, 30)),
+            ((60, 60), (60, 30)),
+            ((120, 60), ())
+        ),
+        output_size=(63, 63, 63),
+        dynamic_input_shapes=True  # not necessary; though this makes sure we can actually input any patch size to the network that is compatible with the specified patch size (here 63, 63, 63)
     )
     keras_model_transformer = KerasModel(keras_model)
 
     # similar to the demo on sample creation, let's make our processing network(s) (keep in mind that the following network could be made in different ways; we just show one way)
     # inputs (we have samplers that sample identifier objects, so we can use MircInputs here; they now what to do with the sampled identifier objects (have a look at their load method)
-    x_input_0 = MircInput(["flair"], output_shapes=[(1, None, None, None, 1)])
-    x_input_1 = MircInput(["t1"], output_shapes=[(1, None, None, None, 1)])
-    y_input = MircInput(["whole_tumor"], output_shapes=[(1, None, None, None, 1)], n=None)
+    # specifying the shapes is not necessary; however like this you could check the shapes (input None for a dimension if unknown
+    x_input = NormalizeIndividual(ignore_value=0)(MircInput(["flair-t1"], output_shapes=[(1, 240, 240, 155, 2)]))
+    y_input = MircInput(["whole_tumor"], output_shapes=[(1, 240, 240, 155, 1)])
 
     # used for training and is on the level of patches
-    x_path_0, x_path_1, y_path = AffineDeformation(x_input_0, translation_window_width=(20, 20, 20), rotation_window_width=(3.14 / 10, 0, 0))(x_input_0, x_input_1, y_input)
-    x_path_0, x_path_1, y_path = ElasticDeformation(x_path_0, shift=(1, 1, 1))(x_path_0, x_path_1, y_path)
-    x_path_0, x_path_1, y_path = GridCrop(x_path_0, (112, 112, 96), n=1, nonzero=True)(x_path_0, x_path_1, y_path)  # x_path_0 is used as a reference volume to determine the coordinate around which to crop (here also constrained to nonzero flair voxels)
-    x_path_0 = Normalize(-flair_mean, 1 / flair_std)(x_path_0)
-    x_path_1 = Normalize(-t1_mean, 1 / t1_std)(x_path_1)
-    x_path = Concat()([x_path_0, x_path_1])
-    x_path, y_path = Flip((0.5, 0.5, 0))(x_path, y_path)
+    x_path, y_path = AffineDeformation(x_input, translation_window_width=(5, 5, 5), rotation_window_width=(3.14 / 10, 0, 0), width_as_std=True)(x_input, y_input)
+    x_path, y_path = ElasticDeformation(x_path, shift=(1, 1, 1))(x_path, y_path)
+    x_path, y_path = GridCrop(x_path, (63, 63, 63), n=8, nonzero=True)(x_path, y_path)  # x_path is used as a reference volume to determine the coordinate around which to crop (here also constrained to nonzero flair voxels)
+    x_path = IntensityTransform(std_shift=0.1, std_scale=0.1)(x_path)
+    x_path, y_path = Flip((0.5, 0, 0))(x_path, y_path)
     x_train = keras_model_transformer(x_path)
     y_train = y_path
 
-    # used for validation and is on the level of patches
-    x_path_0, x_path_1, y_path = GridCrop(x_input_0, (112, 112, 96), nonzero=True)(x_input_0, x_input_1, y_input)  # notice that there is no n specified --> this will sample the complete grid
-    x_path_0 = Normalize(-flair_mean, 1 / flair_std)(x_path_0)
-    x_path_1 = Normalize(-t1_mean, 1 / t1_std)(x_path_1)
-    x_path = Concat()([x_path_0, x_path_1])
+    # used for validation and is on the level of patches: note that here we take larger patches to speedup prediction
+    x_path, y_path = GridCrop(x_input, (117, 117, 117), nonzero=True)(x_input, y_input)  # notice that there is no n specified --> this will sample the complete grid (n=None is default); actually we could have used Crop (a simple center crop here as well)
     x_val = keras_model_transformer(x_path)
     y_val = y_path
 
     # used for validation of the full images and thus is on the level of the input
-    x_path = Multiply()([x_val, Threshold(-flair_mean / flair_std)(x_path_0)])
-    x_path = Buffer()(x_path)
-    x_full_val = Put(x_input_0)(x_path)  # x_val is on the patch level and the put transformers brings the patch back to the reference space; have a look why y_input is used (with n=None) and think about why this is
+    x_path = Buffer()(x_val)  # first stack all patch predictions
+    x_full_val = Put(x_input)(x_path)  # put all patches back into x_input space
     y_full_val = y_input
 
     # you can use Creator.summary() method to visualize your designed architecture
@@ -86,7 +97,7 @@ def train(run_name, experiment_name, fold_i=0):
             "train": [x_train, y_train],
             "val": [x_val, y_val],
             "full_val": [x_full_val, y_full_val],
-            "full_test": [x_full_val]
+            "full_test": [x_full_val]  # we also add this since sometimes we won't have a ground truth (y_input) at test time so then we only want to produce a prediction
         }
     )
 
@@ -94,7 +105,7 @@ def train(run_name, experiment_name, fold_i=0):
     # here lists (of lists) can be used to apply different losses/metrics to different outputs of the network
     # the losses can also be lists of lists if you want a linear combination of losses to be applied to a certain output (when no weights specified, everything is weighted uniformly)
     cross_entropy = get_loss("cross_entropy")
-    soft_dice = get_loss("dice_loss")
+    soft_dice = get_loss("dice_loss", reduce_along_features=True, reduce_along_batch=True)
     dice_score = get_metric("dice_coefficient", threshold=0.5)
     accuracy = get_metric("accuracy", threshold=0.5)
     abs_vol_diff = get_metric("absolute_volume_error", voxel_volume=0.001)  # in ml (voxels are 1 x 1 x 1 mm)
@@ -116,18 +127,32 @@ def train(run_name, experiment_name, fold_i=0):
     )
     output_structure.create()  # only now the non-existing output dirs are created
 
-    # also similar to keras, we define some callbacks
+    # also similar to keras, we define some callbacks (note the ordering! otherwise ReduceLROnPlateau would have no access to full_val__dice_coefficient__s0)
     callbacks = [
-        LearningRateScheduler(lambda epoch, lr: ([1e-3] * 300 + [1e-4] * 150 + [1e-5] * 75)[epoch]),
-        DvnModelEvaluator(dvn_model, "full_val", val_sampler, freq=25, output_dirs=output_structure.val_images_output_dirs),  # watch out, here you do need to make sure that the order of the val_sampler (shuffle=False by default) is te same as the order of your output_dirs...
-        DvnModelCheckpoint(dvn_model, output_structure.models_dir, freq=25)  # every 25 epochs the model will be saved (for e.g. parallel offline use for testing some things)
+        DvnModelEvaluator(dvn_model, "full_val", val_sampler, freq=5, output_dirs=output_structure.val_images_output_dirs),  # watch out, here you do need to make sure that the order of the val_sampler (shuffle=False by default) is te same as the order of your output_dirs...
+        DvnModelCheckpoint(dvn_model, output_structure.models_dir, freq=10),  # every 10 epochs the model will be saved (for e.g. parallel offline use for testing some things)
+        ReduceLROnPlateau("full_val__dice_coefficient__s0", factor=0.2, patience=30, mode="max"),  # try to understand deepvoxnet's naming convention of metrics and losses (see Tensorboard)
+        EarlyStopping("full_val__dice_coefficient__s0", patience=60, mode="max")
     ]
 
-    # let's train :-)
-    history = dvn_model.fit("train", train_sampler, batch_size=2, validation_key="val", validation_sampler=val_sampler, callbacks=callbacks, epochs=525, logs_dir=output_structure.logs_dir)  # ideally choose the batch size as a whole multiple of the number of samples your processing pipeline produces
+    # let's train :-) Note that if we specify a logs_dir you will be able to watch tensorboard... (no need to give the tensorboard callback in the list of callbacks since it is tricky where to put it)
+    history = dvn_model.fit(
+        "train",
+        train_sampler,
+        batch_size=8,
+        callbacks=callbacks,
+        epochs=10000,
+        logs_dir=output_structure.logs_dir,
+        steps_per_epoch=128,
+        shuffle_samples=64,
+        prefetch_size=64,
+        num_parallel_calls=4
+    )
     with open(output_structure.history_path, "wb") as f:
         pickle.dump(history.history, f)
 
+    # get final predictions, metrics and save model
+    dvn_model.evaluate("full_val", val_sampler, output_dirs=output_structure.val_images_output_dirs)
     dvn_model.save(os.path.join(output_structure.models_dir, "dvn_model_final"))
 
 
