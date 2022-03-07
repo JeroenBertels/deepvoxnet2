@@ -253,7 +253,7 @@ class Buffer(Transformer):
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
-        assert all([output_shape_ is not None for output_shape in self.connections[idx][0].shapes for axis_i, output_shape_ in enumerate(output_shape) if axis_i != self.axis]), "A buffer can only used on a connection with fully specified shapes (except for the concatenation axis)."
+        # assert all([output_shape_ is not None for output_shape in self.connections[idx][0].shapes for axis_i, output_shape_ in enumerate(output_shape) if axis_i != self.axis]), "A buffer can only used on a connection with fully specified shapes (except for the concatenation axis)."
         return [tuple([output_shape_ if axis_i != self.axis else (self.buffer_size * output_shape_ if self.buffer_size is not None and self.drop_remainder and output_shape_ is not None else None) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
 
     def _randomize(self):
