@@ -477,7 +477,7 @@ def create_generalized_deepmedic_v2_model(
 
 
 if __name__ == "__main__":
-    m = create_generalized_deepmedic_siam_extra_model(
+    m = create_generalized_deepmedic_v2_model(
         metadata_sizes=(1,),
         metadata_number_features=((),),
         metadata_dropout=((),),

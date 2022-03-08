@@ -556,7 +556,7 @@ def create_generalized_unet_v2_model(
 
 
 if __name__ == "__main__":
-    m = create_generalized_unet_siam_extra_model(
+    m = create_generalized_unet_v2_model(
         padding="valid",
         output_size=(116, 116, 100)
         # number_siam_pathways=2,

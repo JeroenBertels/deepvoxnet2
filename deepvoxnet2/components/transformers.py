@@ -1167,19 +1167,24 @@ class RandomCrop(Crop):
 
 
 class GridCrop(Crop):
-    def __init__(self, reference_connection, segment_size, n=None, grid_size=None, strides=None, nonzero=False, subsample_factors=(1, 1, 1), default_value=0, prefilter=None, **kwargs):
+    def __init__(self, reference_connection, segment_size, n=None, grid_size=None, strides=None, nonzero=False, subsample_factors=(1, 1, 1), default_value=0, prefilter=None, axes=(1, 2, 3), **kwargs):
         super(GridCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, prefilter, n=n, **kwargs)
         self.grid_size = segment_size if grid_size is None else grid_size
         self.strides = self.grid_size if strides is None else strides
         self.nonzero = nonzero
+        assert 0 not in axes and 4 not in axes, "Only the spatial dimensions (axes=1, 2, 3) can be used as a grid."
+        self.axes = axes
 
     def _randomize(self):
+        if not hasattr(self, "axes"):
+            self.axes = (1, 2, 3)
+
         if self.n_ == 0:
             assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
             self.coordinates = []
-            for x in range(0, self.reference_connection[0].shape[1] + self.strides[0] + 1, self.strides[0]):
-                for y in range(0, self.reference_connection[0].shape[2] + self.strides[1] + 1, self.strides[1]):
-                    for z in range(0, self.reference_connection[0].shape[3] + self.strides[2] + 1, self.strides[2]):
+            for x in range(0, self.reference_connection[0].shape[1] + self.strides[0] + 1, self.strides[0]) if 1 in self.axes else [self.reference_connection[0].shape[1] // 2 - self.grid_size[0] // 2]:
+                for y in range(0, self.reference_connection[0].shape[2] + self.strides[1] + 1, self.strides[1]) if 2 in self.axes else [self.reference_connection[0].shape[2] // 2 - self.grid_size[1] // 2]:
+                    for z in range(0, self.reference_connection[0].shape[3] + self.strides[2] + 1, self.strides[2]) if 3 in self.axes else [self.reference_connection[0].shape[3] // 2 - self.grid_size[2] // 2]:
                         if self.nonzero:
                             if np.any(self.reference_connection[0][:, max(0, x):x + self.grid_size[0], max(0, y):y + self.grid_size[1], max(0, z):z + self.grid_size[2], :]):
                                 self.coordinates.append((x + self.grid_size[0] // 2, y + self.grid_size[1] // 2, z + self.grid_size[2] // 2))
