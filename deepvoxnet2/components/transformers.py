@@ -883,14 +883,11 @@ class Subsample(Transformer):
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
             subsampled_array = np.moveaxis(sample, self.axis, 0)
+            subsampled_array = np.pad(subsampled_array, ((0, int(self.factor - len(subsampled_array) % self.factor if len(subsampled_array) % self.factor else 0)), (0, 0), (0, 0), (0, 0), (0, 0)), mode="edge")
             if self.mode == "nearest":
                 subsampled_array = subsampled_array[slice(0, None, self.factor), ...]
 
-            elif len(subsampled_array) < self.factor:
-                subsampled_array = np.mean(subsampled_array, axis=0, keepdims=True)
-
             else:
-                subsampled_array = np.pad(subsampled_array, ((0, int(self.factor - len(subsampled_array) % self.factor if len(subsampled_array) % self.factor else 0)), (0, 0), (0, 0), (0, 0), (0, 0)), mode="edge")
                 subsampled_array = transformations.downsample_array(subsampled_array, (self.factor, 1, 1, 1, 1))
 
             self.outputs[idx][idx_] = Sample(np.moveaxis(subsampled_array, 0, self.axis), sample.affine)
