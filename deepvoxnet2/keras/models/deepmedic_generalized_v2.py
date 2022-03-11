@@ -94,7 +94,7 @@ def create_generalized_deepmedic_v2_model(
             metadata_path = activation_function("m{}_activation{}".format(i, j))(metadata_path)
 
         if not isinstance(metadata_sizes[i], tuple):
-            broadcast_shape = K.concatenate([K.shape(path)[:-1], [metadata_sizes[i]]])
+            broadcast_shape = K.concatenate([K.constant([1], dtype="int32"), K.shape(path)[1:-1], K.constant([1], dtype="int32")])
             metadata_path = K.tile(metadata_path, broadcast_shape)
 
         return Concatenate(axis=-1)([path, metadata_path])
