@@ -3,7 +3,7 @@ import setuptools
 
 setuptools.setup(
     name='deepvoxnet2',
-    version='2.11.3',
+    version='2.12.0',
     description='Deep learning processing framework for Keras.',
     url='https://github.com/JeroenBertels/deepvoxnet2',
     author='Jeroen Bertels, David Robben',
@@ -30,6 +30,7 @@ setuptools.setup(
         'sklearn',
         'xlrd>=2.0',
         'openpyxl>=3.0',
+        'opencv-python>=4.5'
         'pymirc'
     ],
     extras_require={
