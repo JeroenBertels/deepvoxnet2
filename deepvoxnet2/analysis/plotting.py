@@ -20,7 +20,7 @@ color_dict = {
     "w": (1, 1, 1),
     "cm": (0.5, 0.5, 1),
     "rg": (0.5, 0.5, 0),
-    "grey": (0.5, 0.5, 0.5)
+    "grey": (0.5, 0.5, 0.5),
 }
 
 class Series(object):
@@ -234,7 +234,7 @@ class Figure(object):
             plt.rcParams.update({
                 "text.usetex": True,
                 "font.family": "Helvetica",
-                "text.latex.preamble": r'\usepackage{amssymb,amsthm}\usepackage{amsmath}'
+                "text.latex.preamble": r'\usepackage{amssymb,amsthm,amsmath}'
             })
 
         self.xalim, self.yalim = xalim, yalim
@@ -362,7 +362,11 @@ class Figure(object):
     def text(self, x, y, s, fontdict=None, **kwargs):
         self.ax.text(x, y, s, fontdict=fontdict, **kwargs)
 
-    def legend(self, *args, **kwargs):
+    def legend(self, *args, fs=None, **kwargs):
+        if "fontsize" in kwargs and fs is not None:
+            assert kwargs["fontsize"] == fs
+
+        kwargs["fontsize"] = kwargs.get("fontsize", self.fs if fs is None else fs)
         self.ax.legend(*args, **kwargs)
 
     def show(self):
@@ -474,10 +478,10 @@ class Figure(object):
         else:
             self.plot(series_x, series_y, color=color, linewidth=self.lw if linewidth is None else linewidth, zorder=1.9999, linestyle=linestyle, marker=marker, markersize=self.ms if markersize is None else markersize)
 
-    def lineplotwithstats(self, series_group_x, series_group_y, color=(0, 0, 1, 1), alpha=1, marker=".", linestyle="-", alpha_stats=0.5, linestyle_stats=None, plot_std=False, plot_ste=True, plot_iqr=False, **kwargs):
+    def lineplotwithstats(self, series_group_x, series_group_y, color=(0, 0, 1, 1), alpha=1, marker=".", linestyle="-", alpha_stats=0.5, linestyle_stats=None, plot_std=False, plot_ste=True, plot_iqr=False, grouped_per_line=True, **kwargs):
         series_group_x, series_group_y = SeriesGroup(series_group_x), SeriesGroup(series_group_y)
-        series_x = [Series([series[i] for series in series_group_x]) for i in range(len(series_group_x[0]))]
-        series_y = [Series([series[i] for series in series_group_y]) for i in range(len(series_group_y[0]))]
+        series_x = [Series([series[i] for series in series_group_x]) for i in range(len(series_group_x[0]))] if grouped_per_line else series_group_x
+        series_y = [Series([series[i] for series in series_group_y]) for i in range(len(series_group_y[0]))] if grouped_per_line else series_group_y
         self.lineplot([series.mean for series in series_x], [series.mean for series in series_y], color=color, alpha=alpha, marker=marker, linestyle=linestyle, **kwargs)
         if plot_iqr:
             self.lineplot([series.p25 for series in series_x], [series.p25 for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
@@ -564,9 +568,10 @@ class Figure(object):
         self.plot([self.xamin, self.xamax], [series_diff.mean - 1.96 * series_diff.std, series_diff.mean - 1.96 * series_diff.std], linestyle=":", color=color, alpha=alpha if alpha_stats is None else alpha_stats, linewidth=self.lw, zorder=1.9999)
         self.plot(series_mean, series_diff, color=color, linestyle="None", marker=marker, markersize=self.ms)
 
-    def boxplot(self, series, pos, direction="vertical", width=0.8, fc=(0, 0, 1, 0.5), ec=None, project_stats=False, plot_violin=False, violin_color=None, print_mean=True, different_from=None, mean_formatting="{0:.3g}", confidences=False, **kwargs):
+    def boxplot(self, series, pos, direction="vertical", width=0.8, fc=(0, 0, 1, 0.5), ec=None, project_stats=False, plot_violin=False, violin_color=None, print_mean=True, different_from=None, mean_formatting="{0:.3g}", confidences=False, alpha=None, **kwargs):
         series = Series(series)
         width2 = width / 2
+        fc = self.get_color(fc, alpha=alpha)
         if ec is None:
             ec = (fc[0], fc[1], fc[2], 1)
 
