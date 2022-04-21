@@ -130,3 +130,16 @@ dmypy.json
 
 #PyCharm files
 .idea/
+
+.DS_Store
+.DS_Store?
+*.pyc
+*.pkl
+*.mlab.auto
+*.xlsx
+*.mat
+*.pdf
+*.png
+*.pptx
+*.docx
+._*
