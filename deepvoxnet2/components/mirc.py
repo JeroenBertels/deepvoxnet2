@@ -133,24 +133,24 @@ class Mirc(SortedDict):
                             img_sizes.append(modality.shape[1:4])
                             voxel_sizes.append([s.round(2) for s in np.linalg.norm(modality.affine[0][:3, :3], 2, axis=0)])
 
-            fig, axs = plt.subplots(3, 3, figsize=(9, 9))
+            fig, axs = plt.subplots(3, 3, figsize=(9, 10))
             for i in range(3):
                 img_sizes_dim_i = list(zip(*img_sizes))[i]
                 axs[0, i].hist(img_sizes_dim_i)
-                axs[0, i].set_title(f"modality shape dim {i} (# voxels)")
+                axs[0, i].set_title(f"mod. shape d{i} (# vxls)")
                 voxel_sizes_dim_i = list(zip(*voxel_sizes))[i]
                 axs[1, i].hist(voxel_sizes_dim_i)
-                axs[1, i].set_title(f"voxel size dim {i} (mm)")
+                axs[1, i].set_title(f"vxl size d{i} (mm)")
                 counts, bins = np.histogram([i * j for i, j in zip(img_sizes_dim_i, voxel_sizes_dim_i)])
                 axs[2, i].bar(bins[:-1], counts, width=np.array(bins[1:] - bins[:-1]), align="edge")
-                axs[2, i].set_title(f"modality shape dim {i} (mm)")
+                axs[2, i].set_title(f"mod. shape d{i} (mm)")
 
             plt.suptitle(" + ".join(dataset_ids))
             plt.show()
 
-        n_cols = min(len(modality_ids), 4)
+        n_cols = min(len(modality_ids), 3)
         n_rows = int(np.ceil(len(modality_ids) / n_cols))
-        fig, axs = plt.subplots(n_rows, n_cols, figsize=(n_cols * 3, n_rows * 3))
+        fig, axs = plt.subplots(n_rows, n_cols, figsize=(n_cols * 3, n_rows * 3 + 1))
         axs = [axs] if n_rows * n_cols == 1 else axs
         for i, modality_id in enumerate(modality_ids):
             mean, std, (counts, bins) = self.mean_and_std(modality_id, return_histogram=True, n=ns[i], clipping=clippings[i], fillna=fillnas[i], exclude_clipping=exclude_clippings[i])
