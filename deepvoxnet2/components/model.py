@@ -17,7 +17,7 @@ from deepvoxnet2.keras.losses import get_combined_loss
 
 
 class TfDataset(tf.data.Dataset, ABC):
-    def __new__(cls, creator, sampler=None, batch_size=None, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, repeat=1):
+    def __new__(cls, creator, sampler=None, batch_size=None, num_parallel_calls=1, prefetch_size=1, shuffle_samples=False, repeat=1):
         if sampler is None:
             sampler = Sampler([Identifier()])
 
