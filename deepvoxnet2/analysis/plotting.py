@@ -308,6 +308,9 @@ class Figure(object):
                 assert "xticks" in kwargs and kwargs["xticks"] is not None and len(kwargs["xticks"]) == len(kwargs["xticklabels"])
                 self.set_xticklabels(kwargs["xticklabels"])
 
+        else:
+            self.ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False, labeltop=False)
+
         if plot_yaxis:
             if "ylabel" in kwargs and kwargs["ylabel"] is not None:
                 self.set_ylabel(kwargs["ylabel"])
@@ -326,6 +329,9 @@ class Figure(object):
             if "yticklabels" in kwargs and kwargs["yticklabels"] is not None and kwargs["yticklabels"] != "auto":
                 assert "yticks" in kwargs and kwargs["yticks"] is not None and len(kwargs["yticks"]) == len(kwargs["yticklabels"])
                 self.set_yticklabels(kwargs["yticklabels"])
+
+        else:
+            self.ax.tick_params(axis='y', which='both', left=False, right=False, labelleft=False, labelright=False)
 
         if "title" in kwargs and kwargs["title"] is not None:
             self.set_title(kwargs["title"])
