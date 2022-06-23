@@ -15,5 +15,9 @@ pip install git+https://github.com/JeroenBertels/deepvoxnet2
 To upgrade your installation using the first method just download the latest version and repeat the process or ```git pull``` the new version. When using the second method simply repeat the command but add the ```--upgrade``` flag. You can also install/revert to a specific version; in that case append ```@version_tag``` (e.g. @deepvoxnet-2.10.23). 
 
 Some functions require the SimpleITK and SimpleElastix software to be installed. To install these packages also, please append the paths in the above commands with ```[sitk]```.
+
+## Tutorial
+A Jupyter Notebook-style tutorial can be found [here](https://github.com/JeroenBertels/deepvoxnet2/blob/main/demos/deepvoxnet2.ipynb), which guides you through some of the basic design ideas behind deepvoxnet2.
+
 ## Acknowledgements
 Jeroen Bertels is part of [NEXIS](https://www.nexis-project.eu), a project that has received funding from the European Union's Horizon 2020 Research and Innovation Programme.
