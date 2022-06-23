@@ -30,7 +30,7 @@ setuptools.setup(
         'sklearn',
         'xlrd>=2.0',
         'openpyxl>=3.0',
-        'opencv-python>=4.5'
+        'opencv-python>=4.5',
         'pymirc'
     ],
     extras_require={
