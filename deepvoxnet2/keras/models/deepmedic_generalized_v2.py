@@ -297,7 +297,7 @@ def create_generalized_deepmedic_v2_model(
             print("input size for pathway {}:\t{}\t(inferred with theoretical field of view (less meaningful if padding='same'))".format(p, input_sizes[p]))
 
     # What are the possible input and output sizes?
-    input_sizes = output_sizes = np.stack([np.arange(150)] * 3, axis=-1)
+    input_sizes = output_sizes = np.stack([np.arange(250)] * 3, axis=-1)
     for k_s in reversed(kernel_sizes_common_pathway):
         input_sizes = input_sizes + (np.array(k_s) - 1 if padding == 'valid' else 0)
 
