@@ -1148,7 +1148,7 @@ class RandomCrop(Crop):
     def _randomize(self):
         if self.n_ == 0:
             assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
-            if self.nonzero:
+            if random.random() < self.nonzero:
                 self.coordinates = list(zip(*np.nonzero(np.any(self.reference_connection[0] != 0, axis=(0, -1)))))
                 if len(self.coordinates) > 0 and self.ncrops is not None:
                     self.coordinates = [random.choice(self.coordinates) for _ in range(self.ncrops)]
@@ -1182,7 +1182,7 @@ class GridCrop(Crop):
             for x in range(0, self.reference_connection[0].shape[1] + self.strides[0] + 1, self.strides[0]) if 1 in self.axes else [self.reference_connection[0].shape[1] // 2 - self.grid_size[0] // 2]:
                 for y in range(0, self.reference_connection[0].shape[2] + self.strides[1] + 1, self.strides[1]) if 2 in self.axes else [self.reference_connection[0].shape[2] // 2 - self.grid_size[1] // 2]:
                     for z in range(0, self.reference_connection[0].shape[3] + self.strides[2] + 1, self.strides[2]) if 3 in self.axes else [self.reference_connection[0].shape[3] // 2 - self.grid_size[2] // 2]:
-                        if self.nonzero:
+                        if random.random() < self.nonzero:
                             if np.any(self.reference_connection[0][:, max(0, x):x + self.grid_size[0], max(0, y):y + self.grid_size[1], max(0, z):z + self.grid_size[2], :]):
                                 self.coordinates.append((x + self.grid_size[0] // 2, y + self.grid_size[1] // 2, z + self.grid_size[2] // 2))
 
