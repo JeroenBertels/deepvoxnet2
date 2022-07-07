@@ -293,6 +293,28 @@ class Group(Transformer):
         pass
 
 
+class Swap(Transformer):
+    def __init__(self, swap_probability=1, **kwargs):
+        super(Swap, self).__init__(**kwargs)
+        self.swap_probability = swap_probability
+        self.swap_state = None
+
+    def _update_idx(self, idx):
+        assert len(self.connections[idx][0]) == len(self.swap_state), "Not all connections idx have the same length!"
+        for idx_, j in enumerate(self.swap_state):
+            self.outputs[idx][idx_] = self.connections[idx][0][j]
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        assert all([all([self.connections[idx][0].shapes[0][axis_i] == shape[axis_i] for shape in self.connections[idx][0].shapes]) for axis_i in range(5)]), "In each connection, the shape of each Sample must be equal!"
+        return self.connections[idx][0].shapes
+
+    def _randomize(self):
+        self.swap_state = list(range(len(self.connections[0][0])))
+        if random.random() < self.swap_probability:
+            random.shuffle(self.swap_state)
+
+
 class Split(Transformer):
     def __init__(self, indices=(0,), **kwargs):
         self.indices = indices if isinstance(indices, tuple) else (indices,)
@@ -626,6 +648,34 @@ class NormalizeIndividual(Transformer):
 
     def _randomize(self):
         pass
+
+
+class NormalizeMask(Transformer):
+    def __init__(self, reference_connection, axis=(1, 2, 3), mean_shift=0, std_shift=0, mean_scale=1, std_scale=0, **kwargs):
+        super(NormalizeMask, self).__init__(extra_connections=reference_connection, **kwargs)
+        self.reference_connection = reference_connection
+        self.axis = axis
+        self.mean_shift = mean_shift
+        self.std_shift = std_shift
+        self.mean_scale = mean_scale
+        self.std_scale = std_scale
+        self.shift = None
+        self.scale = None
+
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            mask = self.reference_connection[0] > 0
+            shift = np.mean(sample, axis=self.axis, keepdims=True, where=mask)
+            scale = np.std(sample, axis=self.axis, keepdims=True, where=mask)
+            self.outputs[idx][idx_] = Sample((sample - (shift + self.shift)) / (scale + self.scale), sample.affine)
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        return self.connections[idx][0].shapes
+
+    def _randomize(self):
+        self.shift = np.random.normal(self.mean_shift, self.std_shift)
+        self.scale = np.random.normal(self.mean_scale, self.std_scale)
 
 
 class WindowNormalize(Transformer):
