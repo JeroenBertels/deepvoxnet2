@@ -244,9 +244,9 @@ class NiftyFileModality(Modality):
 NiftiFileModality = NiftyFileModality
 
 
-class NiftiFileMultiModality(Modality):
+class NiftyFileMultiModality(Modality):
     def __init__(self, modality_id, file_paths, axis=-1, mode="stack"):
-        super(NiftiFileMultiModality, self).__init__(modality_id)
+        super(NiftyFileMultiModality, self).__init__(modality_id)
         self.file_paths = file_paths
         self.axis = axis
         self.mode = mode
@@ -261,6 +261,31 @@ class NiftiFileMultiModality(Modality):
             array = np.stack([nii.get_fdata(caching="unchanged") for nii in niis], axis=self.axis)
 
         return Sample(array, niis[0].affine)
+
+
+NiftiFileMultiModality = NiftyFileMultiModality
+
+
+class NiftyMultiModality(Modality):
+    def __init__(self, modality_id, niftys, axis=-1, mode="stack"):
+        super(NiftyMultiModality, self).__init__(modality_id)
+        self.niftys = niftys
+        self.axis = axis
+        self.mode = mode
+
+    def load(self):
+        niis = self.niftys
+        # assert all([np.allclose(niis[0].affine, nii.affine) for nii in niis[1:]]), "Not all affines are equal!"
+        if self.mode == "concat":
+            array = np.concatenate([nii.get_fdata(caching="unchanged") for nii in niis], axis=self.axis)
+
+        else:
+            array = np.stack([nii.get_fdata(caching="unchanged") for nii in niis], axis=self.axis)
+
+        return Sample(array, niis[0].affine)
+
+
+NiftiMultiModality = NiftyMultiModality
 
 
 class ImageFileModality(Modality):
