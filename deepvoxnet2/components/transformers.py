@@ -679,16 +679,20 @@ class NormalizeMask(Transformer):
 
 
 class WindowNormalize(Transformer):
-    def __init__(self, lower_window=0, higher_window=1, **kwargs):
+    def __init__(self, lower_window=None, higher_window=None, axis=(1, 2, 3), **kwargs):
         super(WindowNormalize, self).__init__(**kwargs)
         self.lower_window = lower_window
         self.higher_window = higher_window
+        self.axis = axis
 
     def _update_idx(self, idx):
+        if not hasattr(self, "axis"):
+            self.axis = (1, 2, 3)
+
         for idx_, sample in enumerate(self.connections[idx][0]):
-            lower_window = np.min(sample) if self.lower_window is None else self.lower_window
-            higher_window = np.max(sample) if self.higher_window is None else self.higher_window
-            self.outputs[idx][idx_] = Sample(sample * (higher_window - lower_window) / (np.max(sample) - np.min(sample)) + (lower_window - np.min(sample)), sample.affine)
+            lower_window = np.min(sample, axis=self.axis, keepdims=True) if self.lower_window is None else self.lower_window
+            higher_window = np.max(sample, axis=self.axis, keepdims=True) if self.higher_window is None else self.higher_window
+            self.outputs[idx][idx_] = Sample((sample - lower_window) / (higher_window - lower_window), sample.affine)
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
