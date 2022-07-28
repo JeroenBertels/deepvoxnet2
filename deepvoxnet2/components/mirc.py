@@ -103,7 +103,7 @@ class Mirc(SortedDict):
         else:
             return np.mean(values, dtype=np.float64), np.std(values, dtype=np.float64)
 
-    def inspect(self, modality_ids=None, check_affines_and_shapes=True, ns=None, clippings=(-np.inf, np.inf), fillnas=None, exclude_clippings=True):
+    def inspect(self, modality_ids=None, check_affines_and_shapes=True, ns=None, clippings=(-np.inf, np.inf), fillnas=None, exclude_clippings=True, rtol=1e-5, atol=1e-8):
         modality_ids = modality_ids if isinstance(modality_ids, list) else [modality_ids]
         ns = ns if isinstance(ns, list) else [ns] * len(modality_ids)
         clippings = clippings if isinstance(clippings, list) else [clippings] * len(modality_ids)
@@ -128,7 +128,7 @@ class Mirc(SortedDict):
                         reference_modality = self[dataset_id][case_id][record_id][modality_ids[0]].load()
                         for i, modality_id in enumerate(modality_ids):
                             modality = self[dataset_id][case_id][record_id][modality_id].load()
-                            assert np.allclose(modality.affine, reference_modality.affine), f"Affine of {dataset_id}-{case_id}-{record_id}-{modality_id} is not equal to the reference from {modality_ids[0]}."
+                            assert np.allclose(modality.affine, reference_modality.affine, rtol=rtol, atol=atol), f"Affine of {dataset_id}-{case_id}-{record_id}-{modality_id} is not equal to the reference from {modality_ids[0]}."
                             assert np.array_equal(reference_modality.shape[1:4], modality.shape[1:4])
                             img_sizes.append(modality.shape[1:4])
                             voxel_sizes.append([s.round(2) for s in np.linalg.norm(modality.affine[0][:3, :3], 2, axis=0)])
@@ -160,8 +160,8 @@ class Mirc(SortedDict):
                 axs[i].set_title(f"{modality_id} (n={np.sum(counts)})")
 
             else:
-                axs[i // 4, i % 4].bar(bins[:-1], counts, width=np.array(bins[1:] - bins[:-1]), align="edge")
-                axs[i // 4, i % 4].set_title(f"{modality_id} (n={np.sum(counts)})")
+                axs[i // n_cols, i % n_cols].bar(bins[:-1], counts, width=np.array(bins[1:] - bins[:-1]), align="edge")
+                axs[i // n_cols, i % n_cols].set_title(f"{modality_id} (n={np.sum(counts)})")
 
         plt.suptitle(" + ".join(dataset_ids))
         plt.show()
@@ -253,7 +253,7 @@ class NiftiFileMultiModality(Modality):
 
     def load(self):
         niis = [nib.load(file_path) for file_path in self.file_paths]
-        assert all([np.allclose(niis[0].affine, nii.affine) for nii in niis[1:]]), "Not all affines are equal!"
+        # assert all([np.allclose(niis[0].affine, nii.affine) for nii in niis[1:]]), "Not all affines are equal!"
         if self.mode == "concat":
             array = np.concatenate([nii.get_fdata(caching="unchanged") for nii in niis], axis=self.axis)
 
