@@ -233,7 +233,8 @@ class Figure(object):
         if use_tex:
             plt.rcParams.update({
                 "text.usetex": True,
-                "font.family": "Helvetica",
+                "font.family": "serif",
+                "font.family": "cm",
                 "text.latex.preamble": r'\usepackage{amssymb,amsthm,amsmath}'
             })
 
@@ -251,6 +252,7 @@ class Figure(object):
         self.width = self.xmax - self.xmin
         self.widthininches = self.awidthininches * self.width / self.awidth
         self.fwidthininches = self.lmwidthininches + self.widthininches + self.rmwidthininches
+        self.fxmin, self.fxmax = self.xmin - self.awidth * self.lmwidthininches / self.awidthininches, self.xmax + self.awidth * self.rmwidthininches / self.awidthininches
         # calculate y dimensions
         self.yamin, self.yamax = self.yalim[0], self.yalim[1]
         self.aheight = self.yamax - self.yamin
@@ -259,6 +261,7 @@ class Figure(object):
         self.height = self.ymax - self.ymin
         self.heightininches = self.aheightininches * self.height / self.aheight
         self.fheightininches = self.tmheightininches + self.heightininches + self.bmheightininches
+        self.fymin, self.fymax = self.ymin - self.aheight * self.bmheightininches / self.aheightininches, self.ymax + self.aheight * self.tmheightininches / self.aheightininches
         # make figure
         self.fig = plt.figure(figsize=(self.fwidthininches, self.fheightininches))
         self.ax = self.fig.add_axes((self.lmwidthininches / self.fwidthininches, self.bmheightininches / self.fheightininches, self.widthininches / self.fwidthininches, self.heightininches / self.fheightininches))
@@ -340,15 +343,18 @@ class Figure(object):
         return self.fig, self.ax
 
     def set_title(self, title):
-        self.fig.suptitle(title, fontsize=self.fs, x=0.5, y=1 - (self.rmwidthininches / 5) / self.fheightininches, horizontalalignment='center', verticalalignment='top')
+        # self.fig.suptitle(title, fontsize=self.fs, x=0.5, y=1 - (self.rmwidthininches / 5) / self.fheightininches, horizontalalignment='center', verticalalignment='top')
+        self.ax.text((self.fxmin + self.fxmax) / 2, self.fymax - self.lhic, title, fontsize=self.fs, horizontalalignment='center', verticalalignment='top')
 
     def set_xlabel(self, xlabel):
-        self.ax.set_xlabel(xlabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='bottom')
-        self.ax.xaxis.set_label_coords((self.dxininches + self.awidthininches / 2) / self.widthininches, -self.bmheightininches / self.heightininches)
+        # self.ax.set_xlabel(xlabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='bottom')
+        # self.ax.xaxis.set_label_coords((self.dxininches + self.awidthininches / 2) / self.widthininches, -self.bmheightininches / self.heightininches)
+        self.ax.text((self.xamin + self.xamax) / 2, self.fymin + self.lhic, xlabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='bottom')
 
     def set_ylabel(self, ylabel):
-        self.ax.set_ylabel(ylabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='top')
-        self.ax.yaxis.set_label_coords(-self.lmwidthininches / self.widthininches, (self.dyininches + self.aheightininches / 2) / self.heightininches)
+        # self.ax.set_ylabel(ylabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='top')
+        # self.ax.yaxis.set_label_coords(-self.lmwidthininches / self.widthininches, (self.dyininches + self.aheightininches / 2) / self.heightininches)
+        self.ax.text(self.fxmin + self.lwic, (self.yamin + self.yamax) / 2, ylabel, fontsize=self.fs, horizontalalignment='left', verticalalignment='center', rotation=90)
 
     def set_xticks(self, xticks):
         self.ax.set_xticks(xticks)
