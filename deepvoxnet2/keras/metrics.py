@@ -251,7 +251,7 @@ def _get_threshold_fn(threshold_mode="greater"):
         raise ValueError("For the threshold_mode please choose between 'greater', 'greater_equal', 'less', 'less_equal'")
 
 
-def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False, feature_dim_as_spatial_dim=False, threshold=None, argmax=False, map_batch=False, map_features=False, reduction_mode=None, percentile=None, reduction_axes=(0, 1, 2, 3, 4), threshold_mode="greater", **kwargs):
+def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False, feature_dim_as_spatial_dim=False, threshold=None, argmax=False, map_batch=False, map_features=False, reduction_mode=None, percentile=None, reduction_axes=(0, 1, 2, 3, 4), threshold_mode="greater", weights=None, **kwargs):
     assert len(tf.keras.backend.int_shape(y_true)) == 5 and len(tf.keras.backend.int_shape(y_pred)) == 5, "The input tensors/arrays y_true and y_pred to a metric function must be 5D!"
     if hasattr(y_true, "affine") and hasattr(y_pred, "affine"):
         voxel_size = tf.norm(y_true.affine[0][:3, :3], ord=2, axis=0)
@@ -312,6 +312,9 @@ def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False,
     else:
         result = metric(y_true, y_pred, **kwargs)
 
+    if weights is not None:
+        result = result * tf.cast(weights, tf.float32)
+
     result = tf.cast(result, tf.float32)
     assert len(tf.keras.backend.int_shape(result)) == 5, "The output tensor/array of a metric function must be 5D!"
     if reduction_mode is None:
@@ -344,6 +347,7 @@ def get_metric(
         reduction_axes=(0, 1, 2, 3, 4),
         custom_metric_name=None,
         threshold_mode="greater",
+        weights=None,
         **kwargs):
 
     if metric_name.startswith("mean_"):
@@ -446,6 +450,7 @@ def get_metric(
         percentile=percentile,
         reduction_axes=reduction_axes,
         threshold_mode=threshold_mode,
+        weights=weights,
         **kwargs
     )
     if custom_metric_name is not None:
