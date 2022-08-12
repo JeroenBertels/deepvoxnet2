@@ -7,6 +7,7 @@ import numpy as np
 import scipy.ndimage
 from deepvoxnet2.components.sample import Sample
 from deepvoxnet2.utilities import transformations
+from tensorflow.keras.utils import to_categorical
 
 
 class Connection(object):
@@ -1083,10 +1084,12 @@ class AffineDeformation(Transformer):
                 transformed_sample = np.zeros_like(sample)
                 for batch_i in range(len(sample)):
                     for feature_i in range(sample.shape[-1]):
+                        cval = self.cval[idx] if isinstance(self.cval, (tuple, list)) else self.cval
+                        cval = cval[feature_i] if isinstance(cval, (tuple, list)) else cval
                         transformed_sample[batch_i, ..., feature_i] = transformations.affine_deformation(
                             sample[batch_i, ..., feature_i],
                             self.backward_affine,
-                            cval=self.cval[idx] if isinstance(self.cval, (tuple, list)) else self.cval,
+                            cval=cval,
                             order=self.order[idx] if isinstance(self.order, (tuple, list)) else self.order
                         )
 
@@ -1217,6 +1220,45 @@ class RandomCrop(Crop):
                 raise StopIteration
 
 
+class RandomCropMultiClassEqualSampling(Crop):
+    def __init__(self, reference_connection, segment_size, nonzero=False, subsample_factors=(1, 1, 1), default_value=0, prefilter=None, shuffle=False, **kwargs):
+        super(RandomCropMultiClassEqualSampling, self).__init__(reference_connection, segment_size,subsample_factors, default_value, prefilter, **kwargs)
+        self.nonzero = nonzero
+        self.shuffle = shuffle
+
+    def _randomize(self):
+        if self.n_ == 0:
+            assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
+            nb_classes = self.reference_connection[0].shape[4]
+            assert self.ncrops % nb_classes == 0 and self.ncrops >= 1, "Please make sure n is a whole multiple of the number of classes!"
+            n_crops_per_class = int(np.round(self.ncrops / nb_classes))
+            for class_ in range(nb_classes):
+                reference = self.reference_connection[0][0, :, :, :, class_]
+                if self.nonzero:
+                    coordinates = list(zip(*np.nonzero(reference)))
+                    if len(coordinates) > 0 and self.ncrops is not None:
+                         coordinates = [random.choice(coordinates) for _ in range(n_crops_per_class)]
+
+                else:
+                    coordinates = [tuple([random.choice(range(reference.shape[i])) for i in range(1, 4)]) for _ in range(np.prod(reference.shape[1:4]) if self.ncrops is None else n_crops_per_class)]
+
+                if class_ == 0:
+                    self.coordinates = coordinates
+
+                else:
+                    self.coordinates += coordinates
+
+                if self.shuffle:
+                    idx = random.sample(range(len(self.coordinates)), len(self.coordinates))
+                    self.coordinates = [self.coordinates[i] for i in idx]
+
+            if len(self.coordinates) > 0:
+                self.n = len(self.coordinates)
+
+            else:
+                raise StopIteration
+
+
 class GridCrop(Crop):
     def __init__(self, reference_connection, segment_size, n=None, grid_size=None, strides=None, nonzero=False, subsample_factors=(1, 1, 1), default_value=0, prefilter=None, axes=(1, 2, 3), **kwargs):
         super(GridCrop, self).__init__(reference_connection, segment_size, subsample_factors, default_value, prefilter, n=n, **kwargs)
@@ -1330,10 +1372,10 @@ class Put(Transformer):
                     if self.keep_counts:
                         transformed_array = transformations.put(np.zeros(self.outputs[idx][idx_].shape[1:]), sample[i, ...], coordinates=coordinates)[None, ...]
                         transformed_array_counts = transformations.put(np.zeros(self.output_array_counts[idx][idx_].shape[1:4]), np.ones_like(sample[i, ..., 0]), coordinates=coordinates)[None, ..., None]
-                        # transformed_array = np.stack([transformations.put(np.zeros(reference.shape[1:4]), sample[i, ..., j], coordinates=coordinates) for j in range(sample.shape[4])], axis=-1)[None, ...]
 
                     else:
-                        transformed_array = transformations.put(self.outputs[idx][idx_][0, ...], sample[i, ...], coordinates=coordinates)[None, ...]
+                        transformations.put(self.outputs[idx][idx_][0, ...], sample[i, ...], coordinates=coordinates)  # put function modifies in-place
+                        continue
 
                 else:
                     transformed_array = np.stack([transformations.affine_deformation(sample[i, ..., j], backward_affine, output_shape=reference.shape[1:4], cval=self.cval, order=self.order) for j in range(sample.shape[4])], axis=-1)[None, ...]
@@ -1367,3 +1409,37 @@ class Put(Transformer):
                     self.outputs[idx][idx_] = Sample(np.full(self.reference_connection[idx_].shape[:4] + sample.shape[4:], self.cval), self.reference_connection[idx_].affine)
                     if self.keep_counts:
                         self.output_array_counts[idx][idx_] = np.full(self.reference_connection[idx_].shape[:4] + (1,), 1e-7)
+
+
+class ToCategorical(Transformer):
+    def __init__(self, nb_classes, **kwargs):
+        super(ToCategorical, self).__init__(**kwargs)
+        self.nb_classes = nb_classes
+
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            categorical_sample = to_categorical(sample, num_classes=self.nb_classes)
+            self.outputs[idx][idx_] = Sample(categorical_sample, sample.affine)
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        return [output_shape[:-1] + (self.nb_classes,) for output_shape in self.connections[idx][0].shapes]
+
+    def _randomize(self):
+        pass
+
+
+class ArgMax(Transformer):
+    def __init__(self, **kwargs):
+        super(ArgMax, self).__init__(**kwargs)
+
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            self.outputs[idx][idx_] = Sample(np.argmax(sample, axis=-1, keepdims=True), sample.affine)
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        return [output_shape[:-1] + (1,) for output_shape in self.connections[idx][0].shapes]
+
+    def _randomize(self):
+        pass
