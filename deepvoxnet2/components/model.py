@@ -218,6 +218,9 @@ class DvnModel(object):
 
     @staticmethod
     def save_sample(key, sample, output_dir, name_tag=None, save_x=True, save_y=False, save_sample_weight=False):
+        if (save_x or save_y or save_sample_weight) and not os.path.isdir(output_dir):
+            os.makedirs(output_dir)
+
         for i, prediction in enumerate(sample[0]):
             for j in range(len(prediction)):
                 output_path = os.path.join(output_dir, "{}{}{}{}.nii.gz".format(key, f"__s{i}", f"__b{j}", "__" + name_tag if name_tag is not None else ""))
