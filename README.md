@@ -19,5 +19,8 @@ Some functions require the SimpleITK and SimpleElastix software to be installed.
 ## Tutorial
 A Jupyter Notebook-style tutorial can be found [here](https://github.com/JeroenBertels/deepvoxnet2/blob/main/demos/deepvoxnet2.ipynb), which guides you through some of the basic design ideas behind deepvoxnet2.
 
+Other real-world examples are:
+- A notebook with all [experiments and code](https://github.com/JeroenBertels/dicegrad/blob/main/BRATS/howto.ipynb) accompanying [this article](https://arxiv.org/abs/2207.09521) about the effect of $\Phi$ and $\epsilon$ when using the Dice loss in tasks with missing or empty labels.
+
 ## Acknowledgements
 Jeroen Bertels is part of [NEXIS](https://www.nexis-project.eu), a project that has received funding from the European Union's Horizon 2020 Research and Innovation Programme.
