@@ -32,6 +32,7 @@ setuptools.setup(
         'openpyxl>=3.0',
         'opencv-python>=4.5',
         'seaborn>=0.11.2',
+        'comet-ml>=3.31.17',
         'pymirc'
     ],
     extras_require={
