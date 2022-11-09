@@ -217,6 +217,7 @@ def hausdorff_distance(y_true, y_pred, min_edge_diff=1, voxel_size=1, hd_percent
         tf.greater_equal(tf.abs(tf.nn.conv3d(y_pred, tf.constant(np.transpose(edge_filter, (1, 0, 2, 3, 4)), tf.float32), [1, 1, 1, 1, 1], "SAME")), min_edge_diff),
         tf.greater_equal(tf.abs(tf.nn.conv3d(y_pred, tf.constant(np.transpose(edge_filter, (2, 1, 0, 3, 4)), tf.float32), [1, 1, 1, 1, 1], "SAME")), min_edge_diff)
     ], axis=0)[:, :-1, :-1, :-1, :]), tf.float32) + 0.5
+    distances = tf.sqrt(tf.reduce_sum(((tf.expand_dims(y_true_contour, axis=-2) - tf.expand_dims(y_pred_contour, axis=-3)) * tf.constant(voxel_size, tf.float32)) ** 2, axis=-1))
     hdd = tf.cond(
         tf.equal(tf.size(y_true_contour), 0),
         lambda: tf.cond(
@@ -227,8 +228,8 @@ def hausdorff_distance(y_true, y_pred, min_edge_diff=1, voxel_size=1, hd_percent
         lambda: tf.cond(
             tf.equal(tf.size(y_pred_contour), 0),
             lambda: tf.constant(np.inf, tf.float32),
-            lambda: (tfp.stats.percentile(tf.reduce_min(tf.sqrt(tf.reduce_sum(((tf.expand_dims(y_true_contour, axis=-2) - tf.expand_dims(y_pred_contour, axis=-3)) * tf.constant(voxel_size, tf.float32)) ** 2, axis=-1)), axis=-1), hd_percentile, interpolation="midpoint")
-                     + tfp.stats.percentile(tf.reduce_min(tf.sqrt(tf.reduce_sum(((tf.expand_dims(y_true_contour, axis=-2) - tf.expand_dims(y_pred_contour, axis=-3)) * tf.constant(voxel_size, tf.float32)) ** 2, axis=-1)), axis=-2), hd_percentile, interpolation="midpoint")) / 2
+            # lambda: (tfp.stats.percentile(tf.reduce_min(distances, axis=-1), hd_percentile, interpolation="midpoint") + tfp.stats.percentile(tf.reduce_min(distances, axis=-2), hd_percentile, interpolation="midpoint")) / 2
+            lambda: tf.math.maximum(tfp.stats.percentile(tf.reduce_min(distances, axis=-1), hd_percentile, interpolation="midpoint"), tfp.stats.percentile(tf.reduce_min(distances, axis=-2), hd_percentile, interpolation="midpoint"))
         )
     )
     return hdd[None, None, None, None, None]
