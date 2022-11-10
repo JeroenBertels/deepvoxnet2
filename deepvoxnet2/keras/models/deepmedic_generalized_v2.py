@@ -60,7 +60,8 @@ def create_generalized_deepmedic_v2_model(
         extra_output_dropout=None,
         extra_output_at_common_pathway_layer=None,
         extra_output_activation_final_layer=None,
-        dynamic_input_shapes=False):
+        dynamic_input_shapes=False,
+        **kwargs):
     from tensorflow.keras.layers import Input, Dropout, MaxPooling3D, Concatenate, Multiply, Add, Reshape, Conv3DTranspose, AveragePooling3D, Conv3D, UpSampling3D, Cropping3D, LeakyReLU, PReLU, BatchNormalization
     from tensorflow.keras import regularizers
     from tensorflow.keras import backend as K
