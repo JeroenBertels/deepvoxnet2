@@ -1,16 +1,24 @@
 import setuptools
 
+with open("README.md", 'r') as f:
+    long_description = f.read()
 
 setuptools.setup(
     name='deepvoxnet2',
-    version='2.13.4',
-    description='Deep learning processing framework for Keras.',
+    version='2.13.6',
+    description='Yet another CNN framework: From pre- to postprocessing and keeping track of the spatial origin of the data.',
+    long_description=long_description,
+    long_description_content_type='text/markdown',
     url='https://github.com/JeroenBertels/deepvoxnet2',
-    author='Jeroen Bertels, David Robben',
+    author='Jeroen Bertels',
     author_email='jeroen.bertels@gmail.com',
-    license='LGPL',
+    license_files=('LICENSE',),
     packages=setuptools.find_packages(),
     zip_safe=False,
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
+        "Operating System :: OS Independent"],
     python_requires='>=3.8, <3.10',
     install_requires=[
         'tensorflow>=2.4,<2.8',
@@ -33,6 +41,7 @@ setuptools.setup(
         'opencv-python>=4.5',
         'seaborn>=0.11.2',
         'comet-ml>=3.31.17',
+        'twine>=4.0.1',
         'pymirc'
     ],
     extras_require={
