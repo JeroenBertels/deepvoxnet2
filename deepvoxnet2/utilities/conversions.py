@@ -86,9 +86,9 @@ def nii_to_sitk(nii_img):
     return sitk_img
 
 
-def dcm_to_nii(dcm_dir_or_list, nii_path=None, **kwargs):
+def dcm_to_nii(dcm_dir_or_list, nii_path=None, dcm_check=True, **kwargs):
     dcm_list = file_dir_to_list(dcm_dir_or_list, extension=".dcm")
-    img_array, img_affine = dcm_to_array(dcm_list, dcm_check=True, **kwargs)
+    img_array, img_affine = dcm_to_array(dcm_list, dcm_check=dcm_check, **kwargs)
     nii_img = nib.Nifti1Image(img_array, lps_to_ras(img_affine))  # nifti uses RAS instead of LPS so we have to convert the array and the affine
     if nii_path is not None:
         nib.save(nii_img, nii_path)
@@ -96,14 +96,14 @@ def dcm_to_nii(dcm_dir_or_list, nii_path=None, **kwargs):
     return nii_img
 
 
-def rt_to_nii(rt_path, reference_dir_or_list=None, reference_affine=None, reference_shape=None, nii_path=None, contour_indices=None, roi_number_as_label=False, **kwargs):
+def rt_to_nii(rt_path, reference_dir_or_list=None, reference_affine=None, reference_shape=None, nii_path=None, contour_indices=None, roi_number_as_label=False, dcm_check=True, **kwargs):
     if reference_dir_or_list is None:
         assert reference_affine is not None and reference_shape is not None, "Please specify a reference affine and shape when not using a reference dcm dir or list."
 
     else:
         assert reference_affine is None and reference_shape is None, "Please do not specify a reference affine and shape when using a reference dcm dir or list."
         dcm_list = file_dir_to_list(reference_dir_or_list, extension=".dcm")
-        reference_array, reference_affine = dcm_to_array(dcm_list, dcm_check=True, **kwargs)
+        reference_array, reference_affine = dcm_to_array(dcm_list, dcm_check=dcm_check, **kwargs)
         reference_shape = reference_array.shape
 
     # load rtstruct file
