@@ -14,7 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Set env
-        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+        run: |
+          echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+          echo "PYPI_VERSION=${GITHUB_REF#refs/*/deepvoxnet2-}" >> $GITHUB_ENV
 
       - name: Check out the repo
         uses: actions/checkout@v3
@@ -39,7 +41,7 @@ jobs:
           context: .
           push: true
           build-args: |
-            DEEPVOXNET2_VERSION=${${{ env.RELEASE_VERSION }}#"deepvoxnet2-"}
+            DEEPVOXNET2_VERSION=${{ env.PYPI_VERSION }}
 
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
