@@ -1,0 +1,21 @@
+# When this workflow is triggered the repository is published both as a Python package on PyPI and as a Docker container on DockerHub.
+
+name: Publish Repository
+
+on:
+  release:
+    types: [published]
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  do_publish_to_pypi:
+    uses: ./.github/workflows/publish_to_pypi.yml
+    secrets: inherit
+
+  do_publish_to_dockerhub:
+    uses: ./.github/workflows/publish_to_dockerhub.yml
+    secrets: inherit
