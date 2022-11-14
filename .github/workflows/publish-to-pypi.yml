@@ -1,22 +1,26 @@
-# This workflow is triggered when a release is published and will upload the release as a package to PyPI
+# When this workflow is triggered the repository is published as a Python package on PyPI.
 
-name: Create PyPI Package
+name: Publish to PyPI
 
 on:
-  release:
-    types: [published]
-  
+  workflow_call:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  deploy:
+  publish_to_pypi:
     runs-on: ubuntu-latest
+    if: startsWith( ${GITHUB_REF#refs/*/} , deepvoxnet2 )
     steps:
+      - name: Set env
+        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+
       - name: Check out the repo
         uses: actions/checkout@v3
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
 
       - name: Set up Python
         uses: actions/setup-python@v3

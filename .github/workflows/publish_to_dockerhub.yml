@@ -1,23 +1,26 @@
-# This workflow is triggered when a release is published and will upload the release as a Docker container to Docker Hub
+# When this workflow is triggered the repository is published as a Docker container on DockerHub.
 
-name: Publish Docker image
+name: Publish to DockerHub
 
 on:
-  workflow_run:
-    workflows: ["Create PyPI Package"]
-    types: [completed]
-
+  workflow_call:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  deploy:
+  publish_to_dockerhub:
     runs-on: ubuntu-latest
+    if: startsWith( ${GITHUB_REF#refs/*/} , "deepvoxnet2-" )
     steps:
+      - name: Set env
+        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+
       - name: Check out the repo
         uses: actions/checkout@v3
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
 
       - name: Log in to Docker Hub
         uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
@@ -36,5 +39,8 @@ jobs:
         with:
           context: .
           push: true
+          build_args: |
+            DEEPVOXNET2_VERSION=${${{ env.RELEASE_VERSION }}#"deepvoxnet2-"}
+
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
