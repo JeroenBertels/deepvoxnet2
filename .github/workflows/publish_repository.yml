@@ -12,10 +12,11 @@ permissions:
   contents: read
 
 jobs:
-  do_publish_to_pypi:
+  reuse_publish_to_pypi:
     uses: ./.github/workflows/publish_to_pypi.yml
     secrets: inherit
 
-  do_publish_to_dockerhub:
+  reuse_publish_to_dockerhub_after_publish_to_pypi:
+    needs: reuse_publish_to_pypi
     uses: ./.github/workflows/publish_to_dockerhub.yml
     secrets: inherit

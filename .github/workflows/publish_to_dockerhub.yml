@@ -38,7 +38,7 @@ jobs:
         with:
           context: .
           push: true
-          build_args: |
+          build-args: |
             DEEPVOXNET2_VERSION=${${{ env.RELEASE_VERSION }}#"deepvoxnet2-"}
 
           tags: ${{ steps.meta.outputs.tags }}
