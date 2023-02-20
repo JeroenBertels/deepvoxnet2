@@ -1,3 +1,8 @@
+"""In summary, transformers are objects that can be connected to form a network to preprocess and postprocess data.
+
+They operate on lists of Sample objects, and can include a transformer that wraps a Keras Model to form an end-to-end pipeline. Connection objects are used to specify how the transformers are connected.
+"""
+
 import os
 import json
 import random
@@ -11,31 +16,150 @@ from tensorflow.keras.utils import to_categorical
 
 
 class Connection(object):
+    """Connection between transformers.
+
+    Attributes:
+    -----------
+    transformer: Transformer
+        Transformer instance that the connection belongs to.
+    idx: int
+        The index of the output in the list of the transformer's outputs.
+    shapes: List[tuple]
+        List of output shapes of the connected transformer.
+
+    Methods:
+    --------
+    __len__():
+        Returns the length of the output of the connected transformer.
+    __getitem__(item):
+        Returns the item of the output of the connected transformer.
+    __iter__():
+        Returns an iterator of the output of the connected transformer.
+    get():
+        Returns the output of the connected transformer.
+    eval(sample_id=None):
+        Returns the evaluated output of the connected transformer for the given `sample_id`.
+    get_shapes():
+        Returns the shapes of the outputs of the connected transformer.
+    trace(connections, only_active=False, clear_active_indices=False, set_active_indices=False, set_names=False, reset_transformers=False):
+        Static method that traces the connections between transformers.
+    """
+
     def __init__(self, transformer, idx):
+        """Initializes a new Connection instance.
+
+        Parameters:
+        -----------
+        transformer: Transformer
+            Transformer instance that the connection belongs to.
+        idx: int
+            The index of the output in the list of the transformer's outputs.
+        """
+
         self.transformer = transformer
         self.idx = idx
         self.shapes = self.get_shapes()
 
     def __len__(self):
+        """Returns the length of the output of the connected transformer.
+
+        Returns:
+        --------
+        int: Length of the output.
+        """
+
         return len(self.get())
 
     def __getitem__(self, item):
+        """Returns the item of the output of the connected transformer.
+
+        Parameters:
+        -----------
+        item: Any
+            Index or slice object to select a specific item(s) of the output.
+
+        Returns:
+        --------
+        Any: Selected item(s) of the output.
+        """
+
         return self.get()[item]
 
     def __iter__(self):
+        """Returns an iterator of the output of the connected transformer.
+
+        Returns:
+        --------
+        Iterator: Iterator of the output.
+        """
+
         return iter(self.get())
 
     def get(self):
+        """Returns the output of the connected transformer.
+
+        Returns:
+        --------
+        Any: Output of the connected transformer.
+        """
+
         return self.transformer.outputs[self.idx]
 
     def eval(self, sample_id=None):
+        """Returns the evaluated output of the connected transformer for the given `sample_id`.
+
+        Parameters:
+        -----------
+        sample_id: Any, optional
+            Identifier of the sample to be evaluated.
+
+        Returns:
+        --------
+        Any: Evaluated output of the connected transformer for the given `sample_id`.
+        """
+
         return self.transformer.eval(sample_id)[self.idx]
 
     def get_shapes(self):
+        """Returns the shapes of the outputs of the connected transformer.
+
+        Returns:
+        --------
+        List[tuple]: Shapes of the outputs of the connected transformer.
+        """
+
         return [sample_shape for sample_shape in self.transformer.output_shapes[self.idx]]
 
     @staticmethod
     def trace(connections, only_active=False, clear_active_indices=False, set_active_indices=False, set_names=False, reset_transformers=False):
+        """Trace the connections between transformers and connection indices in a transformer network.
+
+        Parameters:
+        -----------
+        connections : list of Connection objects
+            The connections to trace.
+
+        only_active : bool, optional
+            If True, only trace connections to active indices. Default is False.
+
+        clear_active_indices : bool, optional
+            If True, clear the active indices of each transformer before tracing. Default is False.
+
+        set_active_indices : bool, optional
+            If True, set the active indices of the transformers. Default is False.
+
+        set_names : bool, optional
+            If True, set the name of each transformer. Default is False.
+
+        reset_transformers : bool, optional
+            If True, reset the transformers. Default is False.
+
+        Returns:
+        --------
+        tuple of (list of Transformer objects, list of Connection objects)
+            A tuple containing the list of transformers and their connections.
+        """
+
         traced_transformers = []
         traced_connections = []
         connections = [connection for connection in connections]
@@ -78,7 +202,73 @@ class Connection(object):
 
 
 class Transformer(object):
+    """Abstract base class for creating transformers in a transformer network.
+
+    Attributes:
+    -----------
+    n: int
+        The number of times to apply the transformer to the input data.
+    extra_connections: list of Connection
+        The additional input connections to be used for the transformer.
+    name: str
+        The name of the transformer.
+    n_: int
+        The current number of iterations.
+    connections: list of list of Connection
+        The input connections to the transformer.
+    outputs: list of list of Sample
+        The output samples of the transformer.
+    output_shapes: list of tuple of int
+        The shapes of the output samples.
+    active_indices: list of int
+        The indices of the active input connections.
+    generator: iterator
+        The iterator object used for transforming the input data.
+    sample_id: uuid.UUID
+        The ID of the current sample being processed.
+
+    Methods:
+    --------
+    __call__(*connections) -> Connection or List of Connection:
+        Add input connections to the transformer and return output connection(s).
+    __len__() -> int:
+        Return the number of output connections of the transformer.
+    __getitem__(item) -> List:
+        Return the output(s) at the index item.
+    __iter__() -> Iterator:
+        Return an iterator over the output connections.
+    get_output_shapes() -> List:
+        Return a list of tuples that describe the output shapes for each output.
+    eval(sample_id=None) -> List:
+        Generate the output of the transformer and return it. This method is the main entry point to execute the transformer.
+    reset() -> None:
+        Reset the transformer for a new evaluation run.
+    _update() -> Iterator:
+        Generate the output of the transformer in the form of a generator. This method is called by eval() to execute the generator.
+    _update_idx(idx) -> None:
+        Update the output at the index idx of the transformer.
+    _calculate_output_shape_at_idx(idx) -> tuple:
+        Calculate the output shape at the index idx of the transformer.
+    _randomize() -> None:
+        Generate new samples to be used as inputs for the transformer.
+    """
+
     def __init__(self, n=1, extra_connections=None, name=None):
+        """Initializes a new instance of the Transformer class.
+
+        Parameters:
+        -----------
+        n: int, optional
+            The number of times to apply the transformer to the input data.
+            Default is 1.
+        extra_connections: Connection or list of Connection, optional
+            Additional input connections to be used for the transformer.
+            Default is None.
+        name: str, optional
+            The name of the transformer.
+            Default is None.
+        """
+
         self.n = n
         self.extra_connections = [] if extra_connections is None else (extra_connections if isinstance(extra_connections, list) else [extra_connections])
         self.name = name
@@ -91,6 +281,20 @@ class Transformer(object):
         self.sample_id = None
 
     def __call__(self, *connections):
+        """
+        Add input connection(s) to the transformer and return output connection(s).
+
+        Parameters:
+        -----------
+        *connections: tuple of Connection
+            The input connection(s) to add to the transformer.
+
+        Returns:
+        --------
+        output_connections: Connection or List of Connection
+            The output connection(s) of the transformer.
+        """
+
         output_connections = []
         if len(connections) == 0:
             for idx in range(len(self.outputs)):
@@ -108,18 +312,64 @@ class Transformer(object):
         return output_connections if len(output_connections) > 1 else (output_connections[0] if len(output_connections) == 1 else None)
 
     def __len__(self):
+        """Return the number of output connections of the transformer.
+
+        Returns:
+        --------
+        length: int
+            The number of output connections of the transformer.
+        """
+
         return len(self.outputs)
 
     def __getitem__(self, item):
+        """Returns the output of this transformer at the given index.
+
+        Parameters:
+        -----------
+        item: int
+            The index of the output to be returned.
+
+        Returns:
+        --------
+        The output at the given index.
+        """
+
         return self.outputs[item]
 
     def __iter__(self):
+        """Returns an iterator over the outputs of this transformer.
+
+        Returns:
+        --------
+        An iterator over the outputs of this transformer.
+        """
+
         return iter(self.outputs)
 
     def get_output_shapes(self):
+        """Returns the shapes of the outputs of this transformer.
+
+        Returns:
+        --------
+        A list of tuples, where each tuple corresponds to the shape of an output.
+        """
+
         return self.output_shapes
 
     def eval(self, sample_id=None):
+        """Evaluates this transformer and returns its outputs.
+
+        Parameters:
+        -----------
+        sample_id: uuid.UUID, optional
+            An optional identifier for the sample being processed.
+
+        Returns:
+        --------
+        The outputs of this transformer.
+        """
+
         # print(f"--> {self.name}")
         if sample_id is None:
             sample_id = uuid.uuid4()
@@ -144,11 +394,21 @@ class Transformer(object):
         return self.outputs
 
     def reset(self):
+        """Resets the state of this transformer, allowing it to be re-evaluated.
+        """
+
         self.n_ = 0
         self.sample_id = None
         self.generator = None
 
     def _update(self):
+        """Helper method that updates the state of this transformer and yields its outputs.
+
+        Yields:
+        -------
+        The outputs of this transformer.
+        """
+
         self.n_ = 0
         while self.n is None or self.n_ < self.n:
             self._randomize()
@@ -159,17 +419,71 @@ class Transformer(object):
             yield self.outputs
 
     def _update_idx(self, idx):
+        """Updates the output at the given index.
+
+        Parameters:
+        -----------
+        idx: int
+            The index of the output to be updated.
+        """
+
         raise NotImplementedError
 
     def _calculate_output_shape_at_idx(self, idx):
+        """Calculates the shape of the output at the given index.
+
+        Parameters:
+        -----------
+        idx: int
+            The index of the output whose shape is to be calculated.
+
+        Returns:
+        --------
+        The shape of the output at the given index.
+        """
+
         raise NotImplementedError
 
     def _randomize(self):
+        """Helper method that randomizes the state of this transformer in preparation for a new evaluation.
+        """
+
         raise NotImplementedError
 
 
 class _Input(Transformer):
+    """A special type of transformer which serves as the input to the transformer network.
+
+    It has no input connections and forms the start of the transformer network.
+
+    Parameters:
+    -----------
+    output_shapes : list of lists of tuples
+        The list of output shapes for each output. Each output shape must be in the format of a tuple of 5 integers
+        (batch_size, depth, height, width, channels).
+
+    Other Parameters:
+    ------------------
+    name : str, optional
+        A name for the transformer.
+    n : int, optional
+        The number of times this transformer is expected to generate the output before stopping. If None, it will run
+        indefinitely.
+    extra_connections : list or transformer or None, optional
+        A list of transformers or a single transformer that this transformer is not directly connected to but is
+        required for its computations.
+    """
+
     def __init__(self, output_shapes, **kwargs):
+        """Initializes the _Input transformer.
+
+        Parameters:
+        -----------
+        output_shapes : list of lists of tuples
+            The list of output shapes for each output. Each output shape must be in the format of a tuple of 5 integers
+            (batch_size, depth, height, width, channels).
+        """
+
         super(_Input, self).__init__(**kwargs)
         for i, output_shapes_ in enumerate(output_shapes):
             assert isinstance(output_shapes_, list) and all([isinstance(output_shape, tuple) and len(output_shape) == 5 for output_shape in output_shapes_]), "The given output_shapes fot the _Input transformer are not in the correct format."
@@ -179,20 +493,101 @@ class _Input(Transformer):
             self.active_indices.append(i)
 
     def load(self, identifier=None):
+        """A method to load data from a source into the _Input transformer. It must be implemented in subclasses.
+
+        Parameters:
+        -----------
+        identifier : object, optional
+            An identifier that can be used to identify the data source.
+        """
+
         raise NotImplementedError
 
     def _update_idx(self, idx):
+        """A method that updates a particular output connection of the _Input transformer.
+
+        Parameters:
+        -----------
+        idx : int
+            The index of the output connection to update.
+        """
+
         pass
 
     def _calculate_output_shape_at_idx(self, idx):
+        """A method that returns the output shape at a given output connection index.
+
+        Parameters:
+        -----------
+        idx : int
+            The index of the output connection for which the output shape is requested.
+
+        Returns:
+        --------
+        output_shape : list of tuples
+            The output shape for the given output connection.
+        """
+
         return self.output_shapes[idx]
 
     def _randomize(self):
+        """A method that does nothing as the _Input transformer does not require any randomization.
+        """
         pass
 
 
 class _MircInput(_Input):
+    """A Transformer that loads MIRC data into the transformer network.
+
+    This Transformer is an input transformer, meaning it has no input connections.
+
+    Parameters:
+    -----------
+    modality_ids : str or List[str]
+        The modality ID(s) of the MIRC dataset to load.
+    output_shapes : List[Tuple[int]]
+        A list of output shapes of the loaded data. Default is None and is set to [(None, ) * 5] * len(self.modality_ids).
+    **kwargs : dict
+        Optional keyword arguments for the superclass.
+
+    Attributes:
+    -----------
+    modality_ids : List[str]
+        The modality ID(s) of the MIRC dataset to load.
+
+    Methods:
+    --------
+    load(identifier=None)
+        Loads the MIRC dataset from the provided `identifier` and stores the loaded data in `self.outputs`.
+        Raises an error if the `identifier` is not provided.
+
+    Inherited Methods:
+    ------------------
+    __init__(output_shapes, **kwargs)
+        Initializes the object by constructing the necessary connections and outputs for each modality.
+    _calculate_output_shape_at_idx(idx)
+        Returns the output shape for the given index `idx`.
+    _randomize()
+        Method that will be called during initialization to randomly set the output tensor.
+    _update_idx(idx)
+        Raises a NotImplementedError as it should be implemented by the subclass.
+    """
+
     def __init__(self, modality_ids, output_shapes=None, **kwargs):
+        """Initialize the transformer with the specified modality IDs and expected output shapes.
+
+        Raises an assertion error if the length of the output_shapes list is not equal to the length of the modality_ids list.
+
+        Parameters
+        ----------
+        modality_ids: str or list of str
+            The modality ID(s) of the data to be loaded from the MIRC source(s).
+        output_shapes: list of tuple of int, optional
+            The expected output shape(s) of the input data. If not provided, it defaults to [(None, ) * 5, ] * len(modality_ids).
+        **kwargs
+            Additional keyword arguments to be passed to the parent Transformer class.
+        """
+
         self.modality_ids = modality_ids if isinstance(modality_ids, list) else [modality_ids]
         if output_shapes is None:
             output_shapes = [(None, ) * 5, ] * len(self.modality_ids)
@@ -201,18 +596,80 @@ class _MircInput(_Input):
         super(_MircInput, self).__init__([output_shapes], **kwargs)
 
     def load(self, identifier=None):
+        """Load the data from the MIRC source based on the identifier.
+
+        Raises an assertion error if the identifier is not provided.
+
+        Parameters
+        ----------
+        identifier: Identifier, optional
+            An identifier object that specifies the dataset, case, and record to load the data from.
+        """
+
         assert identifier is not None
         for idx_, modality_id in enumerate(self.modality_ids):
             self.outputs[0][idx_] = identifier.mirc[identifier.dataset_id][identifier.case_id][identifier.record_id][modality_id].load()
 
 
 class MircInput(_MircInput):
+    """Instantiates the _MircInput transformer with given `modality_ids` and `output_shapes`.
+
+    Parameters:
+    -----------
+    modality_ids : str or List[str]
+        The modality ID(s) of the MIRC dataset to load.
+    output_shapes : List[Tuple[int]]
+        A list of output shapes of the loaded data. Default is None and is set to [(None, ) * 5] * len(self.modality_ids).
+    **kwargs : dict
+        Optional keyword arguments for the superclass.
+    """
+
     def __new__(cls, modality_ids, output_shapes=None, **kwargs):
         return _MircInput(modality_ids, output_shapes, **kwargs)()
 
 
 class _SampleInput(_Input):
+    """An input transformer for a list of samples.
+
+    Parameters
+    ----------
+    samples: list of ndarrays or None
+        The input samples.
+    output_shapes: list of tuples or None
+        The output shapes of the samples. Must be specified if `samples` is not given.
+    **kwargs: dict
+        Additional keyword arguments to be passed to the superclass constructor.
+
+    Attributes
+    ----------
+    samples : list of ndarrays
+        The input samples.
+    output_shapes : list of tuples
+        The output shapes of the samples.
+
+    Methods
+    -------
+    load(identifier=None)
+        Load the input samples.
+
+    Notes
+    -----
+    The output shape of each sample is determined either by `output_shapes` or by the shape of the input samples.
+    """
+
     def __init__(self, samples=None, output_shapes=None, **kwargs):
+        """Initialize the _SampleInput instance.
+
+        Parameters
+        ----------
+        samples: list of ndarrays or None
+            The input samples.
+        output_shapes: list of tuples or None
+            The output shapes of the samples. Must be specified if `samples` is not given.
+        **kwargs: dict
+            Additional keyword arguments to be passed to the superclass constructor.
+        """
+
         if samples is not None:
             samples = samples if isinstance(samples, list) else [samples]
             output_shapes = [sample.shape for sample in samples] if output_shapes is None else output_shapes
@@ -226,18 +683,69 @@ class _SampleInput(_Input):
             super(_SampleInput, self).__init__([output_shapes], **kwargs)
 
     def load(self, identifier=None):
+        """Load the input samples.
+
+        Parameters
+        ----------
+        identifier: Identifier or None
+            An identifier that contains information on where to load the samples from.
+        """
+
         if identifier is not None:
             for idx_, sample in enumerate(identifier.sample if isinstance(identifier.sample, list) else [identifier.sample]):
                 self.outputs[0][idx_] = sample
 
 
 class SampleInput(_SampleInput):
+    """Instantiates the _SampleInput transformer with given `samples` and `output_shapes`.
+
+    Parameters:
+    -----------
+    samples: list of ndarrays or None
+            The input samples.
+    output_shapes: list of tuples or None
+            The output shapes of the samples. Must be specified if `samples` is not given.
+    **kwargs: dict
+        Additional keyword arguments to be passed to the superclass constructor.
+    """
     def __new__(cls, samples=None, output_shapes=None, **kwargs):
         return _SampleInput(samples, output_shapes, **kwargs)()
 
 
 class Buffer(Transformer):
+    """Buffer class to concatenate incoming samples along the specified axis and buffer them until the buffer is full.
+
+    Parameters
+    ----------
+    buffer_size : int, optional
+        The size of the buffer. If set to None, the buffer will not be constrained by its size. (default: None)
+    axis : int, optional
+        The axis along which to concatenate incoming samples. Must be either 0 or 4 for an image. (default: 0)
+    drop_remainder : bool, optional
+        Whether to drop the last batch if the incoming samples do not fill up the buffer. (default: False)
+    """
+
     def __init__(self, buffer_size=None, axis=0, drop_remainder=False, **kwargs):
+        """Initializes the Buffer class with specified parameters.
+
+        Parameters
+        ----------
+        buffer_size : int, optional
+            The size of the buffer. If set to None, the buffer will not be constrained by its size. (default: None)
+        axis : int, optional
+            The axis along which to concatenate incoming samples. Must be either 0 or 4 for an image. (default: 0)
+        drop_remainder : bool, optional
+            Whether to drop the last batch if the incoming samples do not fill up the buffer. (default: False)
+        **kwargs
+            Additional arguments for the parent class `Transformer`.
+
+        Raises
+        ------
+        AssertionError
+            If `n` is provided as a keyword argument.
+            If `axis` is not 0 or 4.
+        """
+
         assert "n" not in kwargs, "A Buffer does not accept n. It just buffers so it cannot create n samples from 1 input."
         super(Buffer, self).__init__(n=1, **kwargs)
         self.buffer_size = buffer_size
@@ -247,17 +755,48 @@ class Buffer(Transformer):
         self.buffered_outputs = None
 
     def _update_idx(self, idx):
+        """Updates the buffer and its output values for a given index.
+
+        Parameters
+        ----------
+        idx : int
+            The index of the transformer.
+        """
+
         for idx_ in range(len(self.outputs[idx])):
             self.outputs[idx][idx_] = Sample(np.concatenate([output[idx_] for output in self.buffered_outputs[idx]], axis=self.axis), self.buffered_outputs[idx][0][idx_].affine if self.axis != 0 else np.concatenate([output[idx_].affine for output in self.buffered_outputs[idx]]))
 
         self.buffered_outputs[idx] = None
 
     def _calculate_output_shape_at_idx(self, idx):
+        """Calculates the output shape at a given index.
+
+        Parameters
+        ----------
+        idx : int
+            The index of the transformer.
+
+        Returns
+        -------
+        list of tuples
+            A list of tuples representing the output shape for each output connection.
+        """
+
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
         # assert all([output_shape_ is not None for output_shape in self.connections[idx][0].shapes for axis_i, output_shape_ in enumerate(output_shape) if axis_i != self.axis]), "A buffer can only used on a connection with fully specified shapes (except for the concatenation axis)."
         return [tuple([output_shape_ if axis_i != self.axis else (self.buffer_size * output_shape_ if self.buffer_size is not None and self.drop_remainder and output_shape_ is not None else None) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
 
     def _randomize(self):
+        """Randomizes the buffer by filling it with new samples.
+
+        If buffer_size is not None, it continues filling the buffer until it reaches that size.
+
+        Raises
+        ------
+        StopIteration
+            If `drop_remainder` is True and there are not enough samples to fill the buffer completely.
+        """
+
         self.buffered_outputs = [[[sample for sample in self.connections[idx][0]]] if idx in self.active_indices else None for idx in range(len(self.outputs))]
         while self.buffer_size is None or len(self.buffered_outputs[0]) < self.buffer_size:
             try:
@@ -277,7 +816,18 @@ class Buffer(Transformer):
 
 
 class Group(Transformer):
+    """The `Group` transformer groups together all samples in all input connections at each index into one output connection at that index.
+    """
+
     def __init__(self, **kwargs):
+        """Initializes a new instance of the Group class.
+
+        Parameters
+        ----------
+        **kwargs
+            Additional keyword arguments to pass to the parent class.
+        """
+
         super(Group, self).__init__(**kwargs)
 
     def _update_idx(self, idx):
@@ -295,7 +845,19 @@ class Group(Transformer):
 
 
 class Swap(Transformer):
+    """A transformer that swaps the order of samples in a connection randomly with a certain probability.
+    """
+
     def __init__(self, swap_probability=1, **kwargs):
+        """Initializes a new instance of the Swap class.
+
+        Parameters
+        ----------
+        swap_probability : float, optional
+            The probability that the samples in a connection are swapped. The default is 1 (i.e., always swap).
+        **kwargs
+            Additional keyword arguments to pass to the parent class.
+        """
         super(Swap, self).__init__(**kwargs)
         self.swap_probability = swap_probability
         self.swap_state = None
@@ -317,7 +879,26 @@ class Swap(Transformer):
 
 
 class Split(Transformer):
+    """A transformer that splits the input at each index into multiple outputs.
+    """
+
     def __init__(self, indices=(0,), **kwargs):
+        """Initializes the Split transformer with the provided parameters.
+
+        Parameters
+        ----------
+        indices : tuple or int, optional
+            The indices at which to split the input. If an int is provided, it is automatically
+            converted into a single-item tuple. Defaults to (0,).
+        **kwargs
+            Additional arguments to pass to the `Transformer` constructor.
+
+        Raises
+        ------
+        AssertionError
+            If multiple input connections are present at a single index.
+        """
+
         self.indices = indices if isinstance(indices, tuple) else (indices,)
         super(Split, self).__init__(**kwargs)
 
@@ -334,7 +915,26 @@ class Split(Transformer):
 
 
 class Concat(Transformer):
+    """A transformer that concatenates the inputs along a specified axis.
+    """
+
     def __init__(self, axis=-1, **kwargs):
+        """Initializes the Concat transformer with the provided parameters.
+
+        Parameters
+        ----------
+        axis : int, optional
+            The axis along which to concatenate the inputs. Must be one of {0, 4, -1}.
+            Default is -1.
+        **kwargs
+            Additional arguments to pass to the `Transformer` constructor.
+
+        Raises
+        ------
+        AssertionError
+            If the specified axis is not one of {0, 4, -1}.
+        """
+
         super(Concat, self).__init__(**kwargs)
         assert axis in [0, 4, -1]
         self.axis = axis if axis != -1 else 4
@@ -366,7 +966,20 @@ class Concat(Transformer):
 
 
 class Mean(Transformer):
+    """Calculates the mean of samples along the specified axis.
+    """
+
     def __init__(self, axis=-1, **kwargs):
+        """Constructs a new Mean Transformer.
+
+        Parameters
+        ----------
+        axis : int, optional
+            The axis along which to compute the mean. Default is -1.
+        **kwargs
+            Additional arguments passed to the parent class constructor.
+        """
+
         super(Mean, self).__init__(**kwargs)
         assert axis in [4, -1]
         self.axis = axis if axis != -1 else 4
@@ -1412,7 +2025,19 @@ class Put(Transformer):
 
 
 class ToCategorical(Transformer):
+    """Transforms integer class labels to categorical labels.
+    """
     def __init__(self, nb_classes, **kwargs):
+        """Construct a new ToCategorical transformer.
+
+        Parameters
+        ----------
+        nb_classes: int
+            Number of classes.
+        **kwargs:
+            Additional keyword arguments passed to Transformer.
+        """
+
         super(ToCategorical, self).__init__(**kwargs)
         self.nb_classes = nb_classes
 
@@ -1430,7 +2055,18 @@ class ToCategorical(Transformer):
 
 
 class ArgMax(Transformer):
+    """Transformer that returns the indices of the maximum values along the last axis of the input.
+    """
+
     def __init__(self, **kwargs):
+        """Initializes an instance of ArgMax transformer.
+
+        Parameters:
+        -----------
+        **kwargs
+            Additional arguments to pass to the `Transformer` constructor.
+        """
+
         super(ArgMax, self).__init__(**kwargs)
 
     def _update_idx(self, idx):
