@@ -98,9 +98,12 @@ def resample(input_nii, output_zooms, order=3, prefilter=True, reference_nii=Non
         output_array_ = np.zeros_like(reference_nii.get_fdata())
         output_array_[tuple([slice(min(s, s_)) for s, s_ in zip(output_array.shape, output_array_.shape)])] = output_array[tuple([slice(min(s, s_)) for s, s_ in zip(output_array.shape, output_array_.shape)])]
         output_array = output_array_
+        output_affine = reference_nii.affine
 
-    output_affine = input_nii.affine.copy()
-    output_affine[:3, :3] = output_affine[:3, :3] / zoom_factors[:3]
+    else:
+        output_affine = input_nii.affine.copy()
+        output_affine[:3, :3] = output_affine[:3, :3] / zoom_factors[:3]
+
     output_nii = nib.Nifti1Image(output_array, affine=output_affine)
     output_nii.header.set_zooms(output_zooms)  # important to set non-spatial zooms correctly
     return output_nii
