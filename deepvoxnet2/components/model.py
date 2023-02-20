@@ -1,3 +1,10 @@
+"""The DvnModel class provides a user-friendly and extensible interface for working with deep learning models in the deepvoxnet2 package.
+
+The TfDataset class is responsible for generating a TensorFlow dataset using a Creator and a Sampler. The Creator is a class that generates the input data for a given key (e.g., "train", "validation", or "test") and the Sampler is a class that generates a set of indices for the Creator to use. The TfDataset class then converts this data into a TensorFlow Dataset object, which can be used for training or evaluation of machine learning models.
+
+The DvnModel class is a high-level abstract class that is designed to be a more user-friendly interface for working with the Creator class and the Keras model. The DvnModel class serves as a container for the model, the optimizer, the loss function, and the metrics, as well as for the training and evaluation methods.
+"""
+
 import os
 import time
 import json
@@ -17,7 +24,35 @@ from deepvoxnet2.keras.losses import get_combined_loss
 
 
 class TfDataset(tf.data.Dataset, ABC):
+    """A TensorFlow Dataset class that creates a dataset of samples from a creator using a sampler.
+    """
+
     def __new__(cls, creator, sampler=None, batch_size=None, num_parallel_calls=1, prefetch_size=1, shuffle_samples=False, repeat=1):
+        """Creates a new instance of the TfDataset class.
+
+        Parameters
+        ----------
+        creator : Callable
+            A function that produces the samples to be included in the dataset.
+        sampler : Sampler, optional
+            A sampler used to choose which samples to include in the dataset. If not specified, it defaults to a sampler that includes all samples in the creator.
+        batch_size : int, optional
+            The number of samples to include in each batch of the dataset. If not specified, the creator's output is assumed to be a batch, and samples are not batched.
+        num_parallel_calls : int, optional
+            The number of samples to process in parallel.
+        prefetch_size : int, optional
+            The number of samples to prefetch for improved data loading performance.
+        shuffle_samples : bool, optional
+            Whether to shuffle the samples in the dataset.
+        repeat : int, optional
+            The number of times to repeat the dataset.
+
+        Returns
+        -------
+        dataset : tf.data.Dataset
+            A TensorFlow Dataset object containing the samples produced by the creator function and selected by the sampler.
+        """
+
         if sampler is None:
             sampler = Sampler([Identifier()])
 
@@ -66,7 +101,53 @@ class TfDataset(tf.data.Dataset, ABC):
 
 
 class DvnModel(object):
+    """The DVN model class for training, evaluating and predicting with deep learning models.
+
+    Attributes:
+    -----------
+    creator : Creator
+        The creator object for creating a directed acyclic graph of input-output connections
+    outputs : dict
+        A dictionary containing the keys for each output and their corresponding outputs
+    optimizer : dict
+        A dictionary containing the keys for each output and their corresponding optimizer
+    losses : dict
+        A dictionary containing the keys for each output and their corresponding losses
+    losses_weights : dict
+        A dictionary containing the keys for each output and their corresponding losses weights
+    metrics : dict
+        A dictionary containing the keys for each output and their corresponding metrics
+    weighted_metrics : dict
+        A dictionary containing the keys for each output and their corresponding weighted metrics
+
+    Methods:
+    --------
+    compile(key, optimizer=None, losses=None, metrics=None, losses_weights=None, weighted_metrics=None)
+        Configures the model for training.
+    fit(key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None,
+        validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE,
+        shuffle_samples=False, verbose=1, logs_dir=None, initial_epoch=0, steps_per_epoch=None, validation_steps=None,
+        validation_batch_size=None)
+        Trains the model.
+    evaluate(key, sampler, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False)
+        Evaluates the model.
+    predict(key, sampler, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False)
+        Generates output predictions for the input samples.
+    save(file_dir, save_keras_models=True)
+        Saves the DVN model to a specified directory.
+    summary(only_active=True)
+        Prints the summary of the model.
+    """
+
     def __init__(self, outputs):
+        """Initializes the DVN model object.
+
+        Parameters:
+        -----------
+        outputs : dict
+            A dictionary containing the keys for each output and their corresponding outputs
+        """
+
         self.creator = Creator([connection for key in outputs for connection in outputs[key]])
         self.outputs = {}
         self.optimizer = {}
@@ -85,6 +166,48 @@ class DvnModel(object):
             i += len(self.outputs[key])
 
     def compile(self, key, optimizer=None, losses=None, metrics=None, losses_weights=None, weighted_metrics=None):
+        """Compiles a Keras model for a specified output key with the given optimizer, losses, metrics, and metrics weights.
+
+        Parameters
+        ----------
+        key : str
+            The output key to compile the model for.
+        optimizer : tf.keras.optimizers.Optimizer or str or dict, optional
+            The optimizer to use for training the model. If None, the model will not be compiled with an optimizer.
+            If a str or dict is given, the optimizer will be retrieved using `tf.keras.optimizers.get()`.
+            Default is None.
+        losses : list or None, optional
+            The loss functions to use for each output in the format [x/y_, y]. If None, no losses will be used.
+            Default is None.
+        metrics : list or None, optional
+            The metrics to evaluate during training for each output in the format [x/y_, y]. If None, no metrics will be used.
+            Default is None.
+        losses_weights : list or None, optional
+            The weights for each loss function in the format [x/y_, y]. If None, equal weight will be given to each loss function.
+            Default is None.
+        weighted_metrics : list or None, optional
+            The metrics to evaluate during training for each output, weighted by the sample weights in the format [x/y_, y].
+            If None, no weighted metrics will be used.
+            Default is None.
+
+        Raises
+        ------
+        AssertionError
+            If the specified output key is not available.
+            If the output is not in the format [x/y_, y, sample_weight] or is missing [x/y_, y] for compiling.
+            If the length of the given losses is not equal to the number of outputs.
+            If the length of the given losses weights is not equal to the number of outputs.
+            If the length of a given list of loss weights is not equal to the length of the corresponding loss list.
+            If the length of the given metrics is not equal to the number of outputs.
+            If the length of the given weighted metrics is not equal to the number of outputs.
+            If the output and index 0 (i.e. x/y_) is not after a KerasTransformer when an optimizer is specified.
+            If the specified optimizer is not a Keras optimizer or a string/dict representation thereof.
+
+        Returns
+        -------
+        None
+        """
+
         assert key in self.outputs, "There are no outputs available for this key."
         assert len(self.outputs[key]) >= 2, "Outputs must be in the format [x/y_, y, sample_weight] and for compile at least [x/y_, y] must be available."
         if losses is not None:
@@ -136,7 +259,60 @@ class DvnModel(object):
             self.optimizer[key] = optimizer.get_config()
             self.outputs[key][0].transformer.keras_model.compile(optimizer=optimizer, loss=self.losses[key], metrics=self.metrics[key], loss_weights=self.losses_weights[key], weighted_metrics=self.weighted_metrics[key])
 
-    def fit(self, key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, verbose=1, logs_dir=None, initial_epoch=0, steps_per_epoch=None):
+    def fit(self, key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, verbose=1, logs_dir=None, initial_epoch=0, steps_per_epoch=None, validation_steps=None, validation_batch_size=None):
+        """Trains the model on the data generated batch-by-batch by the sampler.
+
+        Parameters:
+        -----------
+        key : str
+            Key of the output to fit the model.
+        sampler : object
+            Object that implements the __call__ method to generate a dataset for the training process.
+        batch_size : int, optional
+            Number of samples per batch. Default is 1.
+        epochs : int, optional
+            Number of times to iterate over the entire dataset. Default is 1.
+        callbacks : list, optional
+            List of callbacks to apply during training. Default is None.
+        validation_sampler : object, optional
+            Object that implements the __call__ method to generate a dataset for the validation process. Default is None.
+        validation_key : str, optional
+            Key of the output to use for validation. Default is None.
+        validation_freq : int, optional
+            Frequency at which to validate the model. Default is 1.
+        num_parallel_calls : int or None, optional
+            Number of parallel calls to make. Default is tf.data.experimental.AUTOTUNE.
+        prefetch_size : int or None, optional
+            Number of elements to prefetch from the input dataset. Default is tf.data.experimental.AUTOTUNE.
+        shuffle_samples : bool, optional
+            Whether to shuffle the samples before each epoch. Default is False.
+        verbose : int, optional
+            Verbosity mode. 0 = silent, 1 = progress bar, 2 = one line per epoch. Default is 1.
+        logs_dir : str, optional
+            Directory to which to save the training logs. Default is None.
+        initial_epoch : int, optional
+            Epoch at which to start training. Default is 0.
+        steps_per_epoch : int or None, optional
+            Total number of steps (batches of samples) to yield from the sampler before stopping.
+            If None, the sampler will generate batches indefinitely. Default is None.
+        validation_steps : int or None, optional
+            Total number of steps (batches of samples) to yield from the validation sampler before stopping.
+            If None, the validation sampler will generate batches indefinitely. Default is None.
+        validation_batch_size : int or None, optional
+            Number of samples per validation batch. If None, it is set to `batch_size`. Default is None.
+
+        Raises:
+        -------
+        AssertionError
+            If `key` is not in `self.outputs`, or the outputs are not in the format [x/y_, y, sample_weight].
+            If `sampler` does not implement the __call__ method.
+            If `self.outputs[key][0].transformer` is not a KerasModel.
+            If `self.optimizer[key]` is None or the length of `self.losses[key]` is 0.
+            If `validation_key` is not in `self.outputs`, or the outputs are not in the format [x, y/y_, sample_weight].
+            If `validation_sampler` does not implement the __call__ method.
+            If `self.outputs[validation_key][0].transformer` is not a KerasModel.
+        """
+
         assert key in self.outputs, "There are no outputs available for this key."
         assert len(self.outputs[key]) >= 2, "Outputs must be in the format [x/y_, y, sample_weight] and to use fit at least [x/y_, y] must be available."
         assert isinstance(self.outputs[key][0].transformer, KerasModel), "To use fit, x/y_ must be the output of a KerasModel transformer."
@@ -148,7 +324,7 @@ class DvnModel(object):
             assert len(self.outputs[validation_key]) >= 2, "Outputs must be in the format [x, y/y_, sample_weight] and to use fit at least [x, y/y_] must be available."
             assert isinstance(self.outputs[validation_key][0].transformer, KerasModel), "To use fit, x/y_ must be the output of a KerasModel transformer."
             assert self.outputs[key][0].transformer.keras_model is self.outputs[validation_key][0].transformer.keras_model, "The Keras model for training and validation must be the same."
-            validation_fit_dataset = TfDataset(Creator([*self.outputs[validation_key][0].transformer.connections[self.outputs[validation_key][0].idx], *self.outputs[validation_key][1:]]), sampler=validation_sampler, batch_size=batch_size, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size, shuffle_samples=shuffle_samples, repeat=1 if steps_per_epoch is None else None)
+            validation_fit_dataset = TfDataset(Creator([*self.outputs[validation_key][0].transformer.connections[self.outputs[validation_key][0].idx], *self.outputs[validation_key][1:]]), sampler=validation_sampler, batch_size=validation_batch_size or batch_size, num_parallel_calls=num_parallel_calls, prefetch_size=prefetch_size, shuffle_samples=shuffle_samples, repeat=1 if validation_steps is None else None)
 
         if callbacks is None:
             callbacks = []
@@ -157,9 +333,46 @@ class DvnModel(object):
         if logs_dir is not None:
             callbacks += [LogsLogger(logs_dir), DvnHistory(logs_dir)]
 
-        return self.outputs[key][0].transformer.keras_model.fit(x=fit_dataset, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_dataset, validation_freq=validation_freq, verbose=verbose, initial_epoch=initial_epoch, steps_per_epoch=steps_per_epoch)
+        return self.outputs[key][0].transformer.keras_model.fit(x=fit_dataset, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_dataset, validation_freq=validation_freq, verbose=verbose, initial_epoch=initial_epoch, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps)
 
     def evaluate(self, key, sampler, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False):
+        """Evaluate the performance of a model using a given key and sampler.
+
+        Parameters:
+        -----------
+        key: str
+            The name of the output that should be evaluated.
+        sampler: Sampler
+            The sampler to use for evaluation.
+        mode: str, optional (default='last')
+            Evaluation mode. It can be either "last" or "all".
+            If "last", only the last generated output will be evaluated.
+            If "all", all the generated outputs will be evaluated.
+        output_dirs: list, optional (default=None)
+            A list of directories to save the output to.
+        name_tag: str, optional (default=None)
+            A name tag to be added to the saved output file names.
+        save_x: bool, optional (default=True)
+            Whether to save the input.
+        save_y: bool, optional (default=False)
+            Whether to save the output.
+        save_sample_weight: bool, optional (default=False)
+            Whether to save the sample weights.
+
+        Returns:
+        --------
+        evaluations: list
+            A list of dictionaries containing the evaluation results for each generated output.
+            The keys of the dictionary are the metric names, and the values are the evaluation results.
+
+        Raises:
+        -------
+        AssertionError
+            If the given key does not exist in the model's outputs.
+            If the format of the model's outputs is incorrect.
+            If the length of the output_dirs list is not the same as the length of the sampler.
+        """
+
         assert mode in ["all", "last"], "Will we only keep the last generated output (i.e. last) or everything (i.e. all)?"
         assert key in self.outputs, "There are no outputs available for this key."
         assert len(self.outputs[key]) >= 2, "Outputs must be in the format [x/y_, y, sample_weight] and to use evaluate at least [x/y_, y] must be available."
@@ -200,6 +413,34 @@ class DvnModel(object):
         return evaluations
 
     def predict(self, key, sampler, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False):
+        """Predicts output for a given key using the sampler object.
+
+        Parameters
+        ----------
+        key : str
+            The name of the output key to predict.
+        sampler : obj
+            A sampler object to generate samples.
+        mode : str, optional
+            A string that determines whether all generated outputs or only the last generated output will be returned.
+            The default is "last".
+        output_dirs : str or list, optional
+            A path or list of paths to store predicted outputs. The default is None.
+        name_tag : str, optional
+            A string to append to the output file name. The default is None.
+        save_x : bool, optional
+            If True, saves the input data in the output directory. The default is True.
+        save_y : bool, optional
+            If True, saves the output data in the output directory. The default is False.
+        save_sample_weight : bool, optional
+            If True, saves the sample weights in the output directory. The default is False.
+
+        Returns
+        -------
+        list
+            A list of predictions for the given key.
+        """
+
         assert mode in ["all", "last"], "Will we only keep the last generated output (i.e. last) or everything (i.e. all)?"
         assert key in self.outputs, "There are no outputs available for this key."
         assert len(self.outputs[key]) >= 1, "Outputs must be in the format [x, y, sample_weight] and to use predict at least [x] must be available."
