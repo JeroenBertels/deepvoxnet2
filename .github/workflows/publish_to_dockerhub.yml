@@ -13,8 +13,8 @@ jobs:
   publish_to_dockerhub:
     runs-on: ubuntu-latest
     steps:
-      - name: Sleep for 30 seconds
-        run: sleep 30s
+      - name: Sleep for 120 seconds
+        run: sleep 120s
         shell: bash
 
       - name: Set env
