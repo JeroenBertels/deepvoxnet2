@@ -1,9 +1,30 @@
-"""
-    From: https://stackoverflow.com/questions/43137288/how-to-determine-needed-memory-of-keras-model
+"""From: https://stackoverflow.com/questions/43137288/how-to-determine-needed-memory-of-keras-model
 """
 
 
 def get_model_memory_usage(batch_size, model):
+    """Estimate the amount of memory in gigabytes required to store a Keras model and its weights.
+
+    Memory usage is estimated by calculating the size of the model's trainable and non-trainable parameters and its output shapes, and adding the estimated memory usage of any internal models.
+
+    Parameters
+    ----------
+    batch_size : int
+        The size of the batches used for training or evaluation.
+    model : tensorflow.keras.Model
+        The Keras model to estimate the memory usage for.
+
+    Returns
+    -------
+    float
+        The estimated memory usage of the Keras model and its weights in gigabytes.
+
+    Raises
+    ------
+    TypeError
+        If the `model` argument is not a Keras model.
+    """
+
     import numpy as np
     from tensorflow.keras import backend as K
 

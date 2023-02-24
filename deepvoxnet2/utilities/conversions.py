@@ -1,3 +1,10 @@
+"""The conversions module provides a collection of functions for common image and file format conversions, loading, and manipulation.
+
+These functions are designed to make it easier to work with medical imaging data and to provide a standardized way of converting between different file formats and representations.
+The module includes functions for converting DICOM files to NIfTI format, converting between NumPy arrays and SimpleITK images, and converting between different coordinate systems.
+Additionally, the module includes several utility functions for working with files and directories.
+"""
+
 import os
 import glob
 import pymirc
@@ -16,12 +23,34 @@ from shutil import rmtree
 
 
 def check_dcm_list(dcm_list):
+    """Check if the DICOM files in the given list satisfy certain criteria.
+
+    The following criteria are checked:
+    1. All dcm slice positions are unique
+    2. All dcm slice positions are equidistant
+    3. There is no time difference greater than 60 seconds between the earliest and latest dcm slice.
+
+    Parameters
+    ----------
+    dcm_list : List[str]
+        List of paths to DICOM files to be checked.
+
+    Raises
+    ------
+    AssertionError
+        If any of the above criteria is not met.
+
+    Returns
+    -------
+    None
+    """
+
     slice_locations = []
     slice_times = []
     for dcm_file in dcm_list:
         dcm = dcmread(dcm_file)
         slice_locations.append(float(dcm.SliceLocation))
-        slice_times.append(float(dcm[0x0019, 0x1024].value) if (0x0019, 0x1024) in dcm else float(dcm.AcquisitionTime))
+        slice_times.append(float(dcm[0x0019, 0x1024].value) if (0x0019, 0x1024) in dcm else float(dcm.AcquisitionTime if "AcquisitionTime" in dcm else 0))
 
     slice_locations = sorted(slice_locations)
     assert len(slice_locations) == len(set(slice_locations)), "Not all dcm slice positions are unique."
@@ -30,6 +59,28 @@ def check_dcm_list(dcm_list):
 
 
 def file_dir_to_list(file_dir_or_list, extension):
+    """Takes a directory path or a list of file paths and returns a list of file paths with the given extension.
+
+    Parameters
+    ----------
+    file_dir_or_list : str or list of str
+        The path of the directory or a list of file paths.
+    extension : str
+        The file extension to filter the files.
+
+    Returns
+    -------
+    list of str
+        A list of file paths that have the given file extension.
+
+    Raises
+    ------
+    AssertionError
+        If `file_dir_or_list` is a list of file paths and any of the files does not have the given extension, or
+        if `file_dir_or_list` is a path to a directory that does not exist.
+
+    """
+
     if isinstance(file_dir_or_list, (list, tuple)):
         file_list = file_dir_or_list
         assert all([file.endswith(extension) for file in file_list]), "Not all files in the list have the extension '{}'".format(extension)
@@ -43,6 +94,18 @@ def file_dir_to_list(file_dir_or_list, extension):
 
 
 def lps_to_ras(img_affine):
+    """Converts an affine matrix from LPS (Left-Posterior-Superior) coordinate system to RAS (Right-Anterior-Superior) coordinate system.
+
+    Parameters
+    ----------
+    img_affine : numpy.ndarray
+        Affine matrix to convert from LPS to RAS coordinate system.
+
+    Returns
+    -------
+    numpy.ndarray
+        Affine matrix converted from LPS to RAS coordinate system.
+    """
     xyflip = np.eye(4)
     xyflip[:2, :2] *= -1
     img_affine_ras = xyflip @ img_affine
@@ -50,6 +113,19 @@ def lps_to_ras(img_affine):
 
 
 def ras_to_lps(img_affine):
+    """Converts an affine matrix from RAS (Right-Anterior-Superior) coordinate system to LPS (Left-Posterior-Superior) coordinate system.
+
+    Parameters
+    ----------
+    img_affine : numpy.ndarray
+        Affine matrix to convert from RAS to LPS coordinate system.
+
+    Returns
+    -------
+    numpy.ndarray
+        Affine matrix converted from RAS to LPS coordinate system.
+    """
+
     xyflip = np.eye(4)
     xyflip[:2, :2] *= -1
     img_affine_lps = xyflip @ img_affine
@@ -57,6 +133,30 @@ def ras_to_lps(img_affine):
 
 
 def dcm_to_array(dcm_list, dcm_check=False, **kwargs):
+    """Convert a list of DICOM files to a 3D NumPy array and affine matrix.
+
+    Parameters
+    ----------
+    dcm_list : list
+        A list of DICOM file paths.
+    dcm_check : bool, optional
+        Whether to check the DICOM files for equidistant slices and unique slice locations, by default False
+    **kwargs : dict, optional
+        Optional keyword arguments to be passed to pymirc.fileio.DicomVolume constructor.
+
+    Returns
+    -------
+    tuple
+        A tuple consisting of:
+        - 3D NumPy array containing the DICOM image data.
+        - Affine matrix of the DICOM image.
+
+    Raises
+    ------
+    AssertionError
+        If dcm_check is True and the DICOM files do not have equidistant slices or unique slice locations.
+    """
+
     if dcm_check:
         check_dcm_list(dcm_list)
 
@@ -70,6 +170,20 @@ def dcm_to_array(dcm_list, dcm_check=False, **kwargs):
 
 
 def sitk_to_nii(sitk_img):
+    """Convert a SimpleITK image to a Nifti1Image object.
+
+    Parameters
+    ----------
+    sitk_img : SimpleITK.Image
+        The SimpleITK image to be converted.
+
+    Returns
+    -------
+    nibabel.nifti1.Nifti1Image
+        A Nifti1Image object.
+
+    """
+
     tmpdir = mkdtemp()
     sitk.WriteImage(sitk_img, os.path.join(tmpdir, "nii_img.nii"))
     nii_img = nib.load(os.path.join(tmpdir, "nii_img.nii"))
@@ -79,6 +193,20 @@ def sitk_to_nii(sitk_img):
 
 
 def nii_to_sitk(nii_img):
+    """Convert a nifti image to a SimpleITK image.
+
+    Parameters
+    ----------
+    nii_img : nib.Nifti1Image
+        The nifti image to be converted.
+
+    Returns
+    -------
+    sitk.Image
+        The SimpleITK image.
+
+    """
+
     tmpdir = mkdtemp()
     nib.save(nii_img, os.path.join(tmpdir, "nii_img.nii"))
     sitk_img = sitk.ReadImage(os.path.join(tmpdir, "nii_img.nii"))
@@ -87,6 +215,25 @@ def nii_to_sitk(nii_img):
 
 
 def dcm_to_nii(dcm_dir_or_list, nii_path=None, dcm_check=True, **kwargs):
+    """Convert a DICOM image or a directory of DICOM images to a Nifti1Image.
+
+    Parameters
+    ----------
+    dcm_dir_or_list : str, list
+        The directory containing DICOM images, or a list of DICOM file paths.
+    nii_path : str, optional
+        The path to save the Nifti1Image. Default is None.
+    dcm_check : bool, optional
+        Whether to check the consistency of the DICOM images. Default is True.
+    **kwargs
+        Additional keyword arguments for dcm_to_array.
+
+    Returns
+    -------
+    nib.Nifti1Image
+        The Nifti1Image.
+    """
+
     dcm_list = file_dir_to_list(dcm_dir_or_list, extension=".dcm")
     img_array, img_affine = dcm_to_array(dcm_list, dcm_check=dcm_check, **kwargs)
     nii_img = nib.Nifti1Image(img_array, lps_to_ras(img_affine))  # nifti uses RAS instead of LPS so we have to convert the array and the affine
@@ -97,6 +244,35 @@ def dcm_to_nii(dcm_dir_or_list, nii_path=None, dcm_check=True, **kwargs):
 
 
 def rt_to_nii(rt_path, reference_dir_or_list=None, reference_affine=None, reference_shape=None, nii_path=None, contour_indices=None, roi_number_as_label=False, dcm_check=True, **kwargs):
+    """Converts a DICOM RTSTRUCT file to a NIfTI label file.
+
+    Parameters
+    ----------
+    rt_path : str
+        Path to the DICOM RTSTRUCT file.
+    reference_dir_or_list : str or list of str, optional
+        Path to the reference DICOM directory or a list of paths to the DICOM files.
+    reference_affine : ndarray, optional
+        The affine transformation of the reference image.
+    reference_shape : tuple of int, optional
+        The shape of the reference image.
+    nii_path : str, optional
+        Path to save the resulting NIfTI label file.
+    contour_indices : list of int, optional
+        List of contour indices to include in the output. If None, all contours are included.
+    roi_number_as_label : bool, optional
+        Whether to use the ROI number as the label in the output label file. If False, sequential integer labels are used instead.
+    dcm_check : bool, optional
+        Whether to check that the DICOM files in the reference directory or list are valid. Default is True.
+    **kwargs : dict, optional
+        Additional keyword arguments to be passed to the `dcm_to_array` function.
+
+    Returns
+    -------
+    rt_nii : Nifti1Image
+        The NIfTI label image.
+    """
+
     if reference_dir_or_list is None:
         assert reference_affine is not None and reference_shape is not None, "Please specify a reference affine and shape when not using a reference dcm dir or list."
 
@@ -128,6 +304,40 @@ def rt_to_nii(rt_path, reference_dir_or_list=None, reference_affine=None, refere
 
 
 def dcmperf_to_nii(dcm_dir_or_list, nii_path=None, verbose=True, **kwargs):
+    """Convert a folder with DICOM perfusion images to a 4D NIfTI file with the time series.
+
+    Parameters
+    ----------
+    dcm_dir_or_list : str or list of str
+        Path to a directory containing DICOM files or a list of paths to individual DICOM files.
+    nii_path : str or None, optional
+        Path to save the NIfTI file or None to not save the NIfTI file (default is None).
+    verbose : bool, optional
+        Whether to print diagnostic messages (default is True).
+    **kwargs : dict, optional
+        Optional keyword arguments to pass to dcm_to_array.
+
+    Returns
+    -------
+    perfusion_niis : list of NIfTI1Image
+        A list of NIfTI1Image objects containing the perfusion data.
+    perfusion_times : list of ndarray
+        A list of ndarrays containing the perfusion times in seconds for each voxel.
+    mean_perfusion_times : list of float
+        A list of mean perfusion times for each time point.
+    time_resolution : float
+        The time resolution of the perfusion time series in seconds.
+
+    Raises
+    ------
+    AssertionError
+        If the time periods differ more than 5% compared to the average time period.
+        If not all slice locations have an equal number of time points.
+        If no integer division of number of unique slice locations with the number of slice locations per time point.
+        If the perfusion scan type is not recognized.
+
+    """
+
     dcm_list = file_dir_to_list(dcm_dir_or_list, extension=".dcm")
     # we load all dcm files in memory and store their original file paths and their acquisition times (i.e. SliceTime) and z location (i.e. SliceLocation)
     dcms = []
