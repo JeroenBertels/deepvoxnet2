@@ -1,10 +1,10 @@
-"""The Creator class in DeepVoxNet2 is used to build models by creating a computational graph of Transformers, much like Keras' models are constructed with layers.
+"""The Creator class in DeepVoxNet2 is used to build models by creating a computational graph of Transformers, i.e. a Transformer pipeline, much like Keras' models are constructed with layers.
 
-To build a model, you create a list of output Connection objects, which represent the different outputs of the computational graph. The Creator object is then constructed with this list of output connections, and it automatically builds the corresponding computational graph by tracing the inputs of the output connections, in a manner similar to the way a Keras model is built.
+To build such a model, you create a list of output Connection objects, which represent the different outputs of the Transformer pipeline. The Creator object is then constructed with this list of output connections, and it automatically builds the corresponding computational graph by tracing the inputs of the output connections, in a manner similar to the way a Keras model is built.
 
-Once the Creator object is built, it can be used to generate output for the specified output connections. It has a eval method which can be called repeatedly to generate the output for each input sample.
+Once the Creator object is built, it can be used to generate output for the specified output connections. It has a eval method which can be called repeatedly to generate the output for each input Identifier.
 
-The Creator class also provides methods to get information about the output shapes, reset the transformers in the graph, get a summary of the computational graph, save the model, load the saved model, etc. Additionally, it can write the output of each transformer in the graph to disk.
+The Creator class also provides methods to get information about the output shapes, reset the transformers in the pipeline, get a summary of the pipeline, save the model, load the saved model, etc. Additionally, it can write the output of each transformer in the pipeline to disk.
 """
 
 import os
