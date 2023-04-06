@@ -1,13 +1,79 @@
+"""The Analysis class is designed to provide a way to work with and manipulate data that is structured in a multi-indexed format. 
+
+It allows for various operations to be performed on the data, including combining multiple sets of data, applying functions to the data, and dropping null values. 
+It is built on top of the Data class and utilizes many of its methods to perform these operations. 
+Overall, the Analysis class provides a powerful tool for working with complex, multi-indexed data structures in a flexible and efficient manner.
+"""
+
 import numpy as np
 import pandas as pd
 from deepvoxnet2.components.mirc import Mirc
 from deepvoxnet2.keras.metrics import get_metric, get_metric_at_multiple_thresholds
 from deepvoxnet2.factories.directory_structure import MircStructure
 from deepvoxnet2.analysis.data import Data
-from scripts.jberte3.KAROLINSKA2021.preprocessing.s2_datasets import mrclean, karolinska, crisp
 
 
 class Analysis(object):
+    """Class representing a collection of Data instances that share the same index and column structure. 
+
+    Parameters
+    ----------
+    *data : Analysis, Data, pd.DataFrame
+        The data to be analyzed. If an Analysis or Data instance is provided, its dataframe attribute is used.
+    
+    Attributes
+    ----------
+    df : pd.DataFrame
+        The concatenated data, where rows represent index values and columns represent column names.
+    index : pd.Index
+        The index of the concatenated data.
+    columns : pd.MultiIndex
+        The columns of the concatenated data.
+    shape : tuple
+        A tuple representing the dimensions of the concatenated data in the form (n_rows, n_columns).
+    
+    Methods
+    -------
+    __len__()
+        Returns the number of columns in the concatenated data.
+    __getitem__(item)
+        Returns a Data instance representing the column of the concatenated data corresponding to the given item.
+    __iter__()
+        Returns an iterator over the Data instances representing the columns of the concatenated data.
+    __call__()
+        Returns a list of Data instances, one for each column of the concatenated data.
+    get_empty_df()
+        Returns an empty pd.DataFrame with the same index and column structure as the concatenated data.
+    combine(*args, **kwargs)
+        Returns a new Analysis instance with the data resulting from the combination of the data of this instance with the data of the other instance(s) provided.
+    combine_mean(**kwargs)
+        Returns a new Analysis instance with the data resulting from the mean combination of the data of this instance with the data of the other instance(s) provided.
+    combine_concat(**kwargs)
+        Returns a new Analysis instance with the data resulting from the concatenation of the data of this instance with the data of the other instance(s) provided.
+    combine_sum(**kwargs)
+        Returns a new Analysis instance with the data resulting from the sum combination of the data of this instance with the data of the other instance(s) provided.
+    apply(apply_fn, custom_apply_fn_name=None, **kwargs)
+        Applies a given function to the concatenated data and returns a new Data instance with the results.
+    squeeze(*args, **kwargs)
+        Returns a new Analysis instance with the same data as this instance but with all size-1 dimensions removed.
+    round(decimals=0)
+        Returns a new Analysis instance with the same data as this instance but with all numerical values rounded to the given number of decimals.
+    format(formatting)
+        Returns a new Analysis instance with the same data as this instance but with all string values formatted according to the given formatting string.
+    dropna(axis=0, how='any')
+        Returns a new Analysis instance with the same data as this instance but with any rows or columns containing NaN values removed.
+    reindex(*args, **kwargs)
+        Returns a new Analysis instance with the same data as this instance but with the rows and/or columns reindexed according to the given parameters.
+    set_axis(*args, **kwargs)
+        Returns a new Analysis instance with the same data as this instance but with the index and/or columns relabeled according to the given parameters.
+    rename(*args, **kwargs)
+        Returns a new Analysis instance with the same data as this instance but with the columns relabeled according to the given parameters.
+    get_stats(**kwargs)
+        Returns a new Analysis instance with the same data as this instance but with additional columns containing summary statistics for each column.
+    print_stats(**kwargs)
+        Returns a new Analysis instance with the same data as this instance but with additional columns containing summary statistics for each column, and prints a formatted table of these statistics to the console.
+    """
+
     def __init__(self, *data):
         data_data = []
         for i, data_ in enumerate(data):
@@ -133,6 +199,8 @@ class Analysis(object):
 
 
 if __name__ == "__main__":
+    from scripts.jberte3.KAROLINSKA2021.preprocessing.s2_datasets import mrclean, karolinska, crisp
+
     y_true_dfs = []
     for fold_i in range(0, 2):
         mirc = Mirc()

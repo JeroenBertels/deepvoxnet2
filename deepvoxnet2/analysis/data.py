@@ -1,9 +1,82 @@
+"""The Data class is a wrapper around a Pandas DataFrame that provides a simple and flexible interface for manipulating and analyzing data. 
+
+It provides methods for combining, transforming, and summarizing data, as well as methods for cleaning and processing missing data. 
+With the Data class, you can easily load, filter, and reshape data, and generate statistical summaries and visualizations. 
+It is especially useful for working with multi-dimensional data such as images, where you may need to apply operations across multiple dimensions. 
+Overall, the Data class can help you efficiently and effectively work with data in Python.
+"""
+
 import numpy as np
 import pandas as pd
 from collections import Iterable
 
 
 class Data(object):
+    """Class representing a multi-indexed dataset with a single column.
+
+    Attributes:
+    -----------
+    df: pandas.DataFrame
+        A DataFrame containing the data, with a MultiIndex that must have the three levels "dataset_id", "case_id" and "record_id".
+    index: pandas.MultiIndex
+        The index of the DataFrame.
+    columns: pandas.Index
+        The columns of the DataFrame.
+    shape: tuple
+        A tuple containing the number of rows and columns of the DataFrame.
+
+    Methods
+    -------
+    __init__(self, df, index_name=None, column_names=None)
+        Initializes the Data class with a tabular data (df), an index name (index_name), and column names (column_names).
+    combine(self, combine_fn, axis=0, custom_combine_fn_name=None, reduction_level="case_id", reduce_all_below=True, exclude_nan=True, exclude_inf=True, **kwargs)
+        Combines the data by applying a function (combine_fn) along an axis (axis).
+    iter_level(self, df=None, level="case_id")
+        Iterates through the data at a specified level (level).
+    get_empty_df(self, combine_fn_name="n", reduction_level="case_id", reduce_all_below=True)
+        Returns an empty DataFrame with the correct index and column names for a statistic.
+    combine_mean(self, axis=0, custom_combine_fn_name="mean", **kwargs)
+        Combines the data using the mean function.
+    combine_sum(self, axis=0, custom_combine_fn_name="sum", **kwargs)
+        Combines the data using the sum function.
+    combine_concat(self, axis=0, custom_combine_fn_name="concat", **kwargs)
+        Combines the data using the concatenate function.
+    apply(self, apply_fn, *args, custom_apply_fn_name=None, **kwargs)
+        Applies a function (apply_fn) to the data.
+    volume(self, voxel_volume=1, **kwargs)
+        Calculates the volume of the data.
+    mean(self, *args, **kwargs)
+        Calculates the mean of the data.
+    sum(self, *args, **kwargs)
+        Calculates the sum of the data.
+    reshape(self, *args, **kwargs)
+        Reshapes the data.
+    flatten(self, **kwargs)
+        Flattens the data.
+    squeeze(self, *args, **kwargs)
+        Squeezes the data.
+    round(self, decimals=0, **kwargs)
+        Rounds the data to a specified number of decimal places.
+    format(self, formatting="{}", **kwargs)
+        Formats the data using a specified string formatting.
+    expand_dims(self, *args, **kwargs)
+        Expands the dimensions of the data.
+    dropna(self, axis=0, how="any")
+        Removes missing values from the data.
+    reindex(self, *args, **kwargs)
+        Changes the order of the data index.
+    set_axis(self, *args, **kwargs)
+        Changes the order of the data columns.
+    rename(self, *args, **kwargs)
+        Renames the data columns.
+    bootstrap(self, level="record_id", seed=0, n=None)
+        Bootstraps the data at a specified level (level).
+    get_stats(self, reduction_level="case_id", reduce_all_below=True, return_formatted=False, **kwargs)
+        Calculates statistics for the data.
+    print_stats(self, printing_type=0, formatting="{}")
+        Prints statistics for the data.
+    """
+
     def __init__(self, df):
         assert len(df.index.names) == 3 and all([name == name_ for name, name_ in zip(df.index.names, ["dataset_id", "case_id", "record_id"])]),  "The index must be a MultiIndex with the three levels: dataset_id, case_id and record_id."
         assert df.shape[1] == 1, "The dataframe must have only a single column."

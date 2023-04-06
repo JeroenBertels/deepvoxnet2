@@ -1,3 +1,10 @@
+"""The plotting.py module provides:
+- a collection of classes and functions for creating and customizing different types of plots
+- a color dictionary (color_dict) for defining custom color palettes
+- three key classes: Series, SeriesGroup, and GroupedSeries, which represent data organized in different ways for plotting or analysis (see analysis.py and data.py modules)
+- the Figure class provides a base for creating different types of plots and offers a range of customization options for labels, titles, legends, and other plot elements
+"""
+
 import numpy as np
 import seaborn as sb
 from copy import deepcopy
@@ -23,8 +30,91 @@ color_dict = {
     "grey": (0.5, 0.5, 0.5),
 }
 
+
 class Series(object):
+    """A class for performing statistical analysis on one-dimensional series data.
+
+    The Series class provides a set of methods for handling a list of numerical values.
+    The class attributes include basic statistics such as the number of non-numeric values, minimum, maximum, and percentiles.
+    The Series class also contains static methods that can be used to perform a range of statistical tests on the values in the series, including basic hypothesis testing, rank correlation, and Pearson correlation.
+
+    Parameters
+    ----------
+    series : array_like
+        The input series to be analyzed.
+
+    Attributes
+    ----------
+    series : ndarray
+        The input series as a NumPy array, without NaN and Inf values removed.
+    series_ : ndarray
+        The input series as a NumPy array, with NaN and Inf values removed.
+    nnan : int
+        The number of NaN values in the input series.
+    ninf : int
+        The number of Inf values in the input series.
+    nnaninf : int
+        The number of NaN and Inf values in the input series.
+    min : float
+        The minimum value in the input series.
+    p25 : float
+        The 25th percentile value in the input series.
+    p50 : float
+        The median value in the input series.
+    pm : float
+        The mean value in the input series.
+    p75 : float
+        The 75th percentile value in the input series.
+    max : float
+        The maximum value in the input series.
+    iqr : float
+        The interquartile range of the input series.
+    pmin : float
+        The minimum value in the input series that is not considered an outlier.
+    pmax : float
+        The maximum value in the input series that is not considered an outlier.
+    outliers : ndarray
+        The outlier values in the input series.
+    std : float
+        The standard deviation of the input series.
+    ste : float
+        The standard error of the mean of the input series.
+    median : float
+        The same value as p50.
+    mean : float
+        The same value as pm.
+    n : int
+        The number of non-NaN and non-Inf values in the input series.
+
+    Methods
+    -------
+    different_from(value=0, **kwargs)
+        Returns a p-value indicating the significance of the difference between the input series and a specified value.
+    correlate_with(series)
+        Computes the Pearson correlation coefficient between the input series and another series.
+    get_stats()
+        Computes and returns the statistical attributes of the input series.
+    basic_test(series0, series1=None, n=10000, skipnan=True, skipinf=True, pairwise=True, confidences=False, **kwargs)
+        Computes a statistical test for the null hypothesis that two samples of data are drawn from the same population.
+    rank_series(series_group, ranking_mode="any", p_value_threshold=0.1, value_mode="max", **kwargs)
+        Computes the rankings of a group of Series objects based on their means and statistical differences between them.
+    pearson_correlation(series0, series1)
+        Computes the Pearson correlation coefficient between two series.
+    """
+
     def __init__(self, series):
+        """Constructs a new Series object with the given series.
+
+        Parameters
+        ----------
+        series : array_like
+            The series to be analyzed.
+
+        Returns
+        -------
+        None
+        """
+
         series = deepcopy(series)
         if not isinstance(series, Iterable):
             series = [series]
@@ -35,25 +125,114 @@ class Series(object):
         self.n = len(self.series_)
 
     def __len__(self):
+        """Returns the number of elements in the series.
+
+        Returns
+        -------
+        int
+            The number of elements in the series.
+        """
+
         return len(self.series)
 
     def __getitem__(self, idx):
+        """Returns the element at the given index in the series.
+
+        Parameters
+        ----------
+        idx : int
+            The index of the element to return.
+
+        Returns
+        -------
+        float
+            The element at the given index in the series.
+        """
+
         return self.series[idx]
 
     def __iter__(self):
+        """Returns an iterator for the series.
+
+        Returns
+        -------
+        iterator
+            An iterator for the series.
+        """
+
         return iter(self.series)
 
     def different_from(self, value=0, **kwargs):
+        """Tests whether the values of the series are different from the specified value(s) using a permutation test.
+
+        Parameters
+        ----------
+        value : float or iterable of floats, optional
+            The value(s) to test against. Default is 0.
+        **kwargs : dict, optional
+            Additional arguments to pass to the `basic_test` method.
+
+        Returns
+        -------
+        float
+            The proportion of permutations in which the observed difference in mean between the series and the specified value(s)
+            is greater than the difference in the permuted samples.
+
+        """
+
         return self.basic_test(self.series, value if isinstance(value, Iterable) else [value] * len(self.series), **kwargs)
 
     def correlate_with(self, series):
+        """Computes the Pearson correlation coefficient between two series.
+
+        Parameters
+        ----------
+        series : iterable of floats or a Series object
+            The other series to compute the correlation with.
+
+        Returns
+        -------
+        float
+            The Pearson correlation coefficient between the two series.
+
+        """
+
         return self.pearson_correlation(self, series)
 
     def get_stats(self):
+        """Computes descriptive statistics of the series, including count, mean, standard deviation, median, quartiles, min, and max.
+
+        Returns
+        -------
+        tuple
+            A tuple of the computed statistics in the following order: the non-missing values in the series, the number of NaN values,
+            the number of infinite values, the number of NaN and infinite values combined, the minimum value, the 25th percentile,
+            the median, the mean, the 75th percentile, the maximum value, the interquartile range, the minimum value that is not an outlier,
+            the maximum value that is not an outlier, an array of outlier values, the standard deviation, and the standard error of the mean.
+
+        """
+
         return self.calculate_stats(self.series)
 
     @staticmethod
     def calculate_stats(series):
+        """Calculates descriptive statistics for a series, including count, mean, standard deviation, median, quartiles, min, and max.
+
+        Parameters
+        ----------
+        series : iterable of floats
+            The series for which to calculate statistics.
+
+        Returns
+        -------
+        tuple
+            A tuple of the computed statistics in the following order: the non-missing values in the series, the number of NaN values,
+            the number of infinite values, the number of NaN and infinite values combined, the minimum value, the 25th percentile,
+            the median, the mean, the 75th percentile, the maximum value, the interquartile range, the minimum value that is not an outlier,
+            the maximum value that is not an outlier, an array of outlier values, the standard deviation, and the standard error of the mean.
+
+        """
+        
         series_ = np.array([value for value in series if not np.isnan(value) and not np.isinf(value)])
         nnan = len([value for value in series if np.isnan(value)])
         ninf = len([value for value in series if np.isinf(value)])
@@ -79,6 +258,35 @@ class Series(object):
 
     @staticmethod
     def basic_test(series0, series1=None, n=10000, skipnan=True, skipinf=True, pairwise=True, confidences=False, **kwargs):
+        """Performs a basic statistical test to determine if there is a statistically significant difference between two series.
+        
+        Returns a p-value which can be interpreted as follows: a small p-value (typically ≤ 0.05) indicates strong evidence
+        against the null hypothesis, so you reject the null hypothesis, while a large p-value (> 0.05) indicates weak evidence
+        against the null hypothesis, so you fail to reject the null hypothesis.
+
+        Parameters:
+        -----------
+        series0: array-like
+            The first series to compare.
+        series1: array-like, optional
+            The second series to compare. If None, the method will perform a pairwise test using series0.
+        n: int, default 10000
+            The number of iterations to run for the Monte Carlo simulation.
+        skipnan: bool, default True
+            If True, NaN values will be excluded from the series before the test is performed.
+        skipinf: bool, default True
+            If True, infinity values will be excluded from the series before the test is performed.
+        pairwise: bool, default True
+            If True, the method will perform a pairwise test using series0 and series1. If False, it will compare the two series as is.
+        confidences: bool, default False
+            If True, the method will calculate and return a confidence interval for the mean difference between the two series.
+
+        Returns:
+        --------
+        p_value: float
+            The p-value obtained from the basic test.
+        """
+
         series0 = Series(series0).series
         series1 = np.zeros_like(series0) if series1 is None else Series(series1).series
         if pairwise:
@@ -125,6 +333,30 @@ class Series(object):
 
     @staticmethod
     def rank_series(series_group, ranking_mode="any", p_value_threshold=0.1, value_mode="max", **kwargs):
+        """Ranks a group of series based on their mean values, using a basic statistical test to determine if there is a statistically significant difference between any pair of series.
+        
+        The ranking will be done based on the mean values of the series in descending order. Then, for each pair of adjacent series in the ranking, the method will perform a statistical 
+        test to determine if the two series are significantly different from one another. If the p-value for the test is greater 
+        than the given threshold, the two series will be considered tied and will receive the same rank. The method will then 
+        move on to the next pair of adjacent series and repeat the process until all series have been ranked.
+
+        Parameters:
+        -----------
+        series_group: list of array-like
+            A list of series to be ranked.
+        ranking_mode: str, default "any"
+            The ranking mode to use when determining if two adjacent series are significantly different. Can be "any" or "all".
+        p_value_threshold: float, default 0.1
+            The threshold to use when comparing p-values from the statistical test.
+        value_mode: str, default "max"
+            The value mode to use when sorting the series. Can be "max" or "min".
+
+        Returns:
+        --------
+        ranking_: list
+            A list containing the rank of each series in the input list.
+        """
+        
         series_group = SeriesGroup(series_group)
         series_group = [Series((-1 if value_mode == "min" else 1) * series.series) for series in series_group]
         mean_sort_idx = np.argsort([series.mean for series in series_group])[::-1]
@@ -159,11 +391,64 @@ class Series(object):
 
     @staticmethod
     def pearson_correlation(series0, series1):
+        """Calculates the Pearson correlation coefficient between two series.
+
+        Parameters:
+        -----------
+        series0: array-like
+            The first series to compare.
+        series1: array-like
+            The second series to compare.
+
+        Returns:
+        --------
+        correlation: float
+            The Pearson correlation coefficient between series0 and series1.
+        """
+
         return np.corrcoef(Series(series0).series_, Series(series1).series_)[0, 1]
 
 
 class SeriesGroup(object):
+    """Represents a group of `Series` objects.
+
+    Parameters
+    ----------
+    series_group : list-like
+        List of `Series` objects or values to be converted to `Series` objects.
+
+    Attributes
+    ----------
+    series_group : list
+        The list of `Series` objects in this `SeriesGroup` instance.
+    series : `Series`
+        A `Series` object that combines all `Series` objects in `series_group`.
+
+    Methods
+    -------
+    __len__()
+        Returns the length of the `series_group` attribute.
+    __getitem__(idx)
+        Returns the `Series` object at index `idx` in `series_group`.
+    __iter__()
+        Returns an iterator over the `series_group` attribute.
+    rank(threshold=0.05, mode="max", **kwargs)
+        Returns the ranks of the `Series` objects in `series_group` based on pairwise tests.
+    """
+
     def __init__(self, series_group):
+        """Initialize the SeriesGroup object.
+
+        Parameters
+        ----------
+        series_group : list or tuple or SeriesGroup
+            The group of series to be contained.
+
+        Returns
+        -------
+        None.
+        """
+
         series_group = deepcopy(series_group)
         if not isinstance(series_group, SeriesGroup):
             if not isinstance(series_group, Iterable):
@@ -179,20 +464,98 @@ class SeriesGroup(object):
         self.series = Series([value for series in series_group for value in series])
 
     def __len__(self):
+        """Return the number of series in the container.
+
+        Returns
+        -------
+        int
+            The number of series in the container.
+        """
+
         return len(self.series_group)
 
     def __getitem__(self, idx):
+        """Return the series at the given index.
+
+        Parameters
+        ----------
+        idx : int
+            The index of the series to be returned.
+
+        Returns
+        -------
+        Series
+            The series at the given index.
+        """
+
         return self.series_group[idx]
 
     def __iter__(self):
+        """Return an iterator over the series in the container.
+
+        Returns
+        -------
+        iterator
+            An iterator over the series in the container.
+        """
+
         return iter(self.series_group)
 
     def rank(self, threshold=0.05, mode="max", **kwargs):
+        """Rank the series in the container based on their mean values.
+
+        Parameters
+        ----------
+        threshold : float, optional
+            The p-value threshold for statistical testing, by default 0.05.
+        mode : str, optional
+            The mode of ranking, either 'max' or 'min', by default 'max'.
+        **kwargs : dict, optional
+            Additional keyword arguments to be passed to the basic_test function.
+
+        Returns
+        -------
+        list
+            A list of rankings for the series in the container.
+        """
+
         return Series.rank_series(self, threshold=threshold, mode=mode, **kwargs)
 
 
 class GroupedSeries(object):
+    """Represents a group of `SeriesGroup` objects.
+
+    Parameters
+    ----------
+    grouped_series : list-like
+        List of `SeriesGroup` objects or values to be converted to `SeriesGroup` objects.
+
+    Attributes
+    ----------
+    grouped_series : list
+        The list of `SeriesGroup` objects in this `GroupedSeries` instance.
+    series : `Series`
+        A `Series` object that combines all `Series` objects in all `SeriesGroup` objects in `grouped_series`.
+
+    Methods
+    -------
+    __len__()
+        Returns the length of the `grouped_series` attribute.
+    __getitem__(idx)
+        Returns the `SeriesGroup` object at index `idx` in `grouped_series`.
+    __iter__()
+        Returns an iterator over the `grouped_series` attribute.
+    """
+
     def __init__(self, grouped_series):
+        """Initialize the `GroupedSeries` object.
+
+        Parameters
+        ----------
+        grouped_series : `SeriesGroup` object, list of `SeriesGroup` objects, tuple of `SeriesGroup` objects, or iterable of `SeriesGroup` objects
+            The `SeriesGroup` objects to group together.
+        """
+
         grouped_series = deepcopy(grouped_series)
         if not isinstance(grouped_series, GroupedSeries):
             if not isinstance(grouped_series, Iterable):
@@ -208,16 +571,122 @@ class GroupedSeries(object):
         self.series = Series([value for series_group in grouped_series for value in series_group.series])
 
     def __len__(self):
+        """Returns the number of `SeriesGroup` objects in the `grouped_series`.
+
+        Returns
+        -------
+        int
+            The number of `SeriesGroup` objects in the `grouped_series`.
+        """
+
         return len(self.grouped_series)
 
     def __getitem__(self, idx):
+        """Returns the `SeriesGroup` object at the given index in the `grouped_series`.
+
+        Parameters
+        ----------
+        idx : int
+            The index of the `SeriesGroup` object to retrieve.
+
+        Returns
+        -------
+        `SeriesGroup` object
+            The `SeriesGroup` object at the given index in the `grouped_series`.
+        """
+
         return self.grouped_series[idx]
 
     def __iter__(self):
+        """Returns an iterator over the `SeriesGroup` objects in the `grouped_series`.
+
+        Returns
+        -------
+        iterator
+            An iterator over the `SeriesGroup` objects in the `grouped_series`.
+        """
+
         return iter(self.grouped_series)
 
 
 class Figure(object):
+    """A class to create a figure object.
+
+    Parameters
+    ----------
+    xalim : tuple of two floats
+        The minimum and maximum values for the x-axis.
+    yalim : tuple of two floats
+        The minimum and maximum values for the y-axis.
+    awidthininches : float, optional
+        The width of the axis in inches, by default 5.
+    aheightininches : float, optional
+        The height of the axis in inches, by default 5.
+    dxininches : float, optional
+        The size of the padding between the axis and the edge of the figure in the x-direction, by default 0.25.
+    dyininches : float, optional
+        The size of the padding between the axis and the edge of the figure in the y-direction, by default 0.25.
+    lmwidthininches : float, optional
+        The width of the left margin in inches, by default 1.
+    rmwidthininches : float, optional
+        The width of the right margin in inches, by default 0.
+    bmheightininches : float, optional
+        The height of the bottom margin in inches, by default 1.
+    tmheightininches : float, optional
+        The height of the top margin in inches, by default 0.
+    top_extent : float, optional
+        The amount by which the top of the axis extends beyond the maximum y value, by default 0.
+    right_extent : float, optional
+        The amount by which the right side of the axis extends beyond the maximum x value, by default 0.
+    fs : int, optional
+        The font size for the axis labels and tick labels, by default 20.
+    lw : int, optional
+        The linewidth for the axis spines, by default 2.
+    ms : int, optional
+        The size of the markers in the plot, by default 10.
+    mask_inner_region : bool, optional
+        Whether to mask the inner region of the axis, by default True.
+    mask_outer_region : bool, optional
+        Whether to mask the outer region of the axis, by default True.
+    plot_xaxis : bool, optional
+        Whether to plot the x-axis, by default True.
+    plot_yaxis : bool, optional
+        Whether to plot the y-axis, by default True.
+    use_tex : bool, optional
+        Whether to use TeX to render text, by default True.
+    **kwargs : optional
+        Additional keyword arguments to be passed to the figure object.
+
+    Methods
+    -------
+    __call__()
+        Returns the figure and axis objects.
+    set_title(title)
+        Sets the title for the axis.
+    set_xlabel(xlabel)
+        Sets the label for the x-axis.
+    set_ylabel(ylabel)
+        Sets the label for the y-axis.
+    set_xticks(xticks)
+        Sets the ticks for the x-axis.
+    set_xticklabels(xticklabels)
+        Sets the tick labels for the x-axis.
+    set_yticks(yticks)
+        Sets the ticks for the y-axis.
+    set_yticklabels(yticklabels)
+        Sets the tick labels for the y-axis.
+    add_patch(patch)
+        Adds a patch to the axis.
+    text(x, y, s, fontdict=None, **kwargs)
+        Adds text to the axis.
+    legend(*args, fs=None, **kwargs)
+        Adds a legend to the axis.
+    show()
+        Shows the figure.
+    savefig(file_path, **kwargs)
+        Saves the
+    """
+
     def __init__(self,
                  xalim, yalim,
                  awidthininches=5, aheightininches=5,
@@ -229,6 +698,53 @@ class Figure(object):
                  mask_inner_region=True, mask_outer_region=True,
                  plot_xaxis=True, plot_yaxis=True,
                  use_tex=True, **kwargs):
+        """Initialize a new Matplotlib axis with customizable dimensions and styling.
+
+        Parameters
+        ----------
+        xalim : tuple of float
+            A tuple (xmin, xmax) defining the x-axis limits.
+        yalim : tuple of float
+            A tuple (ymin, ymax) defining the y-axis limits.
+        awidthininches : float, optional
+            The desired width of the plotting area in inches. Default is 5.
+        aheightininches : float, optional
+            The desired height of the plotting area in inches. Default is 5.
+        dxininches : float, optional
+            The desired width of the horizontal padding on each side of the plotting area in inches. Default is 0.25.
+        dyininches : float, optional
+            The desired height of the vertical padding on each side of the plotting area in inches. Default is 0.25.
+        lmwidthininches : float, optional
+            The desired width of the left margin in inches. Default is 1.
+        rmwidthininches : float, optional
+            The desired width of the right margin in inches. Default is 0.
+        bmheightininches : float, optional
+            The desired height of the bottom margin in inches. Default is 1.
+        tmheightininches : float, optional
+            The desired height of the top margin in inches. Default is 0.
+        top_extent : float, optional
+            The desired extra height of the plotting area above yalim in units of y-axis range. Default is 0.
+        right_extent : float, optional
+            The desired extra width of the plotting area to the right of xalim in units of x-axis range. Default is 0.
+        fs : float, optional
+            The desired font size for the axis labels and title. Default is 20.
+        lw : float, optional
+            The desired line width for the axis spines and ticks. Default is 2.
+        ms : float, optional
+            The desired marker size for scatter plots. Default is 10.
+        mask_inner_region : bool, optional
+            Whether to add a white patch to mask the inner padding region of the plot. Default is True.
+        mask_outer_region : bool, optional
+            Whether to add white patches to mask the outer padding region of the plot. Default is True.
+        plot_xaxis : bool, optional
+            Whether to plot the x-axis and its labels. Default is True.
+        plot_yaxis : bool, optional
+            Whether to plot the y-axis and its labels. Default is True.
+        use_tex : bool, optional
+            Whether to use LaTeX for rendering the text in the plot. Default is True.
+        **kwargs : optional
+            Additional keyword arguments are passed to the set_xlabel(), set_ylabel(), set_xticks(), set_yticks(), and set_title() methods of the plot axis. In particular, the keywords xlabel, ylabel, xticks, xticklabels, yticklabels.
+        """
 
         if use_tex:
             plt.rcParams.update({
@@ -340,41 +856,153 @@ class Figure(object):
             self.set_title(kwargs["title"])
 
     def __call__(self):
+        """Returns the figure and axis objects.
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure object.
+        ax : matplotlib.axes.Axes
+            The axis object.
+        """
+
         return self.fig, self.ax
 
     def set_title(self, title):
+        """Set the title of the plot.
+
+        Parameters
+        ----------
+        title : str
+            The title of the plot.
+        """
+
         # self.fig.suptitle(title, fontsize=self.fs, x=0.5, y=1 - (self.rmwidthininches / 5) / self.fheightininches, horizontalalignment='center', verticalalignment='top')
         self.ax.text((self.fxmin + self.fxmax) / 2, self.fymax - self.lhic, title, fontsize=self.fs, horizontalalignment='center', verticalalignment='top')
 
     def set_xlabel(self, xlabel):
+        """Set the label for the x-axis.
+
+        Parameters
+        ----------
+        xlabel : str
+            The label for the x-axis.
+        """
+
         # self.ax.set_xlabel(xlabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='bottom')
         # self.ax.xaxis.set_label_coords((self.dxininches + self.awidthininches / 2) / self.widthininches, -self.bmheightininches / self.heightininches)
         self.ax.text((self.xamin + self.xamax) / 2, self.fymin + self.lhic, xlabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='bottom')
 
     def set_ylabel(self, ylabel):
+        """Set the label for the y-axis.
+
+        Parameters
+        ----------
+        ylabel : str
+            The label for the y-axis.
+        """
+
         # self.ax.set_ylabel(ylabel, fontsize=self.fs, horizontalalignment='center', verticalalignment='top')
         # self.ax.yaxis.set_label_coords(-self.lmwidthininches / self.widthininches, (self.dyininches + self.aheightininches / 2) / self.heightininches)
         self.ax.text(self.fxmin + self.lwic, (self.yamin + self.yamax) / 2, ylabel, fontsize=self.fs, horizontalalignment='left', verticalalignment='center', rotation=90)
 
     def set_xticks(self, xticks):
+        """Set the locations of the x-axis ticks.
+
+        Parameters
+        ----------
+        xticks : array-like
+            The locations of the x-axis ticks.
+        """
+
         self.ax.set_xticks(xticks)
 
     def set_xticklabels(self, xticklabels):
+        """Set the labels for the x-axis ticks.
+
+        Parameters
+        ----------
+        xticklabels : array-like
+            The labels for the x-axis ticks.
+        """
+
         self.ax.set_xticklabels(xticklabels)
 
     def set_yticks(self, yticks):
+        """Set the locations of the y-axis ticks.
+
+        Parameters
+        ----------
+        yticks : array-like
+            The locations of the y-axis ticks.
+        """
+
         self.ax.set_yticks(yticks)
 
     def set_yticklabels(self, yticklabels):
+        """Set the labels for the y-axis ticks.
+
+        Parameters
+        ----------
+        yticklabels : array-like
+            The labels for the y-axis ticks.
+        """
+
         self.ax.set_yticklabels(yticklabels)
 
     def add_patch(self, patch):
+        """Adds a `matplotlib.patches.Patch` to the plot.
+
+        Parameters
+        ----------
+        patch : matplotlib.patches.Patch
+            The patch to be added to the plot.
+        """
+            
         self.ax.add_patch(patch)
 
     def text(self, x, y, s, fontdict=None, **kwargs):
+        """Adds text to the plot.
+
+        Parameters
+        ----------
+        x : float
+            The x-coordinate of the text.
+        y : float
+            The y-coordinate of the text.
+        s : str
+            The text to be displayed.
+        fontdict : dict, optional
+            A dictionary containing font properties. See `matplotlib.text.Text` documentation for details.
+        **kwargs
+            Additional keyword arguments to be passed to `matplotlib.text.Text`.
+
+        Returns
+        -------
+        matplotlib.text.Text
+            The `Text` instance that was added to the plot.
+        """
+        
         self.ax.text(x, y, s, fontdict=fontdict, **kwargs)
 
     def legend(self, *args, fs=None, **kwargs):
+        """Place a legend on the plot.
+
+        Parameters
+        ----------
+        *args
+            Variable length argument list. See `matplotlib.axes.Axes.legend` documentation for details.
+        fs : float, optional
+            The font size of the legend. If not specified, uses the `fs` value specified in `__init__`.
+        **kwargs
+            Additional keyword arguments to be passed to `matplotlib.axes.Axes.legend`.
+
+        Returns
+        -------
+        matplotlib.legend.Legend
+            The `Legend` instance of the added legend.
+        """
+
         if "fontsize" in kwargs and fs is not None:
             assert kwargs["fontsize"] == fs
 
@@ -382,13 +1010,58 @@ class Figure(object):
         self.ax.legend(*args, **kwargs)
 
     def show(self):
+        """Displays the plot.
+        """
+
         self.fig.show()
 
     def savefig(self, file_path, **kwargs):
+        """Saves the plot to a file.
+
+        Parameters
+        ----------
+        file_path : str
+            The path to the file where the plot should be saved.
+        **kwargs
+            Additional keyword arguments to be passed to `matplotlib.figure.Figure.savefig`.
+        """
+
         self.fig.savefig(file_path, **kwargs)
 
     @staticmethod
     def prepare(mode, x_and_y_data, xalim=None, yalim=None, colors=None, color_mode="series", **kwargs):
+        """Prepare data and formatting parameters for plotting.
+
+        Parameters
+        ----------
+        mode : str
+            Mode for preparing data, one of "series", "series_group", or "grouped_series".
+        x_and_y_data : list
+            List of data for x and y axis. For "series" mode, a list of two Series objects, for "series_group" mode,
+            a list of two SeriesGroup objects, and for "grouped_series" mode, a list of two GroupedSeries objects.
+        xalim : tuple, optional
+            Tuple of lower and upper x-axis limits. Default is None.
+        yalim : tuple, optional
+            Tuple of lower and upper y-axis limits. Default is None.
+        colors : list or str, optional
+            List of colors or color map string for plotting. Default is None.
+        color_mode : str, optional
+            Color mode for "series_group" and "grouped_series" modes, either "series" or "group". Default is "series".
+        **kwargs : dict, optional
+            Additional keyword arguments for formatting.
+
+        Returns
+        -------
+        tuple
+            Tuple of formatted data and formatting parameters for plotting.
+
+        Raises
+        ------
+        ValueError
+            If an unknown data prepare mode is specified.
+
+        """
+            
         if mode == "series":
             x_and_y_data = [Series(data) if data is not None else None for data in x_and_y_data]
             colors = list(color_dict.keys())[0] if colors is None else colors
@@ -469,6 +1142,23 @@ class Figure(object):
 
     @staticmethod
     def get_color(color, alpha=None):
+        """Convert a color string or RGB(A) tuple to a RGBA tuple.
+
+        Parameters
+        ----------
+        color : str or tuple
+            The color to convert. If a string, it should be a key from the `color_dict` dictionary. If a tuple, it should
+            be a tuple of RGB or RGBA values.
+        alpha : float or None, optional
+            The alpha (transparency) value to use for the color. If None and the color is a tuple with 4 values, the
+            alpha value from the color tuple is used. Default is None.
+
+        Returns
+        -------
+        color_tuple : tuple
+            A tuple of RGBA values for the specified color, with an alpha value of 1.0 if not provided.
+        """
+            
         color_tuple = color_dict[color] if isinstance(color, str) else color
         if len(color_tuple) == 3:
             return color_tuple + (1 if alpha is None else alpha,)
@@ -478,9 +1168,43 @@ class Figure(object):
             return color_tuple
 
     def plot(self, *args, **kwargs):
+        """Make a plot on the underlying matplotlib axis object using the `plot` method.
+
+        Parameters
+        ----------
+        *args : array-like
+            Variable length argument list passed to the `plot` method of the underlying matplotlib axis object.
+        **kwargs : dict
+            Keyword arguments passed to the `plot` method of the underlying matplotlib axis object.
+        """
+        
         self.ax.plot(*args, **kwargs)
 
     def lineplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", linestyle="-", linewidth=None, markersize=None, **kwargs):
+        """Make a line plot of the given x and y series on the underlying matplotlib axis object.
+
+        Parameters
+        ----------
+        series_x : array-like
+            x-series data for the line plot.
+        series_y : array-like
+            y-series data for the line plot.
+        color : str or tuple, optional
+            Color of the line plot in the form of a string or a tuple of RGB values. Default is (0, 0, 1, 1) (blue).
+        alpha : float, optional
+            Alpha (transparency) value of the line plot. Default is 1.
+        marker : str, optional
+            Marker style for the data points in the line plot. Default is ".".
+        linestyle : str, optional
+            Style of the line in the line plot. Default is "-".
+        linewidth : float, optional
+            Width of the line in the line plot. Default is None (i.e., use default linewidth).
+        markersize : float, optional
+            Size of the markers used in the line plot. Default is None (i.e., use default markersize).
+        **kwargs : dict
+            Additional keyword arguments passed to the `plot` method of the underlying matplotlib axis object.
+        """
+
         series_x, series_y = Series(series_x), Series(series_y)
         color = self.get_color(color, alpha)
         # self.plot(series_x, series_y, color=color, linewidth=self.lw if linewidth is None else linewidth, zorder=1.9999, linestyle=linestyle)
@@ -491,6 +1215,38 @@ class Figure(object):
             self.plot(series_x, series_y, color=color, linewidth=self.lw if linewidth is None else linewidth, zorder=1.9999, linestyle=linestyle, marker=marker, markersize=self.ms if markersize is None else markersize)
 
     def lineplotwithstats(self, series_group_x, series_group_y, color=(0, 0, 1, 1), alpha=1, marker=".", linestyle="-", alpha_stats=0.5, linestyle_stats=None, plot_std=False, plot_ste=True, plot_iqr=False, grouped_per_line=True, **kwargs):
+        """Plot a line plot with statistics on the axes.
+
+        Parameters
+        ----------
+        series_group_x : pandas.Series or array-like
+            Data for the x-axis, grouped by line.
+        series_group_y : pandas.Series or array-like
+            Data for the y-axis, grouped by line.
+        color : str or tuple, optional
+            Color of the line plot.
+        alpha : float, optional
+            Alpha value of the line plot.
+        marker : str or None, optional
+            Marker style of the line plot.
+        linestyle : str, optional
+            Line style of the line plot.
+        alpha_stats : float, optional
+            Alpha value of the statistics line plot.
+        linestyle_stats : str, optional
+            Line style of the statistics line plot.
+        plot_std : bool, optional
+            Whether to plot standard deviation statistics.
+        plot_ste : bool, optional
+            Whether to plot standard error statistics.
+        plot_iqr : bool, optional
+            Whether to plot interquartile range statistics.
+        grouped_per_line : bool, optional
+            Whether data is grouped per line or not.
+        **kwargs : dict
+            Additional plotting options.
+        """
+            
         series_group_x, series_group_y = SeriesGroup(series_group_x), SeriesGroup(series_group_y)
         series_x = [Series([series[i] for series in series_group_x]) for i in range(len(series_group_x[0]))] if grouped_per_line else series_group_x
         series_y = [Series([series[i] for series in series_group_y]) for i in range(len(series_group_y[0]))] if grouped_per_line else series_group_y
@@ -508,6 +1264,50 @@ class Figure(object):
             self.lineplot([series.mean + series.ste for series in series_x], [series.mean + series.ste for series in series_y], color=color, alpha=alpha if alpha_stats is None else alpha_stats, marker=marker, linestyle=linestyle if linestyle_stats is None else linestyle_stats, **kwargs)
 
     def scatterplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", markerfill="full", markersize=None, plot_scatter=True, plot_unity=False, plot_mean=False, plot_kde=False, nbins=0, groupn=0, linestyle="-", ncontours=10, fillcontours=False, markeredgewidth=0, print_correlation=False, **kwargs):
+        """Creates a scatter plot of two Series objects, with optional additional visualizations such as mean and KDE plots.
+
+        Parameters:
+        -----------
+        series_x : Series
+            A Series object containing the x-axis values for the scatter plot.
+        series_y : Series
+            A Series object containing the y-axis values for the scatter plot.
+        color : tuple or str, optional
+            The color of the scatter plot. If a tuple, must be a RGB(A) tuple with values between 0 and 1. If a str, must be a key in the color_dict attribute. Default is (0, 0, 1, 1) (blue).
+        alpha : float, optional
+            The transparency of the scatter plot markers. Must be a value between 0 and 1. Default is 1 (fully opaque).
+        marker : str, optional
+            The marker type for the scatter plot markers. Must be a valid marker string. Default is "." (dot).
+        markerfill : str, optional
+            The fill style of the scatter plot markers. Must be "full", "left", "right", "bottom", "top", or "none". Default is "full".
+        markersize : float, optional
+            The size of the scatter plot markers. If None, uses the value of the ms attribute. Default is None.
+        plot_scatter : bool, optional
+            Whether to plot the scatter plot markers. Default is True.
+        plot_unity : bool, optional
+            Whether to plot a diagonal unity line in the scatter plot. Default is False.
+        plot_mean : bool, optional
+            Whether to plot the mean point of the scatter plot. Default is False.
+        plot_kde : bool, optional
+            Whether to plot a 2D KDE plot of the scatter plot. Uses seaborn's kdeplot. Default is False.
+        nbins : int, optional
+            If > 0, bins the x-axis data into nbins bins, and plots the mean y value of each bin against the mean x value of the bin. Default is 0.
+        groupn : int, optional
+            If > 0, groups the x-axis data into groupn groups, and plots the mean y value of each group against the mean x value of the group. Default is 0.
+        linestyle : str, optional
+            The linestyle for the lines connecting the binned or grouped means. Default is "-".
+        ncontours : int, optional
+            If plot_kde is True, the number of contour lines to plot in the KDE plot. Default is 10.
+        fillcontours : bool, optional
+            If plot_kde is True, whether to fill the contour lines in the KDE plot. Default is False.
+        markeredgewidth : float, optional
+            The width of the marker edges in the scatter plot. Default is 0 (no edge).
+        print_correlation : bool, optional
+            Whether to print the Pearson correlation coefficient of the x and y data on the plot. Default is False.
+        **kwargs :
+            Additional keyword arguments to pass to the underlying plotting methods.
+        """
+
         series_x, series_y = Series(series_x), Series(series_y)
         ms = self.ms if markersize is None else markersize
         if print_correlation:
@@ -554,6 +1354,30 @@ class Figure(object):
             sb.kdeplot(ax=self.ax, x=series_x, y=series_y, colors=[color[:3]], alpha=alpha, linewidths=self.lw, zorder=1.9999, linestyles=linestyle, levels=ncontours, fill=fillcontours)
 
     def blandaltmanplot(self, series_x, series_y, color=(0, 0, 1, 1), alpha=1, marker=".", plot_unity=True, nbins=0, alpha_stats=None, **kwargs):
+        """Create a Bland-Altman plot showing the difference between two series against their mean.
+
+        Parameters
+        ----------
+        series_x : array-like
+            The first series to compare.
+        series_y : array-like
+            The second series to compare.
+        color : str or tuple, optional
+            The color of the plot (default is '(0, 0, 1, 1)', which is blue).
+        alpha : float, optional
+            The opacity of the plot (default is 1).
+        marker : str, optional
+            The marker style (default is '.').
+        plot_unity : bool, optional
+            Whether to plot the unity line (default is True).
+        nbins : int, optional
+            The number of bins to use for binning the data (default is 0, which means no binning).
+        alpha_stats : float or None, optional
+            The opacity of the statistical lines (default is None, which means it uses the same value as 'alpha').
+        **kwargs
+            Additional keyword arguments to pass to the plotting functions.
+        """
+
         series_x, series_y = Series(series_x), Series(series_y)
         series_mean = Series(np.mean([series_x.series, series_y.series], axis=0))
         series_diff = Series(series_y.series - series_x.series)
@@ -581,6 +1405,42 @@ class Figure(object):
         self.plot(series_mean, series_diff, color=color, linestyle="None", marker=marker, markersize=self.ms)
 
     def boxplot(self, series, pos, direction="vertical", width=0.8, fc=(0, 0, 1, 0.5), ec=None, project_stats=False, plot_violin=False, violin_color=None, print_mean=True, different_from=None, mean_formatting="{0:.3g}", confidences=False, alpha=None, **kwargs):
+        """Generate a box plot.
+
+        Parameters
+        ----------
+        series : array_like
+            Input data.
+        pos : float
+            The x or y coordinate of the box plot. The interpretation of the value depends on the `direction` parameter.
+        direction : {"vertical", "horizontal"}, optional
+            The direction of the box plot. Default is "vertical".
+        width : float, optional
+            The width of the box plot. Default is 0.8.
+        fc : array_like, optional
+            The face color of the boxes. Default is (0, 0, 1, 0.5).
+        ec : array_like or None, optional
+            The edge color of the boxes. If None, it is set to the same color as `fc` but with alpha 1. Default is None.
+        project_stats : bool, optional
+            Whether to project the statistics onto the opposite axis. Default is False.
+        plot_violin : bool, optional
+            Whether to plot a violin plot instead of a box plot. Default is False.
+        violin_color : array_like or None, optional
+            The face color of the violin plot. If None, it is set to the same as `fc`. Default is None.
+        print_mean : bool, optional
+            Whether to print the mean value on the box plot. Default is True.
+        different_from : float or None, optional
+            A value to compare the input data to, to test if they are statistically different. If None, no significance testing is performed. Default is None.
+        mean_formatting : str, optional
+            The format string used to print the mean value. Default is "{0:.3g}".
+        confidences : bool, optional
+            Whether to plot confidence intervals instead of a box plot. Default is False.
+        alpha : float or None, optional
+            The alpha value for the box or violin plot. If None, the value is set automatically based on the number of box or violin plots. Default is None.
+        **kwargs
+            Additional arguments passed to the underlying plot function.
+        """
+
         series = Series(series)
         width2 = width / 2
         fc = self.get_color(fc, alpha=alpha)
@@ -663,6 +1523,30 @@ class Figure(object):
                 self.plot([different_from, different_from], [pos - 0.5, pos + 0.5], "k:", linewidth=self.lw, zorder=1.99)
 
     def barplot(self, series, pos, offset=0, direction="vertical", width=0.8, fc=(0, 0, 1, 0.5), ec=None, print_mean=False, plot_error_bar=False, **kwargs):
+        """Draw a bar plot of a given series at the specified position.
+
+        Parameters
+        ----------
+        series : array-like
+            Input data for the bar plot.
+        pos : float
+            The position at which the bar plot will be drawn.
+        offset : float, optional
+            The offset from the left or bottom side of the plot.
+        direction : {'vertical', 'horizontal'}, optional
+            The direction of the bar plot.
+        width : float, optional
+            The width of the bars.
+        fc : color or tuple, optional
+            The face color of the bars.
+        ec : color or tuple or None or False, optional
+            The edge color of the bars. If None, it will be the same as the face color. If False, there will be no edge.
+        print_mean : bool, optional
+            Whether to print the mean value of the data on top of the bars.
+        plot_error_bar : bool, optional
+            Whether to plot the error bar of the data as a vertical line.
+        """
+        
         series = Series(series)
         width2 = width / 2
         if ec is None:
@@ -680,6 +1564,45 @@ class Figure(object):
 
 
 class Boxplot(Figure):
+    """A subclass of Figure for creating boxplots of grouped data.
+
+    Parameters
+    ----------
+    grouped_series : list of lists of Series
+        The data to be plotted in boxplots. Each list of Series represents a group of data to be plotted together.
+    labels : list of str, optional
+        The labels for each group of data.
+    xalim : tuple of float, optional
+        The limits of the x-axis.
+    yalim : tuple of float, optional
+        The limits of the y-axis.
+    positions : list of lists of float, optional
+        The positions of the boxes in the plot.
+    inchesperposition : float, optional
+        The size of the distance between positions.
+    colors : list of lists of str, optional
+        The colors of the boxes in the plot.
+    alpha : float or list of lists of float, optional
+        The transparency of the boxes in the plot.
+    direction : {"vertical", "horizontal"}, optional
+        The direction of the plot.
+    l0_stats : bool, optional
+        Whether to plot pairwise statistical significance comparisons within groups of data.
+    l1_stats : bool, optional
+        Whether to plot pairwise statistical significance comparisons between groups of data.
+    p_value_threshold : float, optional
+        The threshold for statistical significance.
+    different_from : list of lists of bool, optional
+        The groups of data that should be compared in pairwise comparisons.
+    incremental_stats : bool, optional
+        Whether to incrementally perform pairwise comparisons.
+
+    Methods
+    -------
+    plot_boxplot(self, figure, grouped_series, positions, colors, alpha, direction, l0_stats, l1_stats, p_value_threshold, different_from, incremental_stats, **kwargs)
+        A method for plotting boxplots.
+    """
+        
     def __init__(self, grouped_series, labels=None, xalim=None, yalim=None, positions=None, inchesperposition=None, colors=None, alpha=0.5, direction="vertical", l0_stats=False, l1_stats=False, p_value_threshold=None, different_from=None, incremental_stats=False, **kwargs):
         [grouped_series], xalim, yalim, self.colors, self.kwargs = Figure.prepare("grouped_series", [grouped_series], xalim, yalim, colors, positions=positions, labels=labels, inchesperposition=inchesperposition, direction=direction, **kwargs)
         self.positions, self.labels, self.inchesperposition, self.direction, self.alpha, self.different_from, self.l0_stats, self.l1_stats, self.p_value_threshold, self.incremental_stats = self.kwargs.pop("positions"), self.kwargs.pop("labels"), self.kwargs.pop("inchesperposition"), self.kwargs.pop("direction"), alpha, different_from, l0_stats, l1_stats, p_value_threshold, incremental_stats
@@ -776,6 +1699,47 @@ class Boxplot(Figure):
 
 
 class Barplot(Figure):
+    """A figure subclass that creates bar plots.
+
+    Parameters
+    ----------
+    grouped_series : list of lists of Series or array-like of shape (n_groups, n_series)
+        The data to plot. Each element in the outer list corresponds to a group of bars, and each element in the inner lists
+        corresponds to a series of bars within that group. The Series should be numeric.
+    labels : list of str, optional
+        The labels to use for the x-axis ticks. If None, the labels will be auto-generated.
+    xalim : tuple of 2 floats, optional
+        The limits of the x-axis. If None, the limits will be auto-determined.
+    yalim : tuple of 2 floats, optional
+        The limits of the y-axis. If None, the limits will be auto-determined.
+    positions : list of lists of floats, optional
+        The x-positions of the bars. If None, the positions will be auto-generated.
+    inchesperposition : float, optional
+        The spacing between bar positions in inches. Only used if positions is None.
+    colors : list of lists of str or tuple, optional
+        The colors to use for each bar. If None, the colors will be auto-generated.
+    alpha : float or list of lists of float, optional
+        The transparency of each bar. If a single float is provided, it will be used for all bars. If a list of lists
+        is provided, each element of the outer list should correspond to a group of bars, and each element of the inner
+        lists should correspond to a series of bars within that group.
+    direction : {'vertical', 'horizontal'}, optional
+        The direction in which to plot the bars.
+    grouped_offsets : list of lists of floats, optional
+        The y-offsets of the bars for each group. If None, the bars will be plotted with zero offset.
+
+    Attributes
+    ----------
+    fig : matplotlib.figure.Figure
+        The Figure object.
+    ax : matplotlib.axes.Axes
+        The Axes object.
+
+    Methods
+    -------
+    plot_barplot(figure, grouped_series, positions, colors, alpha=0.5, direction="vertical", grouped_offsets=None, **kwargs)
+        Plot a bar plot on the given figure.
+    """
+        
     def __init__(self, grouped_series, labels=None, xalim=None, yalim=None, positions=None, inchesperposition=None, colors=None, alpha=0.5, direction="vertical", grouped_offsets=None, **kwargs):
         [grouped_series, self.grouped_offsets], xalim, yalim, self.colors, self.kwargs = Figure.prepare("grouped_series", [grouped_series, grouped_offsets], xalim, yalim, colors, positions=positions, labels=labels, inchesperposition=inchesperposition, direction=direction, **kwargs)
         self.positions, self.labels, self.inchesperposition, self.direction, self.alpha = self.kwargs.pop("positions"), self.kwargs.pop("labels"), self.kwargs.pop("inchesperposition"), self.kwargs.pop("direction"), alpha
@@ -790,6 +1754,34 @@ class Barplot(Figure):
 
 
 class Lineplot(Figure):
+    """A class for creating a line plot.
+
+    Parameters
+    ----------
+    series_group_x : list of pandas.Series
+        A list of pandas Series containing the x values for each line.
+    series_group_y : list of pandas.Series
+        A list of pandas Series containing the y values for each line.
+    xalim : tuple, optional
+        A tuple of the form (xmin, xmax) specifying the limits of the x-axis. If not specified, the limits will be
+        automatically determined based on the data.
+    yalim : tuple, optional
+        A tuple of the form (ymin, ymax) specifying the limits of the y-axis. If not specified, the limits will be
+        automatically determined based on the data.
+    colors : list of str, optional
+        A list of colors to use for the lines. If not specified, a default color cycle will be used.
+    alpha : float or list of float, optional
+        The alpha value(s) to use for the line(s). If a single value is given, it will be applied to all lines. If a
+        list is given, it must be the same length as the number of lines.
+    **kwargs : additional keyword arguments
+        Additional keyword arguments to pass to the underlying plotting functions.
+
+    Attributes
+    ----------
+    alpha : float or list of float
+        The alpha value(s) used for the line(s).
+    """
+     
     def __init__(self, series_group_x, series_group_y, xalim=None, yalim=None, colors=None, alpha=1, **kwargs):
         [series_group_x, series_group_y], xalim, yalim, self.colors, self.kwargs = Figure.prepare("series_group", [series_group_x, series_group_y], xalim, yalim, colors, **kwargs)
         self.alpha = alpha
@@ -803,6 +1795,35 @@ class Lineplot(Figure):
 
 
 class Lineplotwithstats(Figure):
+    """A class for creating line plots with statistical analysis.
+
+    Parameters
+    ----------
+    grouped_series_x : list of lists of array-like
+        The x-axis data for the line plot. Each element of the outer list represents a group of series, and each element of
+        the inner list represents a series.
+    grouped_series_y : list of lists of array-like
+        The y-axis data for the line plot. Each element of the outer list represents a group of series, and each element of
+        the inner list represents a series.
+    xalim : tuple of 2 floats, optional
+        The limits for the x-axis. The first float is the minimum limit and the second float is the maximum limit.
+    yalim : tuple of 2 floats, optional
+        The limits for the y-axis. The first float is the minimum limit and the second float is the maximum limit.
+    colors : array-like or list of color codes, optional
+        The color codes to use for the lines. If a single color code is given, it will be used for all lines. If a list of color
+        codes is given, each element will be used for the corresponding line.
+    alpha : float or array-like, optional
+        The transparency of the lines. If a single float is given, it will be used for all lines. If an array-like object is
+        given, each element will be used for the corresponding line.
+    **kwargs
+        Additional keyword arguments to be passed to the `Figure` constructor.
+
+    Methods
+    -------
+    plot_lineplotwithstats(figure, grouped_series_x, grouped_series_y, colors, alpha, **kwargs)
+        Plots the line plot with statistical analysis.
+    """
+     
     def __init__(self, grouped_series_x, grouped_series_y, xalim=None, yalim=None, colors=None, alpha=1, **kwargs):
         [grouped_series_x, grouped_series_y], xalim, yalim, self.colors, self.kwargs = Figure.prepare("grouped_series", [grouped_series_x, grouped_series_y], xalim, yalim, colors, color_mode="series_group", **kwargs)
         self.alpha = alpha
@@ -816,6 +1837,32 @@ class Lineplotwithstats(Figure):
 
 
 class Scatterplot(Figure):
+    """A scatter plot figure.
+
+    Parameters
+    ----------
+    series_group_x : list of array-like
+        The x-values of the scatter plot. Each element of the list corresponds to a group of x-values.
+    series_group_y : list of array-like
+        The y-values of the scatter plot. Each element of the list corresponds to a group of y-values.
+    xalim : tuple of 2 floats, optional
+        The lower and upper limits of the x-axis.
+    yalim : tuple of 2 floats, optional
+        The lower and upper limits of the y-axis.
+    colors : list of str or array-like, optional
+        The colors of the scatter plot. If a list of strings is provided, each element corresponds to a group of points.
+        If an array-like object is provided, it should have the same shape as `series_group_x` and `series_group_y`.
+    alpha : float, optional
+        The transparency of the scatter plot.
+    **kwargs
+        Additional keyword arguments to pass to `Figure`.
+
+    Methods
+    -------
+    plot_scatterplot(figure, series_group_x, series_group_y, colors, alpha, **kwargs)
+        Plots the scatter plot.
+    """
+
     def __init__(self, series_group_x, series_group_y, xalim=None, yalim=None, colors=None, alpha=1, **kwargs):
         [series_group_x, series_group_y], xalim, yalim, self.colors, self.kwargs = Figure.prepare("series_group", [series_group_x, series_group_y], xalim, yalim, colors, **kwargs)
         self.alpha = alpha
@@ -830,6 +1877,36 @@ class Scatterplot(Figure):
 
 
 class Blandaltmanplot(Figure):
+    """A figure class for creating Bland-Altman plots.
+
+    Parameters
+    ----------
+    series_group_x : list of Series or array-like
+        Input data for the x-axis.
+    series_group_y : list of Series or array-like
+        Input data for the y-axis.
+    xalim : tuple, optional
+        Tuple specifying the lower and upper limits of the x-axis.
+    yalim : tuple, optional
+        Tuple specifying the lower and upper limits of the y-axis.
+    colors : list or array-like, optional
+        A list of colors to use for each series in the input data.
+    alpha : float, optional
+        The alpha value for the plotted points.
+    **kwargs
+        Additional keyword arguments to be passed to the `Figure` constructor.
+
+    Attributes
+    ----------
+    alpha : float
+        The alpha value for the plotted points.
+
+    Methods
+    -------
+    plot_blandaltmanplot(figure, series_group_x, series_group_y, colors, alpha, **kwargs)
+        Method to create the Bland-Altman plot.
+    """
+
     def __init__(self, series_group_x, series_group_y, xalim=None, yalim=None, colors=None, alpha=1, **kwargs):
         series_group_x, series_group_y = SeriesGroup(series_group_x), SeriesGroup(series_group_y)
         series_group_mean = SeriesGroup([np.mean([series_x.series, series_y.series], axis=0) for series_x, series_y in zip(series_group_x, series_group_y)])
