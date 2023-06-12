@@ -6,12 +6,14 @@ The Modality class stores the raw image data and its affine transformation, with
 """
 
 import os
+import glob
 import numpy as np
 import nibabel as nib
 import pandas as pd
 from deepvoxnet2.components.sample import Sample
 from PIL import Image
 from matplotlib import pyplot as plt
+from sklearn.model_selection import KFold
 
 
 class SortedDict(dict):
@@ -421,6 +423,65 @@ class Dataset(SortedDict):
 
         assert case.case_id not in self
         self[case.case_id] = case
+
+    @staticmethod
+    def from_nnUNetv2_dataset(dataset_dir, fold="all", nb_folds=5, file_extension=".nii.gz"):
+        assert file_extension in [".nii", ".nii.gz"], "Currently we only support nifti files."
+        images_dir_trainval = os.path.join(dataset_dir, "imagesTr")
+        labels_dir_trainval = os.path.join(dataset_dir, "labelsTr")
+        images_dir_test = os.path.join(dataset_dir, "imagesTs")
+        case_ids_trainval = ["_".join(filename.split("_")[:-1]) for filename in sorted(os.listdir(images_dir_trainval))if not filename.startswith(".") and filename.endswith(file_extension)]
+        if os.path.isdir(images_dir_test):
+            case_ids_test = ["_".join(filename.split("_")[:-1]) for filename in sorted(os.listdir(images_dir_test))if not filename.startswith(".") and filename.endswith(file_extension)]
+        
+        else:
+            case_ids_test = []
+
+        dataset_id = os.path.split(dataset_dir)[1]
+        if fold == "all":
+            train_dataset_id = f"{dataset_id}_train"
+            val_dataset_id = f"{dataset_id}_val"
+            case_ids_train = case_ids_trainval
+            case_ids_val = []
+        
+        else:
+            assert nb_folds > 1 and fold in range(nb_folds), "Please make sure to specify a fold that's smaller than the total number of folds specified in nb_folds > 1."
+            train_dataset_id = f"{dataset_id}_train_{fold}-{nb_folds}"
+            val_dataset_id = f"{dataset_id}_val_{fold}-{nb_folds}"
+            kfold = KFold(n_splits=nb_folds, shuffle=True, random_state=12345)
+            for fold_i, (train_idx, val_idx) in enumerate(kfold.split(case_ids_trainval)):
+                if fold_i == fold:
+                    case_ids_train = [case_ids_trainval[i] for i in train_idx]
+                    case_ids_val = [case_ids_trainval[i] for i in val_idx]
+                    break
+        
+        train_dataset, val_dataset = Dataset(train_dataset_id), Dataset(val_dataset_id)
+        for case_id in case_ids_trainval:
+            case = Case(case_id)
+            record = Record("record_0")
+            record.add(NiftiFileModality("label", os.path.join(labels_dir_trainval, f"{case_id}{file_extension}")))
+            for i, channel_path in enumerate(sorted(glob.glob(os.path.join(images_dir_trainval, f"{case_id}_*.nii.gz")))):
+                record.add(NiftiFileModality("channel_{:04}".format(i), channel_path))
+
+            case.add(record)
+            if case_id in case_ids_train:
+                train_dataset.add(case)
+            
+            else:
+                assert case_id in case_ids_val
+                val_dataset.add(case)
+
+        test_dataset = Dataset(f"{dataset_id}_test")
+        for case_id in case_ids_test:
+            case = Case(case_id)
+            record = Record("record_0")
+            for i, channel_path in enumerate(sorted(glob.glob(os.path.join(images_dir_test, f"{case_id}_*.nii.gz")))):
+                record.add(NiftiFileModality("channel_{:04}".format(i), channel_path))
+            
+            case.add(record)
+            test_dataset.add(case)
+
+        return train_dataset, val_dataset, test_dataset
 
 
 class Case(SortedDict):
