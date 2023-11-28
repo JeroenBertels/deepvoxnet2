@@ -1818,7 +1818,18 @@ class RandomCrop(Crop):
     def _randomize(self):
         if self.n_ == 0:
             assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
-            if random.random() < self.nonzero:
+            if self.nonzero == "p":
+                values, counts = np.unique(self.reference_connection[0], return_counts=True)
+                p = 1 / counts / np.sum(1 / counts)
+                self.coordinates, coordinates_dict = [], {}
+                for v in np.random.choice(values, size=self.ncrops, p=p):
+                    if v not in coordinates_dict:
+                        coordinates_dict[v] = np.where(self.reference_connection[0] == v)
+
+                    c = random.randrange(len(coordinates_dict[v][0]))
+                    self.coordinates.append((coordinates_dict[v][1][c], coordinates_dict[v][2][c], coordinates_dict[v][3][c]))
+                    
+            elif random.random() < self.nonzero:
                 self.coordinates = list(zip(*np.nonzero(np.any(self.reference_connection[0] != 0, axis=(0, -1)))))
                 if len(self.coordinates) > 0 and self.ncrops is not None:
                     self.coordinates = [random.choice(self.coordinates) for _ in range(self.ncrops)]
