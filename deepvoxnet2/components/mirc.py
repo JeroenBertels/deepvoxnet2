@@ -336,13 +336,13 @@ class Mirc(SortedDict):
             for dataset_id in dataset_ids:
                 for case_id in self[dataset_id]:
                     for record_id in self[dataset_id][case_id]:
-                        reference_modality = self[dataset_id][case_id][record_id][modality_ids[0]].load()
+                        reference_shape, reference_affine = self[dataset_id][case_id][record_id][modality_ids[0]].shape, self[dataset_id][case_id][record_id][modality_ids[0]].affine
                         for i, modality_id in enumerate(modality_ids):
-                            modality = self[dataset_id][case_id][record_id][modality_id].load()
-                            assert np.allclose(modality.affine, reference_modality.affine, rtol=rtol, atol=atol), f"Affine of {dataset_id}-{case_id}-{record_id}-{modality_id} is not equal to the reference from {modality_ids[0]}."
-                            assert np.array_equal(reference_modality.shape[1:4], modality.shape[1:4])
-                            img_sizes.append(modality.shape[1:4])
-                            voxel_sizes.append([s.round(2) for s in np.linalg.norm(modality.affine[0][:3, :3], 2, axis=0)])
+                            modality_shape, modality_affine = self[dataset_id][case_id][record_id][modality_id].shape, self[dataset_id][case_id][record_id][modality_id].affine
+                            assert np.allclose(modality_affine, reference_affine, rtol=rtol, atol=atol), f"Affine of {dataset_id}-{case_id}-{record_id}-{modality_id} is not equal to the reference from {modality_ids[0]}."
+                            assert np.array_equal(reference_shape[1:4], modality_shape[1:4])
+                            img_sizes.append(modality_shape[1:4])
+                            voxel_sizes.append([s.round(2) for s in np.linalg.norm(modality_affine[0][:3, :3], 2, axis=0)])
 
             fig, axs = plt.subplots(3, 3, figsize=(9, 10))
             for i in range(3):
@@ -377,6 +377,11 @@ class Mirc(SortedDict):
 
             plt.suptitle(" + ".join(dataset_ids))
             plt.show()
+
+    @staticmethod
+    def from_nnUNetv2_dataset(*nnUNetv2_dataset_args, **nnUNetv2_dataset_kwargs):
+        train_dataset, val_dataset, test_dataset = Dataset.from_nnUNetv2_dataset(*nnUNetv2_dataset_args, **nnUNetv2_dataset_kwargs)
+        return Mirc(train_dataset), Mirc(val_dataset), Mirc(test_dataset)
 
 
 class Dataset(SortedDict):
@@ -430,9 +435,10 @@ class Dataset(SortedDict):
         images_dir_trainval = os.path.join(dataset_dir, "imagesTr")
         labels_dir_trainval = os.path.join(dataset_dir, "labelsTr")
         images_dir_test = os.path.join(dataset_dir, "imagesTs")
-        case_ids_trainval = ["_".join(filename.split("_")[:-1]) for filename in sorted(os.listdir(images_dir_trainval))if not filename.startswith(".") and filename.endswith(file_extension)]
+        labels_dir_test = os.path.join(dataset_dir, "labelsTs")
+        case_ids_trainval = ["_".join(filename.split("_")[:-1]) for filename in sorted(os.listdir(images_dir_trainval)) if not filename.startswith(".") and filename.endswith(file_extension)]
         if os.path.isdir(images_dir_test):
-            case_ids_test = ["_".join(filename.split("_")[:-1]) for filename in sorted(os.listdir(images_dir_test))if not filename.startswith(".") and filename.endswith(file_extension)]
+            case_ids_test = ["_".join(filename.split("_")[:-1]) for filename in sorted(os.listdir(images_dir_test)) if not filename.startswith(".") and filename.endswith(file_extension)]
         
         else:
             case_ids_test = []
@@ -459,6 +465,7 @@ class Dataset(SortedDict):
         for case_id in case_ids_trainval:
             case = Case(case_id)
             record = Record("record_0")
+            assert os.path.isfile(os.path.join(labels_dir_trainval, f"{case_id}{file_extension}"))
             record.add(NiftiFileModality("label", os.path.join(labels_dir_trainval, f"{case_id}{file_extension}")))
             for i, channel_path in enumerate(sorted(glob.glob(os.path.join(images_dir_trainval, f"{case_id}_*.nii.gz")))):
                 record.add(NiftiFileModality("channel_{:04}".format(i), channel_path))
@@ -475,6 +482,10 @@ class Dataset(SortedDict):
         for case_id in case_ids_test:
             case = Case(case_id)
             record = Record("record_0")
+            if os.path.isdir(labels_dir_test):
+                assert os.path.isfile(os.path.join(labels_dir_test, f"{case_id}{file_extension}"))
+                record.add(NiftiFileModality("label", os.path.join(labels_dir_test, f"{case_id}{file_extension}")))
+
             for i, channel_path in enumerate(sorted(glob.glob(os.path.join(images_dir_test, f"{case_id}_*.nii.gz")))):
                 record.add(NiftiFileModality("channel_{:04}".format(i), channel_path))
             
@@ -592,7 +603,7 @@ class Modality(object):
         An abstract method to load the modality data.
     """
 
-    def __init__(self, modality_id, modality_dir=None):
+    def __init__(self, modality_id, modality_dir=None, shape=None, affine=None):
         """Constructor of the Modality class.
 
         Parameters
@@ -605,6 +616,8 @@ class Modality(object):
 
         self.modality_id = modality_id
         self.modality_dir = modality_dir
+        self.shape = Sample.ln_to_l5(shape)
+        self.affine = Sample.aff_to_144(affine)
 
     def load(self):
         """An abstract method to load the modality data.
@@ -658,9 +671,8 @@ class ArrayModality(Modality):
             The affine transformation matrix for the modality data. Default is None.
         """
 
-        super(ArrayModality, self).__init__(modality_id)
+        super(ArrayModality, self).__init__(modality_id, shape=array.shape, affine=affine)
         self.array = array
-        self.affine = affine
 
     def load(self):
         """Returns a Sample object with the modality data and affine matrix.
@@ -706,7 +718,7 @@ class NiftyModality(Modality):
             NIfTI image object containing the modality data.
         """
 
-        super(NiftyModality, self).__init__(modality_id)
+        super(NiftyModality, self).__init__(modality_id, shape=nifty.shape, affine=nifty.affine)
         self.nifty = nifty
 
     def load(self):
@@ -718,7 +730,7 @@ class NiftyModality(Modality):
             ndarray subclass with an associated affine representing the loaded modality data.
         """
 
-        return Sample(self.nifty.get_fdata(caching="unchanged"), self.nifty.affine)
+        return Sample(self.nifty.get_fdata(caching="unchanged"), self.affine)
 
 
 NiftiModality = NiftyModality
@@ -760,8 +772,10 @@ class NiftyFileModality(Modality):
             The new `NiftyFileModality` object.
         """
 
-        super(NiftyFileModality, self).__init__(modality_id, os.path.dirname(file_path))
+        nifty = nib.load(file_path)
+        super(NiftyFileModality, self).__init__(modality_id, os.path.dirname(file_path), shape=nifty.shape, affine=nifty.affine)
         self.file_path = file_path
+        self.nifty = nifty
 
     def load(self):
         """Load the modality data from the NIfTI file.
@@ -772,8 +786,7 @@ class NiftyFileModality(Modality):
             A Sample object representing the modality data.
         """
 
-        nii = nib.load(self.file_path)
-        return Sample(nii.get_fdata(caching="unchanged"), nii.affine)
+        return Sample(self.nifty.get_fdata(caching="unchanged"), self.affine)
 
 
 NiftiFileModality = NiftyFileModality
@@ -821,7 +834,12 @@ class NiftyFileMultiModality(Modality):
                 in the files will be concatenated along the specified axis. Defaults to 'stack'.
         """
 
-        super(NiftyFileMultiModality, self).__init__(modality_id)
+        assert axis in [0, -1], "For now only first and last axes are supported!"
+        niftys = [nib.load(file_path) for file_path in file_paths]
+        assert all([np.allclose(niftys[0].affine, nii.affine) for nii in niftys[1:]]), "Not all affines are equal!"
+        shape = np.concatenate([nii.shape for nii in niftys], axis=axis) if mode == "concat" else np.stack([nii.shape for nii in niftys], axis=axis)
+        affine = [niftys[0].affine] if mode == "concat" else [niftys[0].affine] * len(niftys)
+        super(NiftyFileMultiModality, self).__init__(modality_id, shape=shape, affine=affine)
         self.file_paths = file_paths
         self.axis = axis
         self.mode = mode
@@ -840,15 +858,13 @@ class NiftyFileMultiModality(Modality):
             If any of the NIfTI files cannot be loaded.
         """
 
-        niis = [nib.load(file_path) for file_path in self.file_paths]
-        # assert all([np.allclose(niis[0].affine, nii.affine) for nii in niis[1:]]), "Not all affines are equal!"
         if self.mode == "concat":
-            array = np.concatenate([nii.get_fdata(caching="unchanged") for nii in niis], axis=self.axis)
+            array = np.concatenate([nii.get_fdata(caching="unchanged") for nii in niftys], axis=self.axis)
 
         else:
-            array = np.stack([nii.get_fdata(caching="unchanged") for nii in niis], axis=self.axis)
+            array = np.stack([nii.get_fdata(caching="unchanged") for nii in niftys], axis=self.axis)
 
-        return Sample(array, niis[0].affine)
+        return Sample(array, self.affine)
 
 
 NiftiFileMultiModality = NiftyFileMultiModality
@@ -881,7 +897,11 @@ class NiftyMultiModality(Modality):
         """Initializes a new instance of the NiftyMultiModality class.
         """
 
-        super(NiftyMultiModality, self).__init__(modality_id)
+        assert axis in [0, -1], "For now only first and last axes are supported!"
+        assert all([np.allclose(niftys[0].affine, nii.affine) for nii in niftys[1:]]), "Not all affines are equal!"
+        shape = np.concatenate([nii.shape for nii in niftys], axis=axis) if mode == "concat" else np.stack([nii.shape for nii in niftys], axis=axis)
+        affine = [niftys[0].affine] if mode == "concat" else [niftys[0].affine] * len(niftys)
+        super(NiftyMultiModality, self).__init__(modality_id, shape=shape, affine=affine)
         self.niftys = niftys
         self.axis = axis
         self.mode = mode
@@ -895,15 +915,13 @@ class NiftyMultiModality(Modality):
             The NIfTI images in this modality as a Sample.
         """
 
-        niis = self.niftys
-        # assert all([np.allclose(niis[0].affine, nii.affine) for nii in niis[1:]]), "Not all affines are equal!"
         if self.mode == "concat":
-            array = np.concatenate([nii.get_fdata(caching="unchanged") for nii in niis], axis=self.axis)
+            array = np.concatenate([nii.get_fdata(caching="unchanged") for nii in self.niftys], axis=self.axis)
 
         else:
-            array = np.stack([nii.get_fdata(caching="unchanged") for nii in niis], axis=self.axis)
+            array = np.stack([nii.get_fdata(caching="unchanged") for nii in self.niftys], axis=self.axis)
 
-        return Sample(array, niis[0].affine)
+        return Sample(array, self.affine)
 
 
 NiftiMultiModality = NiftyMultiModality
@@ -941,7 +959,7 @@ class ImageFileModality(Modality):
     PIL.Image.convert : Method used to convert the image to a numpy array.
     """
 
-    def __init__(self, modality_id, file_path, **kwargs):  # check documentation of Image.convert for **kwargs: e.g. mode, which can be "1" (binary), "RGB" (color), "L" grayscale
+    def __init__(self, modality_id, file_path, shape=None, affine=None, **kwargs):  # check documentation of Image.convert for **kwargs: e.g. mode, which can be "1" (binary), "RGB" (color), "L" grayscale
         """Initialize the ImageFileModality.
 
         Parameters
@@ -954,7 +972,7 @@ class ImageFileModality(Modality):
             Additional keyword arguments passed to PIL's `Image.convert` function.
         """
 
-        super(ImageFileModality, self).__init__(modality_id, os.path.dirname(file_path))
+        super(ImageFileModality, self).__init__(modality_id, os.path.dirname(file_path), shape=shape, affine=affine)
         self.file_path = file_path
         self.kwargs = kwargs
 
