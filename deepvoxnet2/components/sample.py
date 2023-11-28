@@ -138,6 +138,41 @@ class Sample(np.ndarray):
             return array
 
     @staticmethod
+    def ln_to_l5(shape):
+        """Converts the shape to a shape of length 5.
+
+        Parameters
+        ----------
+        shape : tuple
+            The input shape. Can have a length between 0 and 5.
+
+        Returns
+        -------
+        tuple
+            A length 5 shape representing the input shape.
+        """
+
+        shape = tuple(shape)
+        if len(shape) == 0:
+            return (1, 1, 1, 1, 1)
+
+        elif len(shape) == 1:
+            return (1,) + shape + (1, 1, 1)
+
+        elif len(shape) == 2:
+            return (1,) + shape + (1, 1)
+
+        elif len(shape) == 3:
+            return (1,) + shape + (1,)
+
+        elif len(shape) == 4:
+            return (1,) + shape
+
+        else:
+            assert len(shape) == 5, "DVN2 only supports up to 5 dimensions (i.e. 3 spatial and 1 feature dimension)."
+            return shape
+        
+    @staticmethod
     def update_affine(affine=None, transformation_matrix=None, reflection=None, shear=None, rotation=None, translation=None, scaling=None):
         """Update the affine of a Sample.
 
