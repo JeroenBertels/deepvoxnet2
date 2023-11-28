@@ -22,7 +22,7 @@ setuptools.setup(
     python_requires='>=3.8, <3.10',
     install_requires=[
         'tensorflow>=2.4,<2.8',
-        'tensorflow-addons>=0.11',
+        'tensorflow-addons>=0.11,<0.15',
         'tensorflow-probability>=0.11,<0.15',
         'numpy>=1.15',
         'scipy>=1.5',
@@ -35,7 +35,7 @@ setuptools.setup(
         'jupyter>=1.0',
         'Pillow>=8.1.0',
         'pandas>=1.2',
-        'sklearn',
+        'scikit-learn',
         'xlrd>=2.0',
         'openpyxl>=3.0',
         'opencv-python>=4.5',
