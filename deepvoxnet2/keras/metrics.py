@@ -256,7 +256,8 @@ def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False,
     assert len(tf.keras.backend.int_shape(y_true)) == 5 and len(tf.keras.backend.int_shape(y_pred)) == 5, "The input tensors/arrays y_true and y_pred to a metric function must be 5D!"
     if hasattr(y_true, "affine") and hasattr(y_pred, "affine"):
         voxel_size = tf.norm(y_true.affine[0][:3, :3], ord=2, axis=0)
-        assert np.allclose(voxel_size, tf.norm(y_pred.affine[0][:3, :3], ord=2, axis=0)), "Calculated voxel size of y_true is different from y_pred."
+        voxel_size_ = tf.norm(y_pred.affine[0][:3, :3], ord=2, axis=0)
+        assert np.allclose(voxel_size, voxel_size_), f"Calculated voxel size of y_true ({voxel_size}) is different from y_pred ({voxel_size_})."
         voxel_size = tf.concat([tf.constant([1], tf.float32), voxel_size, tf.constant([1], tf.float32)], axis=0)
         voxel_volume = tf.math.reduce_prod(voxel_size) / 1000
 
