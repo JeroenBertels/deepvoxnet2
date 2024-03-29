@@ -707,7 +707,7 @@ class NiftyModality(Modality):
         Returns the loaded modality as a Sample object, which is an ndarray subclass with an associated affine.
     """
 
-    def __init__(self, modality_id, nifty):
+    def __init__(self, modality_id, nifty, caching="unchanged"):
         """Initializes a new instance of the NiftyModality class.
 
         Parameters:
@@ -720,6 +720,7 @@ class NiftyModality(Modality):
 
         super(NiftyModality, self).__init__(modality_id, shape=nifty.shape, affine=nifty.affine)
         self.nifty = nifty
+        self.caching = caching
 
     def load(self):
         """Returns the loaded modality as a Sample object, which is an ndarray subclass with an associated affine.
@@ -730,7 +731,7 @@ class NiftyModality(Modality):
             ndarray subclass with an associated affine representing the loaded modality data.
         """
 
-        return Sample(self.nifty.get_fdata(caching="unchanged"), self.affine)
+        return Sample(self.nifty.get_fdata(caching=self.caching), self.affine)
 
 
 NiftiModality = NiftyModality
@@ -756,7 +757,7 @@ class NiftyFileModality(Modality):
     The NIfTI file should be 3D or 4D. In the case of a 4D NIfTI file, the fourth dimension is interpreted as the feature dimension.
     """
 
-    def __init__(self, modality_id, file_path):
+    def __init__(self, modality_id, file_path, caching="unchanged"):
         """Initialize a new `NiftyFileModality` object.
 
         Parameters
@@ -776,6 +777,7 @@ class NiftyFileModality(Modality):
         super(NiftyFileModality, self).__init__(modality_id, os.path.dirname(file_path), shape=nifty.shape, affine=nifty.affine)
         self.file_path = file_path
         self.nifty = nifty
+        self.caching = caching
 
     def load(self):
         """Load the modality data from the NIfTI file.
@@ -786,7 +788,7 @@ class NiftyFileModality(Modality):
             A Sample object representing the modality data.
         """
 
-        return Sample(self.nifty.get_fdata(caching="unchanged"), self.affine)
+        return Sample(self.nifty.get_fdata(caching=self.caching), self.affine)
 
 
 NiftiFileModality = NiftyFileModality
@@ -822,7 +824,7 @@ class NiftyFileMultiModality(Modality):
         Mode for combining the volumes.
     """
 
-    def __init__(self, modality_id, file_paths, axis=-1, mode="stack"):
+    def __init__(self, modality_id, file_paths, axis=-1, mode="stack", caching="unchanged"):
         """Initialize an instance of the `NiftyFileMultiModality` class.
 
         Args:
@@ -840,9 +842,11 @@ class NiftyFileMultiModality(Modality):
         shape = np.concatenate([nii.shape for nii in niftys], axis=axis) if mode == "concat" else np.stack([nii.shape for nii in niftys], axis=axis)
         affine = [niftys[0].affine] if mode == "concat" else [niftys[0].affine] * len(niftys)
         super(NiftyFileMultiModality, self).__init__(modality_id, shape=shape, affine=affine)
+        self.niftys = niftys
         self.file_paths = file_paths
         self.axis = axis
         self.mode = mode
+        self.caching = caching
 
     def load(self):
         """Load the NIfTI files and return them as a `Sample` object.
@@ -859,10 +863,10 @@ class NiftyFileMultiModality(Modality):
         """
 
         if self.mode == "concat":
-            array = np.concatenate([nii.get_fdata(caching="unchanged") for nii in niftys], axis=self.axis)
+            array = np.concatenate([nii.get_fdata(caching=self.caching) for nii in self.niftys], axis=self.axis)
 
         else:
-            array = np.stack([nii.get_fdata(caching="unchanged") for nii in niftys], axis=self.axis)
+            array = np.stack([nii.get_fdata(caching=self.caching) for nii in self.niftys], axis=self.axis)
 
         return Sample(array, self.affine)
 
@@ -893,7 +897,7 @@ class NiftyMultiModality(Modality):
         If the mode parameter is not "stack" or "concat".
     """
 
-    def __init__(self, modality_id, niftys, axis=-1, mode="stack"):
+    def __init__(self, modality_id, niftys, axis=-1, mode="stack", caching="unchanged"):
         """Initializes a new instance of the NiftyMultiModality class.
         """
 
@@ -905,6 +909,7 @@ class NiftyMultiModality(Modality):
         self.niftys = niftys
         self.axis = axis
         self.mode = mode
+        self.caching = caching
 
     def load(self):
         """Load the NIfTI images in this modality and return them as a Sample.
@@ -916,10 +921,10 @@ class NiftyMultiModality(Modality):
         """
 
         if self.mode == "concat":
-            array = np.concatenate([nii.get_fdata(caching="unchanged") for nii in self.niftys], axis=self.axis)
+            array = np.concatenate([nii.get_fdata(caching=self.caching) for nii in self.niftys], axis=self.axis)
 
         else:
-            array = np.stack([nii.get_fdata(caching="unchanged") for nii in self.niftys], axis=self.axis)
+            array = np.stack([nii.get_fdata(caching=self.caching) for nii in self.niftys], axis=self.axis)
 
         return Sample(array, self.affine)
 
