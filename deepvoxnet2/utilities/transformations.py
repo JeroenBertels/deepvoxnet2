@@ -297,7 +297,7 @@ def get_affine_matrix(I_shape, voxel_size=(1, 1, 1), reflection=(1, 1, 1), shear
     shear : tuple, optional
         The shear angle in radians for each axis in the form of (x, y, z). Default is (0, 0, 0).
     rotation : tuple, optional
-        The rotation angles in degrees for each axis in the form of (x, y, z). Default is (0, 0, 0).
+        The rotation angles in radians for each axis in the form of (x, y, z). Default is (0, 0, 0).
     translation : tuple, optional
         The translation along each axis in the form of (x, y, z). Default is (0, 0, 0).
     scaling : tuple, optional
