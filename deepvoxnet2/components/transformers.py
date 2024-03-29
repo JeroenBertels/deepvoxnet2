@@ -1265,7 +1265,7 @@ class NormalizeIndividual(Transformer):
 
 
 class NormalizeMask(Transformer):
-    def __init__(self, reference_connection, axis=(1, 2, 3), mean_shift=0, std_shift=0, mean_scale=1, std_scale=0, **kwargs):
+    def __init__(self, reference_connection, axis=(1, 2, 3), mean_shift=0, std_shift=0, mean_scale=0, std_scale=0, **kwargs):
         super(NormalizeMask, self).__init__(extra_connections=reference_connection, **kwargs)
         self.reference_connection = reference_connection
         self.axis = axis
