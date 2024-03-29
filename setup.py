@@ -22,7 +22,7 @@ setuptools.setup(
     python_requires='>=3.8, <3.10',
     install_requires=[
         'tensorflow>=2.4,<2.8',
-        'tensorflow-addons>=0.11,<0.15',
+        'tensorflow-addons>=0.11,<0.18',
         'tensorflow-probability>=0.11,<0.15',
         'numpy>=1.15',
         'scipy>=1.5',
