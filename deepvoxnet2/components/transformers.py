@@ -981,12 +981,12 @@ class Mean(Transformer):
         """
 
         super(Mean, self).__init__(**kwargs)
-        assert axis in [4, -1]
+        # assert axis in [4, -1]
         self.axis = axis if axis != -1 else 4
 
     def _update_idx(self, idx):
         for idx_, sample in enumerate(self.connections[idx][0]):
-            self.outputs[idx][idx_] = sample.mean(axis=self.axis, keepdims=True)
+            self.outputs[idx][idx_] = sample.mean(axis=self.axis, keepdims=True) if self.axis != 0 else Sample(np.mean(sample, axis=0, keepdims=True), affine=sample.affine[0])
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -1722,10 +1722,10 @@ class AffineDeformation(Transformer):
             self.backward_affine = transformations.get_affine_matrix(
                 I_shape=self.reference_connection[0].shape[1:4],
                 voxel_size=self.voxel_size,
-                shear=[np.random.normal(0, w) if self.width_as_std[0] else random.uniform(-w, w) for w in self.shear_window_width],
-                rotation=[np.random.normal(0, w) if self.width_as_std[1] else random.uniform(-w, w) for w in self.rotation_window_width],
-                translation=[np.random.normal(0, w) if self.width_as_std[2] else random.uniform(-w, w) for w in self.translation_window_width],
-                scaling=[1 + (np.random.normal(0, w) if self.width_as_std[3] else random.uniform(-w, w)) for w in self.scaling_window_width],
+                shear=[np.random.normal(0, w) if self.width_as_std[0] else random.uniform(-w, w) for w in self.shear_window_width] * (3 if len(self.shear_window_width) == 1 else 1),
+                rotation=[np.random.normal(0, w) if self.width_as_std[1] else random.uniform(-w, w) for w in self.rotation_window_width] * (3 if len(self.rotation_window_width) == 1 else 1),
+                translation=[np.random.normal(0, w) if self.width_as_std[2] else random.uniform(-w, w) for w in self.translation_window_width] * (3 if len(self.translation_window_width) == 1 else 1),
+                scaling=[1 + (np.random.normal(0, w) if self.width_as_std[3] else random.uniform(-w, w)) for w in self.scaling_window_width] * (3 if len(self.scaling_window_width) == 1 else 1),
             )
 
         else:
