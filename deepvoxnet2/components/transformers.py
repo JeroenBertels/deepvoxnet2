@@ -796,7 +796,7 @@ class Buffer(Transformer):
         StopIteration
             If `drop_remainder` is True and there are not enough samples to fill the buffer completely.
         """
-
+        initial_sample_ids = [transformer.sample_id for transformer in Connection.trace([connection for idx in self.active_indices for connection in self.connections[idx]], only_active=True)[0]]
         self.buffered_outputs = [[[sample for sample in self.connections[idx][0]]] if idx in self.active_indices else None for idx in range(len(self.outputs))]
         while self.buffer_size is None or len(self.buffered_outputs[0]) < self.buffer_size:
             try:
@@ -811,8 +811,9 @@ class Buffer(Transformer):
             raise StopIteration
 
         else:
-            for transformer in Connection.trace([connection for connections in self.connections for connection in connections], only_active=True)[0]:
-                transformer.sample_id = self.sample_id
+            for i, transformer in enumerate(Connection.trace([connection for idx in self.active_indices for connection in self.connections[idx]], only_active=True)[0]):
+                if initial_sample_ids[i] != transformer.sample_id:
+                    transformer.sample_id = self.sample_id
 
 
 class Group(Transformer):
@@ -1571,6 +1572,9 @@ class Subsample(Transformer):
 class Flip(Transformer):
     def __init__(self, flip_probabilities=(0.5, 0.5, 0.5), **kwargs):
         super(Flip, self).__init__(**kwargs)
+        if isinstance(flip_probabilities, str):
+            assert flip_probabilities == "all" and self.n == 8
+
         self.flip_probabilities = flip_probabilities
         self.flip_state = None
 
@@ -1586,7 +1590,36 @@ class Flip(Transformer):
         return self.connections[idx][0].shapes
 
     def _randomize(self):
-        self.flip_state = [-1 if random.random() < flip_probability else 1 for flip_probability in self.flip_probabilities]
+        if isinstance(self.flip_probabilities, str):
+            if self.n_ == 0:
+                self.flip_state = [1, 1, 1]
+            
+            elif self.n_ == 1:
+                self.flip_state = [-1, 1, 1]
+            
+            elif self.n_ == 2:
+                self.flip_state = [1, -1, 1]
+            
+            elif self.n_ == 3:
+                self.flip_state = [-1, -1, 1]
+            
+            elif self.n_ == 4:
+                self.flip_state = [1, 1, -1]
+            
+            elif self.n_ == 5:
+                self.flip_state = [-1, 1, -1]
+            
+            elif self.n_ == 6:
+                self.flip_state = [1, -1, -1]
+            
+            elif self.n_ == 7:
+                self.flip_state = [-1, -1, -1]
+
+            else:
+                raise ValueError
+                        
+        else:
+            self.flip_state = [-1 if random.random() < flip_probability else 1 for flip_probability in self.flip_probabilities]
 
 
 class GaussianNoise(Transformer):
