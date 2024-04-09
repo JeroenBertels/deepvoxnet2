@@ -42,6 +42,7 @@ setuptools.setup(
         'seaborn>=0.11.2',
         'comet-ml>=3.31.17',
         'twine>=4.0.1',
+        'pydot>=2.0.0',
         'pymirc'
     ],
     extras_require={
