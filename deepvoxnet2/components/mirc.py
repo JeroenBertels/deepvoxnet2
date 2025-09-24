@@ -6,6 +6,7 @@ The Modality class stores the raw image data and its affine transformation, with
 """
 
 import os
+import json
 import glob
 import numpy as np
 import nibabel as nib
@@ -315,6 +316,9 @@ class Mirc(SortedDict):
             If the affine or shape of any selected modality is not equal to that of the first selected modality.
         """
 
+        if modality_ids is None:
+            modality_ids = self.get_modality_ids()
+
         modality_ids = modality_ids if isinstance(modality_ids, list) else [modality_ids]
         ns = ns if isinstance(ns, list) else [ns] * len(modality_ids)
         clippings = clippings if isinstance(clippings, list) else [clippings] * len(modality_ids)
@@ -444,6 +448,23 @@ class Dataset(SortedDict):
             case_ids_test = []
 
         dataset_id = os.path.split(dataset_dir)[1]
+
+        if os.path.isfile(os.path.join(dataset_dir, "splits_final.json")):
+            splits_final_path = os.path.join(dataset_dir, "splits_final.json")
+        
+        elif os.path.isfile(os.path.join(dataset_dir, "splits_final.json").replace("nnUNet_raw", "nnUNet_preprocessed")):
+            splits_final_path = os.path.join(dataset_dir, "splits_final.json").replace("nnUNet_raw", "nnUNet_preprocessed")
+        
+        else:
+            splits_final_path = None
+        
+        if splits_final_path is not None:
+            with open(splits_final_path, "r") as f:
+                splits_final = json.load(f)
+
+            assert nb_folds is None or nb_folds == len(splits_final)
+            nb_folds = len(splits_final)
+        
         if fold == "all":
             train_dataset_id = f"{dataset_id}_train"
             val_dataset_id = f"{dataset_id}_val"
@@ -451,15 +472,21 @@ class Dataset(SortedDict):
             case_ids_val = []
         
         else:
-            assert nb_folds > 1 and fold in range(nb_folds), "Please make sure to specify a fold that's smaller than the total number of folds specified in nb_folds > 1."
-            train_dataset_id = f"{dataset_id}_train_{fold}-{nb_folds}"
-            val_dataset_id = f"{dataset_id}_val_{fold}-{nb_folds}"
-            kfold = KFold(n_splits=nb_folds, shuffle=True, random_state=12345)
-            for fold_i, (train_idx, val_idx) in enumerate(kfold.split(case_ids_trainval)):
-                if fold_i == fold:
-                    case_ids_train = [case_ids_trainval[i] for i in train_idx]
-                    case_ids_val = [case_ids_trainval[i] for i in val_idx]
-                    break
+            assert nb_folds is not None and nb_folds > 1 and fold in range(nb_folds), "Please make sure to specify a fold that's smaller than the total number of folds specified in nb_folds > 1."
+            train_dataset_id = f"{dataset_id}_train_{fold}"
+            val_dataset_id = f"{dataset_id}_val_{fold}"
+            if splits_final_path is None:
+                kfold = KFold(n_splits=nb_folds, shuffle=True, random_state=12345)
+                for fold_i, (train_idx, val_idx) in enumerate(kfold.split(case_ids_trainval)):
+                    if fold_i == fold:
+                        case_ids_train = [case_ids_trainval[i] for i in train_idx]
+                        case_ids_val = [case_ids_trainval[i] for i in val_idx]
+                        break
+            
+            else:
+                case_ids_train = splits_final[fold]["train"]
+                case_ids_val = splits_final[fold]["val"]
+                assert set(case_ids_trainval) == set(case_ids_train + case_ids_val)
         
         train_dataset, val_dataset = Dataset(train_dataset_id), Dataset(val_dataset_id)
         for case_id in case_ids_trainval:
@@ -788,7 +815,8 @@ class NiftyFileModality(Modality):
             A Sample object representing the modality data.
         """
 
-        return Sample(self.nifty.get_fdata(caching=self.caching), self.affine)
+        # return Sample(self.nifty.get_fdata(caching=self.caching), self.affine)
+        return Sample(np.asarray(self.nifty.dataobj), self.affine)
 
 
 NiftiFileModality = NiftyFileModality
