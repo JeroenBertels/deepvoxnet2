@@ -48,6 +48,9 @@ setuptools.setup(
     extras_require={
         "sitk": [
             'simpleitk-simpleelastix',
+        ],
+        "cupy": [
+            'cupy-cuda11x',
         ]
     }
 )
