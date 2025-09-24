@@ -339,6 +339,8 @@ class MircSampler(Sampler):
         self.mirc = mirc
         self.mode = mode
         super(MircSampler, self).__init__(**kwargs)
+        if self.mode == "per_case" and not self.shuffle:
+            print("Watch out in MircSampler: shuffle=False with mode='per_case' will result in always taking the first record!")
 
     def _randomize(self):
         """Set the `base_identifiers` attribute based on the selected sampling mode.
@@ -359,7 +361,7 @@ class MircSampler(Sampler):
         elif self.mode == "per_case":
             for dataset_id in self.mirc:
                 for case_id in self.mirc[dataset_id]:
-                    record_id_i = random.randint(0, len(self.mirc[dataset_id][case_id]) - 1)
+                    record_id_i = random.randint(0, len(self.mirc[dataset_id][case_id]) - 1) if self.shuffle else 0
                     for i, record_id in enumerate(self.mirc[dataset_id][case_id]):
                         if i == record_id_i:
                             self.base_identifiers.append(MircIdentifier(self.mirc, dataset_id, case_id, record_id))
