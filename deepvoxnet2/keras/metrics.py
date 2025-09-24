@@ -252,9 +252,9 @@ def _get_threshold_fn(threshold_mode="greater"):
         raise ValueError("For the threshold_mode please choose between 'greater', 'greater_equal', 'less', 'less_equal'")
 
 
-def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False, feature_dim_as_spatial_dim=False, threshold=None, argmax=False, map_batch=False, map_features=False, reduction_mode=None, percentile=None, reduction_axes=(0, 1, 2, 3, 4), threshold_mode="greater", weights=None, **kwargs):
+def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False, feature_dim_as_spatial_dim=False, threshold=None, argmax=False, map_batch=False, map_features=False, reduction_mode=None, percentile=None, reduction_axes=(0, 1, 2, 3, 4), threshold_mode="greater", weights=None, use_affines=True, **kwargs):
     assert len(tf.keras.backend.int_shape(y_true)) == 5 and len(tf.keras.backend.int_shape(y_pred)) == 5, "The input tensors/arrays y_true and y_pred to a metric function must be 5D!"
-    if hasattr(y_true, "affine") and hasattr(y_pred, "affine"):
+    if use_affines and hasattr(y_true, "affine") and hasattr(y_pred, "affine"):
         voxel_size = tf.norm(y_true.affine[0][:3, :3], ord=2, axis=0)
         voxel_size_ = tf.norm(y_pred.affine[0][:3, :3], ord=2, axis=0)
         assert np.allclose(voxel_size, voxel_size_), f"Calculated voxel size of y_true ({voxel_size}) is different from y_pred ({voxel_size_})."
@@ -328,6 +328,12 @@ def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False,
     elif reduction_mode == "sum":
         return tf.reduce_sum(result, axis=reduction_axes, keepdims=True)
 
+    elif reduction_mode == "max":
+        return tf.reduce_max(result, axis=reduction_axes, keepdims=True)
+    
+    elif reduction_mode == "min":
+        return tf.reduce_min(result, axis=reduction_axes, keepdims=True)
+    
     elif reduction_mode == "median" or (reduction_mode == "percentile" and (percentile is None or percentile == 50)):
         return tfp.stats.percentile(result, 50, axis=reduction_axes, interpolation="midpoint", keepdims=True)
 
@@ -466,6 +472,12 @@ def get_metric(
 
     elif reduction_mode == "sum":
         metric.__name__ = "sum_" + metric_name
+    
+    elif reduction_mode == "max":
+        metric.__name__ = "max_" + metric_name
+    
+    elif reduction_mode == "min":
+        metric.__name__ = "min_" + metric_name
 
     elif reduction_mode == "median" or (reduction_mode == "percentile" and (percentile is None or percentile == 50)):
         metric.__name__ = "median_" + metric_name
