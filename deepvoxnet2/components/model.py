@@ -335,7 +335,7 @@ class DvnModel(object):
 
         return self.outputs[key][0].transformer.keras_model.fit(x=fit_dataset, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_dataset, validation_freq=validation_freq, verbose=verbose, initial_epoch=initial_epoch, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps)
 
-    def evaluate(self, key, sampler, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False):
+    def evaluate(self, key, sampler, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False, device="CPU"):
         """Evaluate the performance of a model using a given key and sampler.
 
         Parameters:
@@ -383,15 +383,18 @@ class DvnModel(object):
         for identifier_i, identifier in enumerate(sampler):
             start_time = time.time()
             samples = self.predict(key, Sampler([identifier]), mode=mode, output_dirs=[output_dirs[identifier_i]] if output_dirs is not None else output_dirs, name_tag=name_tag, save_x=save_x, save_y=save_y, save_sample_weight=save_sample_weight)[0]
-            with tf.device('/CPU:0'):
+            with tf.device(device):
+                samples = [[tf.constant(sample) for sample in samples_] for samples_ in samples]
                 evaluation = {}
-                total_loss_value = 0
-                for i, loss in enumerate(self.losses[key]):
-                    loss_name = f"{key}__{loss.__name__}"
-                    evaluation[loss_name] = loss(samples[1][i], samples[0][i]).numpy().mean().item() if len(samples) == 2 else (loss(samples[1][i], samples[0][i]).numpy() * samples[2][i]).mean().item()
-                    total_loss_value += evaluation[loss_name] * self.losses_weights[key][i]
+                if len(self.losses[key]) > 0:
+                    total_loss_value = 0
+                    for i, loss in enumerate(self.losses[key]):
+                        loss_name = f"{key}__{loss.__name__}"
+                        evaluation[loss_name] = loss(samples[1][i], samples[0][i]).numpy().mean().item() if len(samples) == 2 else (loss(samples[1][i], samples[0][i]).numpy() * samples[2][i]).mean().item()
+                        total_loss_value += evaluation[loss_name] * self.losses_weights[key][i]
 
-                evaluation[f"{key}__loss__combined"] = total_loss_value
+                    evaluation[f"{key}__loss__combined"] = total_loss_value
+
                 for i, metric in enumerate(self.metrics[key]):
                     for metric_ in metric:
                         metric_name = f"{key}__{metric_.__name__}"

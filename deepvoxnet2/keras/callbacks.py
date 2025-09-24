@@ -86,12 +86,13 @@ class DvnModelCheckpoint(Callback):
 
 
 class DvnModelEvaluator(Callback):
-    def __init__(self, dvn_model, key, sampler, freq=1, epoch_as_name_tag=False, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False, logs_dir=None):
+    def __init__(self, dvn_model, key, sampler, freq=1, epoch_as_name_tag=False, device="CPU", mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False, logs_dir=None):
         super(DvnModelEvaluator, self).__init__()
         self.dvn_model = dvn_model
         self.key = key
         self.sampler = sampler
         self.freq = freq
+        self.device = device
         self.epoch_as_name_tag = epoch_as_name_tag
         self.mode = mode
         self.output_dirs = output_dirs
@@ -109,7 +110,7 @@ class DvnModelEvaluator(Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         if (epoch + 1) % self.freq == 0:
-            evaluations = self.dvn_model.evaluate(self.key, self.sampler, mode=self.mode, output_dirs=self.output_dirs, name_tag="{:05}".format(epoch) if self.epoch_as_name_tag else None, save_x=self.save_x, save_y=self.save_y, save_sample_weight=self.save_sample_weight)
+            evaluations = self.dvn_model.evaluate(self.key, self.sampler, mode=self.mode, device=self.device, output_dirs=self.output_dirs, name_tag="{:05}".format(epoch) if self.epoch_as_name_tag else None, save_x=self.save_x, save_y=self.save_y, save_sample_weight=self.save_sample_weight)
             for metric_name in evaluations[0]:
                 metric_name_ = metric_name if self.name_tag is None else metric_name + f"__{self.name_tag}"
                 self.history[metric_name_] = self.history.get(metric_name_, [])[:(epoch + 1) // self.freq - 1] + [[evaluation[metric_name] for evaluation in evaluations]]
