@@ -712,6 +712,22 @@ class SampleInput(_SampleInput):
         return _SampleInput(samples, output_shapes, **kwargs)()
 
 
+class Identity(Transformer):
+    def __init__(self, **kwargs):
+        super(Identity, self).__init__(**kwargs)
+
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            self.outputs[idx][idx_] = sample
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        return self.connections[idx][0].shapes
+
+    def _randomize(self):
+        pass
+
+
 class Buffer(Transformer):
     """Buffer class to concatenate incoming samples along the specified axis and buffer them until the buffer is full.
 
@@ -749,7 +765,7 @@ class Buffer(Transformer):
         assert "n" not in kwargs, "A Buffer does not accept n. It just buffers so it cannot create n samples from 1 input."
         super(Buffer, self).__init__(n=1, **kwargs)
         self.buffer_size = buffer_size
-        assert axis in [0, 4, -1]
+        # assert axis in [0, 4, -1]
         self.axis = axis if axis != -1 else 4
         self.drop_remainder = drop_remainder
         self.buffered_outputs = None
