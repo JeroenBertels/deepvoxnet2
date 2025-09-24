@@ -77,6 +77,7 @@ def create_generalized_unet_v3_model(
         do_skips=True,
         bottleneck=None,
         replace_instance_normalization_with_group_norm=None,
+        deep_supervision=None,
         **kwargs):
     from tensorflow.keras.layers import Input, Dropout, MaxPooling3D, Concatenate, Multiply, Add, Reshape, AveragePooling3D, Conv3D, UpSampling3D, Cropping3D, LeakyReLU, PReLU, BatchNormalization, Conv3DTranspose
     from tensorflow.keras import regularizers
@@ -133,6 +134,7 @@ def create_generalized_unet_v3_model(
         return Concatenate(axis=-1)([path, metadata_path])
 
     def retrieve_extra_output(path, i):
+        assert deep_supervision is None, "For now, no extra outputs allowed when using deep supervision."
         extra_output_path = path
         for j, (e_o_k_s, e_o_n_f, e_o_d) in enumerate(zip(extra_output_kernel_sizes[i], extra_output_number_features[i], extra_output_dropout[i])):
             extra_output_path = Dropout(e_o_d)(extra_output_path)
@@ -569,6 +571,7 @@ def create_generalized_unet_v3_model(
 
     # SIAMESE networks
     if number_siam_pathways > 1:
+        assert deep_supervision is None, "For now, no siamese pathways allowed when using deep supervision."
         outputs = [path]
         siam_model = Model(inputs=inputs, outputs=path)
         for i in range(number_siam_pathways - 1):
@@ -592,28 +595,39 @@ def create_generalized_unet_v3_model(
         path = Concatenate(axis=-1)(outputs)
 
     # 2. Construct common pathway
-    for i, (n_f_c_p, k_s_c_p, d_c_p) in enumerate(zip(number_features_common_pathway, kernel_sizes_common_pathway, dropout_common_pathway)):
-        if (batch_normalization or instance_normalization) and (i == 0 or not relaxed_normalization_scheme):
-            path = normalization_function(path)(path)
+    if deep_supervision is None:
+        deep_supervision_indices = (0,)
 
-        path = activation_function("c_activation{}".format(i))(path)
-        for j, m_a_c_p_l in enumerate(metadata_at_common_pathway_layer):
-            if m_a_c_p_l == i:
-                path = introduce_metadata(path, j)
+    else:
+        deep_supervision_indices = sorted(deep_supervision, reverse=True)
 
-        for j, e_o_a_c_p_l in enumerate(extra_output_at_common_pathway_layer):
-            if e_o_a_c_p_l == i:
-                outputs[j] = retrieve_extra_output(path, j)
+    for ds_i in deep_supervision_indices:
+        path = path_right_output_paths[-2 - ds_i]
+        for i, (n_f_c_p, k_s_c_p, d_c_p) in enumerate(zip(number_features_common_pathway, kernel_sizes_common_pathway, dropout_common_pathway)):
+            if (batch_normalization or instance_normalization) and (i == 0 or not relaxed_normalization_scheme):
+                path = normalization_function(path)(path)
 
-        if d_c_p:
-            path = Dropout(d_c_p)(path)
+            path = activation_function("c_activation{}_{}".format(i, ds_i))(path)
+            for j, m_a_c_p_l in enumerate(metadata_at_common_pathway_layer):
+                if m_a_c_p_l == i:
+                    path = introduce_metadata(path, j)
 
-        path = Conv3D(filters=n_f_c_p, kernel_size=k_s_c_p, activation=activation_final_layer if i + 1 == len(number_features_common_pathway) else None, padding=padding, kernel_initializer=kernel_initializer, kernel_regularizer=regularizers.l1_l2(l1_reg, l2_reg) if i + 1 != len(number_features_common_pathway) else None, name="s0" if i + 1 == len(number_features_common_pathway) else None)(path)
+            for j, e_o_a_c_p_l in enumerate(extra_output_at_common_pathway_layer):
+                if e_o_a_c_p_l == i:
+                    outputs[j] = retrieve_extra_output(path, j)
+
+            if d_c_p:
+                path = Dropout(d_c_p)(path)
+
+            path = Conv3D(filters=n_f_c_p, kernel_size=k_s_c_p, activation=activation_final_layer if i + 1 == len(number_features_common_pathway) else None, padding=padding, kernel_initializer=kernel_initializer, kernel_regularizer=regularizers.l1_l2(l1_reg, l2_reg) if i + 1 != len(number_features_common_pathway) else None, name=f"s{ds_i}" if i + 1 == len(number_features_common_pathway) else None)(path)
+
+        outputs.insert(0, path)
 
     inputs = inputs + metadata_inputs
-    outputs.insert(0, path)
+    
     # 3. Mask the output (optionally)
     if mask_output:
+        assert deep_supervision is None, "For now, no masking of output allowed when using deep supervision."
         if dynamic_input_shapes:
             mask_input_ = mask_path = Input(shape=(None, None, None, K.int_shape(path)[-1]))
 
@@ -626,6 +640,7 @@ def create_generalized_unet_v3_model(
 
     # 4. For example: Correct for segment sampling changes to P(X|Y) --> this adds an extra dimension because the correction is done inside loss function and weights are given with y_creator in extra dimension (can only be done for binary like this)
     if add_extra_dimension:
+        assert deep_supervision is None, "For now, no masking of output allowed when using deep supervision."
         for i, output in outputs:
             outputs[i] = K.expand_dims(output, -1)
 
@@ -686,11 +701,12 @@ if __name__ == "__main__":
         number_features_common_pathway=(1,),
         dropout_common_pathway=(0.1,),
         activation_final_layer='linear',
-        extra_output_kernel_sizes=(((1, 1, 1),), ((1, 1, 1),) * 4),
-        extra_output_number_features=((2,), (2048, 1024, 512, 12)),
-        extra_output_dropout=((0.1,), (0.1,) * 4),
-        extra_output_at_common_pathway_layer=(0, "x"),
-        extra_output_activation_final_layer=("sigmoid", "linear"),
+        # extra_output_kernel_sizes=(((1, 1, 1),), ((1, 1, 1),) * 4),
+        # extra_output_number_features=((2,), (2048, 1024, 512, 12)),
+        # extra_output_dropout=((0.1,), (0.1,) * 4),
+        # extra_output_at_common_pathway_layer=(0, "x"),
+        # extra_output_activation_final_layer=("sigmoid", "linear"),
+        deep_supervision=(0, 1, 2, 3)
     )
     print("\nOkay, this is a valid network architecture.")
     print(m.outputs)
