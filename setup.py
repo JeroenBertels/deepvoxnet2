@@ -24,7 +24,7 @@ setuptools.setup(
         'tensorflow>=2.4,<2.8',
         'tensorflow-addons>=0.11,<0.18',
         'tensorflow-probability>=0.11,<0.15',
-        'numpy>=1.15',
+        'numpy>=1.15,<1.23',
         'scipy>=1.5',
         'nibabel>=3.1',
         'pydicom>=2.0',
@@ -43,7 +43,7 @@ setuptools.setup(
         'comet-ml>=3.31.17',
         'twine>=4.0.1',
         'pydot>=2.0.0',
-        'pymirc'
+        'pymirc<=0.29',
     ],
     extras_require={
         "sitk": [
