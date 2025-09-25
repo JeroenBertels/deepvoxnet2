@@ -1,14 +1,12 @@
+import keras
 import numpy as np
 import tensorflow as tf
-import tensorflow_probability as tfp
 from functools import partial
-from collections import Iterable
-from pymirc.metrics.tf_metrics import generalized_dice_coeff
-from deepvoxnet2.backwards_compatibility.metrics import *
+from collections.abc import Iterable
 
 
 def _expand_binary(y_true, y_pred):
-    y_true_shape, y_pred_shape = tf.keras.backend.int_shape(y_true), tf.keras.backend.int_shape(y_pred)
+    y_true_shape, y_pred_shape = y_true.shape, y_pred.shape
     if y_true_shape[-1] == 1 or y_pred_shape[-1] == 1:
         assert y_true_shape[-1] == 1 and y_pred_shape[-1] == 1
         y_true = tf.concat([1 - y_true, y_true], axis=-1)
@@ -32,7 +30,7 @@ def squared_error(y_true, y_pred, **kwargs):
 
 def cross_entropy(y_true, y_pred, from_logits=False, **kwargs):
     y_true, y_pred = _expand_binary(y_true, y_pred)
-    return tf.keras.backend.categorical_crossentropy(y_true, y_pred, from_logits=from_logits)[..., None]
+    return keras.ops.categorical_crossentropy(y_true, y_pred, from_logits=from_logits)[..., None]
 
 
 def accuracy(y_true, y_pred, **kwargs):
@@ -73,38 +71,57 @@ def absolute_volume_error(y_true, y_pred, voxel_volume=1, **kwargs):
     return tf.abs(pred_volume(y_true, y_pred, voxel_volume=voxel_volume, **kwargs) - true_volume(y_true, y_pred, voxel_volume=voxel_volume, **kwargs))
 
 
-def positive_predictive_value(y_true, y_pred, eps=tf.keras.backend.epsilon(), **kwargs):
+def positive_predictive_value(y_true, y_pred, eps=keras.backend.epsilon(), **kwargs):
     tp = tf.reduce_sum(true_positive(y_true, y_pred, **kwargs), axis=(1, 2, 3), keepdims=True)
     fp = tf.reduce_sum(false_positive(y_true, y_pred, **kwargs), axis=(1, 2, 3), keepdims=True)
     return (tp + eps) / (tp + fp + eps)
 
 
-def negative_predictive_value(y_true, y_pred, eps=tf.keras.backend.epsilon(), **kwargs):
+def negative_predictive_value(y_true, y_pred, eps=keras.backend.epsilon(), **kwargs):
     tn = tf.reduce_sum(true_negative(y_true, y_pred, **kwargs), axis=(1, 2, 3), keepdims=True)
     fn = tf.reduce_sum(false_negative(y_true, y_pred, **kwargs), axis=(1, 2, 3), keepdims=True)
     return (tn + eps) / (tn + fn + eps)
 
 
-def true_positive_rate(y_true, y_pred, eps=tf.keras.backend.epsilon(), **kwargs):
+def true_positive_rate(y_true, y_pred, eps=keras.backend.epsilon(), **kwargs):
     tp = tf.reduce_sum(true_positive(y_true, y_pred, **kwargs), axis=(1, 2, 3), keepdims=True)
     fn = tf.reduce_sum(false_negative(y_true, y_pred, **kwargs), axis=(1, 2, 3), keepdims=True)
     return (tp + eps) / (tp + fn + eps)
 
 
-def true_negative_rate(y_true, y_pred, eps=tf.keras.backend.epsilon(), **kwargs):
+def true_negative_rate(y_true, y_pred, eps=keras.backend.epsilon(), **kwargs):
     tn = tf.reduce_sum(true_negative(y_true, y_pred, **kwargs), axis=(1, 2, 3), keepdims=True)
     fp = tf.reduce_sum(false_positive(y_true, y_pred, **kwargs), axis=(1, 2, 3), keepdims=True)
     return (tn + eps) / (tn + fp + eps)
 
 
-def dice_coefficient(y_true, y_pred, eps=tf.keras.backend.epsilon(), reduce_along_batch=False, reduce_along_features=False, feature_weights=None, **kwargs):
-    return generalized_dice_coeff(y_true, y_pred, keepdims=True, eps=eps, reduce_along_batch=reduce_along_batch, reduce_along_features=reduce_along_features, feature_weights=feature_weights)
+def dice_coefficient(y_true, y_pred, eps=keras.backend.epsilon(), reduce_along_batch=False, reduce_along_features=False, feature_weights=None, threshold=None, **kwargs):
+    ndim = tf.rank(y_true)
+    ax   = tf.range(1, ndim - 1)
+    if threshold is not None:
+        y_true = tf.cast(tf.math.greater(y_true, threshold), y_true.dtype)
+        y_pred = tf.cast(tf.math.greater(y_pred, threshold), y_pred.dtype)
+
+    intersection = tf.math.reduce_sum(y_true * y_pred, axis=ax, keepdims=True)
+    denom = tf.math.reduce_sum(y_true, axis=ax, keepdims=True) + tf.math.reduce_sum(y_pred, axis=ax, keepdims=True)
+    if reduce_along_features:
+        if feature_weights is None:
+            feature_weights = 1
+
+        intersection = tf.math.reduce_sum(intersection * feature_weights, axis=-1, keepdims=True)
+        denom = tf.math.reduce_sum(denom * feature_weights, axis=-1, keepdims=True)
+
+    if reduce_along_batch:
+        intersection = tf.math.reduce_sum(intersection, axis=0, keepdims=True)
+        denom = tf.math.reduce_sum(denom, axis=0, keepdims=True)
+
+    return (2 * intersection + eps) / (denom + eps)
 
 
 def coefficient_of_determination(y_true, y_pred, **kwargs):
     ss_res = tf.reduce_sum(tf.math.square(y_true - y_pred), axis=(1, 2, 3), keepdims=True)
     ss_tot = tf.reduce_sum(tf.math.square(y_true - tf.reduce_mean(y_true, axis=(1, 2, 3), keepdims=True)), axis=(1, 2, 3), keepdims=True)
-    return 1 - ss_res / (ss_tot + tf.keras.backend.epsilon())
+    return 1 - ss_res / (ss_tot + keras.backend.epsilon())
 
 
 def _combine_ece_bin_stats(y_true, y_pred, combine_ece_bin_stats_axis=0, **kwargs):
@@ -117,8 +134,8 @@ def _combine_ece_bin_stats(y_true, y_pred, combine_ece_bin_stats_axis=0, **kwarg
         bin_accuracy = ece_bin_stats[:, :, 1:2, ...]
         bin_count = ece_bin_stats[:, :, 2:, ...]
         bin_count_combined = tf.reduce_sum(bin_count, axis=combine_ece_bin_stats_axis, keepdims=True)
-        bin_confidence_combined = (tf.reduce_sum(bin_confidence * bin_count, axis=combine_ece_bin_stats_axis, keepdims=True) + tf.keras.backend.epsilon()) / (bin_count_combined + tf.keras.backend.epsilon())
-        bin_accuracy_combined = (tf.reduce_sum(bin_accuracy * bin_count, axis=combine_ece_bin_stats_axis, keepdims=True) + tf.keras.backend.epsilon()) / (bin_count_combined + tf.keras.backend.epsilon())
+        bin_confidence_combined = (tf.reduce_sum(bin_confidence * bin_count, axis=combine_ece_bin_stats_axis, keepdims=True) + keras.backend.epsilon()) / (bin_count_combined + keras.backend.epsilon())
+        bin_accuracy_combined = (tf.reduce_sum(bin_accuracy * bin_count, axis=combine_ece_bin_stats_axis, keepdims=True) + keras.backend.epsilon()) / (bin_count_combined + keras.backend.epsilon())
         ece_bin_stats = tf.concat([bin_confidence_combined, bin_accuracy_combined, bin_count_combined], axis=2)
         return tf.where(tf.reduce_all(tf.math.is_nan(y_true), axis=combine_ece_bin_stats_axis, keepdims=True), tf.convert_to_tensor(np.nan, tf.float32), ece_bin_stats)
 
@@ -133,6 +150,8 @@ def ece_from_bin_stats(y_true, y_pred, **kwargs):
 
 
 def ece(y_true, y_pred, nbins=21, quantiles_as_bins=False, return_bin_stats=False, from_bin_stats=True, binary_bin_stats=False, **kwargs):
+    import tensorflow_probability as tfp
+
     y_true, y_pred = _expand_binary(y_true, y_pred)
     y_true, y_pred = tf.reshape(y_true, [-1, y_true.shape[4]]), tf.reshape(y_pred, [-1, y_pred.shape[4]])
     labels_true, labels_pred = tf.math.argmax(y_true, axis=-1), tf.math.argmax(y_pred, axis=-1)
@@ -174,7 +193,7 @@ def riemann_sum(y_true, y_pred, reduce_mean_axes=(1, 2, 3, 4), **kwargs):
     return tf.reduce_sum((x[1:] - x[:-1]) * (y[1:] + y[:-1]) / 2, axis=0, keepdims=True)[None, None, None, None]
 
 
-def auc(y_true, y_pred, thresholds=np.linspace(0 - tf.keras.backend.epsilon(), 1, 51), curve='PR', auc_threshold_axis=1, return_auc_stats=False, y_true_thresholds=None, **kwargs):
+def auc(y_true, y_pred, thresholds=np.linspace(0 - keras.backend.epsilon(), 1, 51), curve='PR', auc_threshold_axis=1, return_auc_stats=False, y_true_thresholds=None, **kwargs):
     if y_true_thresholds is not None:
         if not isinstance(y_true_thresholds, Iterable):
             y_true_thresholds = [y_true_thresholds] * len(thresholds)
@@ -202,7 +221,9 @@ def auc(y_true, y_pred, thresholds=np.linspace(0 - tf.keras.backend.epsilon(), 1
 
 
 def hausdorff_distance(y_true, y_pred, min_edge_diff=1, voxel_size=1, hd_percentile=95, **kwargs):
-    y_true_shape = tf.keras.backend.int_shape(y_true)
+    import tensorflow_probability as tfp
+
+    y_true_shape = y_true.shape
     edge_filter = np.zeros((2, 1, 1, y_true_shape[4], y_true_shape[4]))
     for i in range(y_true_shape[4]):
         edge_filter[0, 0, 0, i, i], edge_filter[1, 0, 0, i, i] = 1, -1
@@ -253,7 +274,7 @@ def _get_threshold_fn(threshold_mode="greater"):
 
 
 def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False, feature_dim_as_spatial_dim=False, threshold=None, argmax=False, map_batch=False, map_features=False, reduction_mode=None, percentile=None, reduction_axes=(0, 1, 2, 3, 4), threshold_mode="greater", weights=None, use_affines=True, **kwargs):
-    assert len(tf.keras.backend.int_shape(y_true)) == 5 and len(tf.keras.backend.int_shape(y_pred)) == 5, "The input tensors/arrays y_true and y_pred to a metric function must be 5D!"
+    assert len(y_true.shape) == 5 and len(y_pred.shape) == 5, "The input tensors/arrays y_true and y_pred to a metric function must be 5D!"
     if use_affines and hasattr(y_true, "affine") and hasattr(y_pred, "affine"):
         voxel_size = tf.norm(y_true.affine[0][:3, :3], ord=2, axis=0)
         voxel_size_ = tf.norm(y_pred.affine[0][:3, :3], ord=2, axis=0)
@@ -305,11 +326,11 @@ def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False,
         result = result[:, 0, ...]
 
     elif map_features:
-        y_true = tf.keras.backend.permute_dimensions(y_true, (4, 0, 1, 2, 3))
-        y_pred = tf.keras.backend.permute_dimensions(y_pred, (4, 0, 1, 2, 3))
+        y_true = keras.ops.transpose(y_true, (4, 0, 1, 2, 3))
+        y_pred = keras.ops.transpose(y_pred, (4, 0, 1, 2, 3))
         result = tf.map_fn(lambda x: get_metric(metric_name, **kwargs)(x[0][..., None], x[1][..., None]), (y_true, y_pred), fn_output_signature=tf.float32)
         result = result[..., 0]
-        result = tf.keras.backend.permute_dimensions(result, (1, 2, 3, 4, 0))
+        result = keras.ops.transpose(result, (1, 2, 3, 4, 0))
 
     else:
         result = metric(y_true, y_pred, **kwargs)
@@ -318,7 +339,7 @@ def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False,
         result = result * tf.cast(weights, tf.float32)
 
     result = tf.cast(result, tf.float32)
-    assert len(tf.keras.backend.int_shape(result)) == 5, "The output tensor/array of a metric function must be 5D!"
+    assert len(result.shape) == 5, "The output tensor/array of a metric function must be 5D!"
     if reduction_mode is None:
         return result
 
@@ -335,10 +356,14 @@ def _metric(y_true, y_pred, metric_name, metric, batch_dim_as_spatial_dim=False,
         return tf.reduce_min(result, axis=reduction_axes, keepdims=True)
     
     elif reduction_mode == "median" or (reduction_mode == "percentile" and (percentile is None or percentile == 50)):
+        import tensorflow_probability as tfp
+
         return tfp.stats.percentile(result, 50, axis=reduction_axes, interpolation="midpoint", keepdims=True)
 
     else:
         assert reduction_mode == "percentile" and percentile is not None, "Unknown reduction_mode/percentile combination requested."
+        import tensorflow_probability as tfp
+
         return tfp.stats.percentile(result, percentile, axis=reduction_axes, interpolation="midpoint", keepdims=True)
 
 

@@ -1,7 +1,6 @@
 import tensorflow as tf
 from functools import partial
 from deepvoxnet2.keras.metrics import get_metric
-from deepvoxnet2.backwards_compatibility.losses import *
 
 
 def l1_loss(y_true, y_pred, **kwargs):

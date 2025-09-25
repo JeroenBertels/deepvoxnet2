@@ -12,7 +12,7 @@ import numpy as np
 import scipy.ndimage
 from deepvoxnet2.components.sample import Sample
 from deepvoxnet2.utilities import transformations
-from tensorflow.keras.utils import to_categorical
+from keras.utils import to_categorical
 
 
 class Connection(object):
@@ -2004,7 +2004,8 @@ class KerasModel(Transformer):
         if not hasattr(self, "output_to_input"):
             self.output_to_input = [0] * len(self.keras_model.outputs)
 
-        y = self.keras_model.predict(self.connections[idx][0].get())
+        # y = self.keras_model.predict(self.connections[idx][0].get())
+        y = self.keras_model(self.connections[idx][0].get(), training=False)
         y = y if isinstance(y, list) else [y]
         for idx_, (y_, output_affine, output_to_input) in enumerate(zip(y, self.output_affines, self.output_to_input)):
             if output_affine is None:
