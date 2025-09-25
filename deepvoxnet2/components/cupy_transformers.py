@@ -2,7 +2,8 @@ import random
 import numpy as np
 import cupy as cp
 from scipy.spatial.transform import Rotation
-from cupyx.scipy.ndimage import affine_transform, gaussian_filter, uniform_filter, distance_transform_edt
+from scipy.ndimage import gaussian_filter, uniform_filter, distance_transform_edt
+from cupyx.scipy.ndimage import affine_transform
 from deepvoxnet2.components.sample import Sample
 from deepvoxnet2.components.transformers import Transformer
 
@@ -193,17 +194,14 @@ class CupyPut(Transformer):
                 backward_affine = cp.asarray(np.linalg.inv(sample.affine[i]) @ reference.affine[0])
                 transformed_array = cp.stack([affine_transform(cp_sample[i, ..., j], backward_affine, output_shape=reference.shape[1:4], cval=self.cval, order=self.order) for j in range(sample.shape[4])], axis=-1)[None, ...]
                 if self.keep_counts:
-                    kernel = cp.ones_like(cp_sample[i, ..., 0])
-                    if self.gaussian_counts:
-                        kernel = gaussian_filter(kernel, sigma=[max(1, s // 2) for s in kernel.shape])
-
+                    kernel = CupyPut.gaussian_kernel_cupy(sample[i, ..., 0].shape, [max(1, s // 2) for s in sample[i, ..., 0].shape])
                     transformed_array_counts = affine_transform(kernel, backward_affine, output_shape=reference.shape[1:4], cval=0, order=self.order)[None, ..., None]
                     transformed_array = self.output_array_counts[idx][idx_] / (self.output_array_counts[idx][idx_] + transformed_array_counts) * cp_output + transformed_array_counts / (self.output_array_counts[idx][idx_] + transformed_array_counts) * transformed_array
                     self.output_array_counts[idx][idx_] += transformed_array_counts
                 
                 mask = (transformed_array != self.cval).get()
                 self.outputs[idx][idx_][mask] = transformed_array[mask].get()
-        
+
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
         assert len(self.connections[idx][0]) == len(self.reference_connection), "The length of the connection to be put must be equal to the length of the reference connection."
@@ -222,6 +220,44 @@ class CupyPut(Transformer):
                     self.outputs[idx][idx_] = Sample(np.full(self.reference_connection[idx_].shape[:4] + sample.shape[4:], self.cval), self.reference_connection[idx_].affine)
                     if self.keep_counts:
                         self.output_array_counts[idx][idx_] = cp.full(self.reference_connection[idx_].shape[:4] + (1,), 1e-7)
+
+    @staticmethod
+    def gaussian_kernel(shape, sigmas):
+        assert len(shape) == len(sigmas)
+        nd = len(shape)
+        kernel = np.ones(shape, dtype=cp.float32)
+        for i in range(nd):
+            g = np.linspace(-(shape[i] - 1) / 2., (shape[i] - 1) / 2., shape[i])
+            g = np.exp(-0.5 * np.square(g) / np.square(sigmas[i]))
+            for j in range(i):
+                g = np.expand_dims(g, 0)
+            
+            for j in range(i + 1, nd):
+                g = np.expand_dims(g, -1)
+
+            kernel *= g
+        
+        kernel /= np.sum(kernel)
+        return kernel
+    
+    @staticmethod
+    def gaussian_kernel_cupy(shape, sigmas):
+        assert len(shape) == len(sigmas)
+        nd = len(shape)
+        kernel = cp.ones(shape)
+        for i in range(nd):
+            g = cp.linspace(-(shape[i] - 1) / 2., (shape[i] - 1) / 2., shape[i])
+            g = cp.exp(-0.5 * cp.square(g) / cp.square(sigmas[i]))
+            for _ in range(i):
+                g = cp.expand_dims(g, 0)
+            
+            for _ in range(i + 1, nd):
+                g = cp.expand_dims(g, -1)
+
+            kernel *= g
+        
+        kernel /= cp.sum(kernel)
+        return kernel
 
 
 class CupyCrop(Transformer):
