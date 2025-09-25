@@ -19,38 +19,25 @@ setuptools.setup(
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
         "Operating System :: OS Independent"],
-    python_requires='>=3.8, <3.10',
+    python_requires='>=3.12, <3.13',
     install_requires=[
-        'tensorflow>=2.4,<2.8',
-        'tensorflow-addons>=0.11,<0.18',
-        'tensorflow-probability>=0.11,<0.15',
-        'numpy>=1.15,<1.23',
-        'scipy>=1.5',
-        'nibabel>=3.1',
-        'pydicom>=2.0',
-        'numba>=0.39',
-        'matplotlib>=2.2.2',
-        'scikit-image>=0.14',
-        'transforms3d>=0.3.1',
-        'jupyter>=1.0',
-        'Pillow>=8.1.0',
-        'pandas>=1.2',
-        'scikit-learn',
-        'xlrd>=2.0',
-        'openpyxl>=3.0',
-        'opencv-python>=4.5',
-        'seaborn>=0.11.2',
-        'comet-ml>=3.31.17',
-        'twine>=4.0.1',
-        'pydot>=2.0.0',
-        'pymirc<=0.29',
+        'tensorflow[and-cuda]>=2.20.0',
+        'nibabel>=5.3.2',
+        'transforms3d>=0.4.2',
+        'pandas>=3.3.2',
+        'scikit-learn>=1.7.2',
+        'cupy-cuda12x>=13.6.0',
+        'pydot>=4.0.1',
+        'matplotlib>=3.10.6'
     ],
     extras_require={
-        "sitk": [
+        "full": [
+            'tensorflow-probability',
             'simpleitk-simpleelastix',
-        ],
-        "cupy": [
-            'cupy-cuda11x',
+            'pydicom',
+            'numba',
+            'seaborn',
+            'pymirc',
         ]
     }
 )
