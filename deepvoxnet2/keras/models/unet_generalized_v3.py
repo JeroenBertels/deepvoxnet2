@@ -14,7 +14,6 @@ And further:
 """
 
 import numpy as np
-from deepvoxnet2.utilities.calculate_gpu_memory import get_model_memory_usage
 
 
 def create_generalized_unet_v3_model(
@@ -79,18 +78,17 @@ def create_generalized_unet_v3_model(
         replace_instance_normalization_with_group_norm=None,
         deep_supervision=None,
         **kwargs):
-    from tensorflow.keras.layers import Input, Dropout, MaxPooling3D, Concatenate, Multiply, Add, Reshape, AveragePooling3D, Conv3D, UpSampling3D, Cropping3D, LeakyReLU, PReLU, BatchNormalization, Conv3DTranspose
-    from tensorflow.keras import regularizers
-    from tensorflow.keras import backend as K
-    from tensorflow_addons.layers import InstanceNormalization, GroupNormalization
-    from tensorflow.keras import Model
+    from keras.layers import Input, Dropout, MaxPooling3D, Concatenate, Multiply, Add, Reshape, AveragePooling3D, Conv3D, UpSampling3D, Cropping3D, LeakyReLU, PReLU, BatchNormalization, Conv3DTranspose, GroupNormalization
+    from keras import regularizers
+    from keras import backend as K
+    from keras import Model
 
     # Define some in-house functions
     def normalization_function(path=None):
         if batch_normalization_on_input or batch_normalization:
-            if replace_instance_normalization_with_group_norm and path is not None and K.int_shape(path)[-1] % replace_instance_normalization_with_group_norm == 0:
+            if replace_instance_normalization_with_group_norm and path is not None and path.shape[-1] % replace_instance_normalization_with_group_norm == 0:
                 def normalization_function_(path):
-                    _, x, y, z, c = K.int_shape(path)
+                    _, x, y, z, c = path.shape
                     if c > replace_instance_normalization_with_group_norm:
                         path = Reshape((x, y, z * (c // replace_instance_normalization_with_group_norm), replace_instance_normalization_with_group_norm))(path)
                         path = BatchNormalization()(path)
@@ -107,7 +105,7 @@ def create_generalized_unet_v3_model(
                 normalization_function_ = GroupNormalization(groups=replace_instance_normalization_with_group_norm)
             
             else:
-                normalization_function_ = InstanceNormalization()
+                normalization_function_ = GroupNormalization(groups=-1)
 
         else:
             raise NotImplementedError
@@ -187,7 +185,7 @@ def create_generalized_unet_v3_model(
                     else:
                         path = normalization_function(path)(path)
                         path = activation_function("pool_p{}_activation".format(i))(path)
-                        return Conv3D(filters=K.int_shape(path)[-1], kernel_size=pool_size, strides=pool_size, padding="valid", kernel_initializer=kernel_initializer, kernel_regularizer=regularizers.l1_l2(l1_reg, l2_reg))(path)
+                        return Conv3D(filters=path.shape[-1], kernel_size=pool_size, strides=pool_size, padding="valid", kernel_initializer=kernel_initializer, kernel_regularizer=regularizers.l1_l2(l1_reg, l2_reg))(path)
                 
             else:
                 raise NotImplementedError
@@ -217,7 +215,7 @@ def create_generalized_unet_v3_model(
                     else:
                         path = normalization_function(path)(path)
                         path = activation_function("upsample_p{}_activation".format(i))(path)
-                        return Conv3DTranspose(K.int_shape(path)[-1], upsample_size, upsample_size, kernel_initializer=kernel_initializer, kernel_regularizer=regularizers.l1_l2(l1_reg, l2_reg))(path)
+                        return Conv3DTranspose(path.shape[-1], upsample_size, upsample_size, kernel_initializer=kernel_initializer, kernel_regularizer=regularizers.l1_l2(l1_reg, l2_reg))(path)
 
             else:
                 raise NotImplementedError
@@ -465,8 +463,8 @@ def create_generalized_unet_v3_model(
                     shortcut = path
 
                 elif (0 < j < len(k_s_p_p[0]) - 1) and dense_connections:
-                    if any([int((l - r) / 2) != 0 for l, r in zip(K.int_shape(shortcut)[1:-1], K.int_shape(path)[1:-1])]):
-                        shortcut = Cropping3D([int((l - r) / 2) for l, r in zip(K.int_shape(shortcut)[1:-1], K.int_shape(path)[1:-1])])(shortcut)
+                    if any([int((l - r) / 2) != 0 for l, r in zip(shortcut.shape[1:-1], path.shape[1:-1])]):
+                        shortcut = Cropping3D([int((l - r) / 2) for l, r in zip(shortcut.shape[1:-1], path.shape[1:-1])])(shortcut)
 
                     shortcut = Concatenate(axis=-1)([path, shortcut])
                     path = shortcut
@@ -479,11 +477,11 @@ def create_generalized_unet_v3_model(
 
                 path = Conv3D(filters=n_f, kernel_size=k_s, padding=padding, kernel_initializer=kernel_initializer, kernel_regularizer=regularizers.l1_l2(l1_reg, l2_reg), name="{}_{}".format(i, j))(path)
                 if j == len(k_s_p_p[0]) - 1 and residual_connections:
-                    if any([int((l - r) / 2) != 0 for l, r in zip(K.int_shape(shortcut)[1:-1], K.int_shape(path)[1:-1])]):
-                        shortcut = Cropping3D([int((l - r) / 2) for l, r in zip(K.int_shape(shortcut)[1:-1], K.int_shape(path)[1:-1])])(shortcut)
+                    if any([int((l - r) / 2) != 0 for l, r in zip(shortcut.shape[1:-1], path.shape[1:-1])]):
+                        shortcut = Cropping3D([int((l - r) / 2) for l, r in zip(shortcut.shape[1:-1], path.shape[1:-1])])(shortcut)
 
-                    if K.int_shape(path)[-1] != K.int_shape(shortcut)[-1]:
-                        shortcut = Conv3D(filters=K.int_shape(path)[-1], kernel_size=(1, 1, 1), padding=padding, kernel_initializer=kernel_initializer, kernel_regularizer=regularizers.l1_l2(l1_reg, l2_reg))(shortcut)
+                    if path.shape[-1] != shortcut.shape[-1]:
+                        shortcut = Conv3D(filters=path.shape[-1], kernel_size=(1, 1, 1), padding=padding, kernel_initializer=kernel_initializer, kernel_regularizer=regularizers.l1_l2(l1_reg, l2_reg))(shortcut)
 
                     path = Add()([path, shortcut])
         path_left_output_paths.append(path)
@@ -509,7 +507,7 @@ def create_generalized_unet_v3_model(
                     path = normalization_function(path)(path)
 
                 path = activation_function("pre_bottleneck_activation")(path)
-                shape_before_bottleneck = K.int_shape(path)
+                shape_before_bottleneck = path.shape
                 path = Reshape((1, 1, 1, -1))(path)
                 if bottleneck and not isinstance(bottleneck, bool):
                     path = Conv3D(filters=bottleneck, kernel_size=(1, 1, 1), padding="valid", kernel_initializer=kernel_initializer, kernel_regularizer=regularizers.l1_l2(l1_reg, l2_reg))(path)
@@ -543,8 +541,8 @@ def create_generalized_unet_v3_model(
                     shortcut = path
 
                 elif (0 < j < len(k_s_p_p[1]) - 1) and dense_connections:
-                    if any([int((l - r) / 2) != 0 for l, r in zip(K.int_shape(shortcut)[1:-1], K.int_shape(path)[1:-1])]):
-                        shortcut = Cropping3D([int((l - r) / 2) for l, r in zip(K.int_shape(shortcut)[1:-1], K.int_shape(path)[1:-1])])(shortcut)
+                    if any([int((l - r) / 2) != 0 for l, r in zip(shortcut.shape[1:-1], path.shape[1:-1])]):
+                        shortcut = Cropping3D([int((l - r) / 2) for l, r in zip(shortcut.shape[1:-1], path.shape[1:-1])])(shortcut)
 
                     shortcut = Concatenate(axis=-1)([path, shortcut])
                     path = shortcut
@@ -555,11 +553,11 @@ def create_generalized_unet_v3_model(
                 path = activation_function("up_p{}_activation{}".format(i, j))(path)
                 path = Conv3D(filters=n_f, kernel_size=k_s, padding=padding, kernel_initializer=kernel_initializer, kernel_regularizer=regularizers.l1_l2(l1_reg, l2_reg))(path)
                 if j == len(k_s_p_p[1]) - 1 and residual_connections:
-                    if any([int((l - r) / 2) != 0 for l, r in zip(K.int_shape(shortcut)[1:-1], K.int_shape(path)[1:-1])]):
-                        shortcut = Cropping3D([int((l - r) / 2) for l, r in zip(K.int_shape(shortcut)[1:-1], K.int_shape(path)[1:-1])])(shortcut)
+                    if any([int((l - r) / 2) != 0 for l, r in zip(shortcut.shape[1:-1], path.shape[1:-1])]):
+                        shortcut = Cropping3D([int((l - r) / 2) for l, r in zip(shortcut.shape[1:-1], path.shape[1:-1])])(shortcut)
 
-                    if K.int_shape(path)[-1] != K.int_shape(shortcut)[-1]:
-                        shortcut = Conv3D(filters=K.int_shape(path)[-1], kernel_size=(1, 1, 1), padding=padding, kernel_initializer=kernel_initializer, kernel_regularizer=regularizers.l1_l2(l1_reg, l2_reg))(shortcut)
+                    if path.shape[-1] != shortcut.shape[-1]:
+                        shortcut = Conv3D(filters=path.shape[-1], kernel_size=(1, 1, 1), padding=padding, kernel_initializer=kernel_initializer, kernel_regularizer=regularizers.l1_l2(l1_reg, l2_reg))(shortcut)
 
                     path = Add()([path, shortcut])
 
@@ -629,10 +627,10 @@ def create_generalized_unet_v3_model(
     if mask_output:
         assert deep_supervision is None, "For now, no masking of output allowed when using deep supervision."
         if dynamic_input_shapes:
-            mask_input_ = mask_path = Input(shape=(None, None, None, K.int_shape(path)[-1]))
+            mask_input_ = mask_path = Input(shape=(None, None, None, path.shape[-1]))
 
         else:
-            mask_input_ = mask_path = Input(shape=tuple(output_size) + (K.int_shape(path)[-1],))
+            mask_input_ = mask_path = Input(shape=tuple(output_size) + (path.shape[-1],))
 
         inputs.append(mask_input_)
         for i, output in outputs:
@@ -656,16 +654,12 @@ def create_generalized_unet_v3_model(
 
         if not dynamic_input_shapes:
             assert list(model_input_shape[0][1:-1]) == input_size
-            print('With a batch size of {} this model needs {} GB on the GPU.'.format(1, get_model_memory_usage(1, model)))
-
-        else:
-            print("Since you are using dynamic_input_shapes=True we cannot calculate the memory usage, nor can we truely check the correctness of the shapes...")
 
     return model
 
 
 if __name__ == "__main__":
-    from tensorflow.keras.utils import plot_model
+    from keras.utils import plot_model
 
     m = create_generalized_unet_v3_model(
         number_input_features=5,
