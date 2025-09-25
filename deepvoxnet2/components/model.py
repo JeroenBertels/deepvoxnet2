@@ -10,6 +10,7 @@ import time
 import json
 import pickle
 import gc
+import keras
 import numpy as np
 import nibabel as nib
 import tensorflow as tf
@@ -172,9 +173,9 @@ class DvnModel(object):
         ----------
         key : str
             The output key to compile the model for.
-        optimizer : tf.keras.optimizers.Optimizer or str or dict, optional
+        optimizer : keras.optimizers.Optimizer or str or dict, optional
             The optimizer to use for training the model. If None, the model will not be compiled with an optimizer.
-            If a str or dict is given, the optimizer will be retrieved using `tf.keras.optimizers.get()`.
+            If a str or dict is given, the optimizer will be retrieved using `keras.optimizers.get()`.
             Default is None.
         losses : list or None, optional
             The loss functions to use for each output in the format [x/y_, y]. If None, no losses will be used.
@@ -253,11 +254,11 @@ class DvnModel(object):
         if optimizer is not None:
             assert isinstance(self.outputs[key][0].transformer, KerasModel), "When using compile with an optimizer specified the output and index 0 (i.e. x/y_) must be after a KerasTransformer."
             if isinstance(optimizer, (str, dict)):
-                optimizer = tf.keras.optimizers.get(optimizer)
+                optimizer = keras.optimizers.get(optimizer)
 
-            assert isinstance(optimizer, tf.keras.optimizers.Optimizer), "Please specify the optimizer as a Keras optimizer or a str/dict representation thereof."
+            assert isinstance(optimizer, keras.optimizers.Optimizer), "Please specify the optimizer as a Keras optimizer or a str/dict representation thereof."
             self.optimizer[key] = optimizer.get_config()
-            self.outputs[key][0].transformer.keras_model.compile(optimizer=optimizer, loss=self.losses[key], metrics=self.metrics[key], loss_weights=self.losses_weights[key], weighted_metrics=self.weighted_metrics[key])
+            self.outputs[key][0].transformer.keras_model.compile(optimizer=optimizer, loss=self.losses[key], metrics=self.metrics[key], loss_weights=self.losses_weights[key], weighted_metrics=self.weighted_metrics[key], jit_compile=False)
 
     def fit(self, key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, verbose=1, logs_dir=None, initial_epoch=0, steps_per_epoch=None, validation_steps=None, validation_batch_size=None):
         """Trains the model on the data generated batch-by-batch by the sampler.
@@ -408,7 +409,7 @@ class DvnModel(object):
 
                 evaluations.append(evaluation)
                 print("Evaluated {} with {} in {:.0f} s: \n{}".format(identifier(), key, time.time() - start_time, json.dumps(evaluation, indent=2)))
-
+        
         print("\nMean evaluation results: ")
         for metric_name in evaluations[0]:
             print("{}: {:.2f}".format(metric_name, np.mean([evaluation[metric_name] for evaluation in evaluations])))
@@ -492,7 +493,7 @@ class DvnModel(object):
                 if not os.path.isdir(keras_model_dir):
                     os.makedirs(keras_model_dir)
 
-                keras_models[name].save(os.path.join(keras_model_dir, name))
+                keras_models[name].save(os.path.join(keras_model_dir, f"{name}.keras"))
 
         with open(os.path.join(file_dir, "dvn_model.pkl"), "wb") as f:
             pickle.dump(dvn_model, f)
@@ -515,7 +516,7 @@ class DvnModel(object):
             keras_model_dir = os.path.join(file_dir, "keras_models")
             keras_models = dvn_model.creator.clear_keras_models()
             for name in keras_models:
-                keras_models[name] = tf.keras.models.load_model(os.path.join(keras_model_dir, name), custom_objects=custom_objects_dict)
+                keras_models[name] = keras.models.load_model(os.path.join(keras_model_dir, f"{name}.keras"), custom_objects=custom_objects_dict, compile=False)
 
             dvn_model.creator.set_keras_models(keras_models)
 
