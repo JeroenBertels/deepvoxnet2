@@ -8,7 +8,7 @@
 import numpy as np
 import seaborn as sb
 from copy import deepcopy
-from collections import Iterable
+from collections.abc import Iterable
 from scipy import stats
 from matplotlib import pyplot as plt
 from matplotlib.patches import Rectangle

@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
-from collections import Iterable
+from collections.abc import Iterable
 from deepvoxnet2.components.mirc import NiftiFileModality
 from deepvoxnet2.components.sampler import MircSampler
 from deepvoxnet2.components.model import DvnModel

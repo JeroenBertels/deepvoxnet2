@@ -8,7 +8,7 @@ Overall, the Data class can help you efficiently and effectively work with data 
 
 import numpy as np
 import pandas as pd
-from collections import Iterable
+from collections.abc import Iterable
 
 
 class Data(object):
