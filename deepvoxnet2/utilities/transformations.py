@@ -6,17 +6,10 @@ These functions are implemented using the SimpleITK and NumPy libraries, and can
 import os
 import numpy as np
 import nibabel as nib
-try:
-    import SimpleITK as sitk
-
-except ModuleNotFoundError:
-    pass
-
 from tempfile import mkdtemp
 from shutil import rmtree
 from scipy.ndimage import zoom, gaussian_filter, uniform_filter, distance_transform_edt
 from scipy.spatial.transform import Rotation
-from pymirc.image_operations import aff_transform, backward_3d_warp, random_deformation_field
 from .conversions import nii_to_sitk, sitk_to_nii
 
 
@@ -327,6 +320,8 @@ def get_affine_matrix(I_shape, voxel_size=(1, 1, 1), reflection=(1, 1, 1), shear
 
 
 def affine_deformation(I, affine, output_shape=None, order=1, cval=0, oversampling_factors=(1, 1, 1)):
+    from pymirc.image_operations import aff_transform
+
     """Apply an affine deformation to the input array I.
 
     Parameters
@@ -354,6 +349,8 @@ def affine_deformation(I, affine, output_shape=None, order=1, cval=0, oversampli
 
 
 def get_deformation_field(I_shape, shift=(2, 2, 2), nsize=(30, 30, 30), npad=(5, 5, 5), std=(6, 6, 6)):
+    from pymirc.image_operations import random_deformation_field
+
     """Generate an elastic deformation field.
 
     Parameters
@@ -381,6 +378,8 @@ def get_deformation_field(I_shape, shift=(2, 2, 2), nsize=(30, 30, 30), npad=(5,
 
 
 def elastic_deformation(I, deformation_field, cval=0, order=1):
+    from pymirc.image_operations import backward_3d_warp
+
     """Apply an elastic deformation to the input array I.
 
     Parameters
@@ -404,6 +403,8 @@ def elastic_deformation(I, deformation_field, cval=0, order=1):
 
 
 def orthogonalize(input_nii, invalid_value):
+    import SimpleITK as sitk
+
     """Orthogonalize by having a new z-axis that is orthogonal to the x and y axis.
 
     This function takes a nibabel.Nifti1Image as input, which is a 3D image with x, y, and z axes.
@@ -470,6 +471,8 @@ def registration_quality(fixed_array, moved_array, mask_array=None):
 
 
 def move(moving_nii, fixed_nii=None, transform_parameter_map=None, fixed_nii_mask=None, moving_nii_mask=None, parameter_map=None, initial_transform_parameter_map=None):
+    import SimpleITK as sitk
+
     """Apply a registration or a transform to a moving image using SimpleElastix.
 
     Parameters
