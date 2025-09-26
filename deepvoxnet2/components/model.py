@@ -166,7 +166,7 @@ class DvnModel(object):
             self.weighted_metrics[key] = [[] for _ in range(len(self.outputs[key][0]))]
             i += len(self.outputs[key])
 
-    def compile(self, key, optimizer=None, losses=None, metrics=None, losses_weights=None, weighted_metrics=None):
+    def compile(self, key, optimizer=None, losses=None, metrics=None, losses_weights=None, weighted_metrics=None, run_eagerly=False):
         """Compiles a Keras model for a specified output key with the given optimizer, losses, metrics, and metrics weights.
 
         Parameters
@@ -258,7 +258,7 @@ class DvnModel(object):
 
             assert isinstance(optimizer, keras.optimizers.Optimizer), "Please specify the optimizer as a Keras optimizer or a str/dict representation thereof."
             self.optimizer[key] = optimizer.get_config()
-            self.outputs[key][0].transformer.keras_model.compile(optimizer=optimizer, loss=self.losses[key], metrics=self.metrics[key], loss_weights=self.losses_weights[key], weighted_metrics=self.weighted_metrics[key], jit_compile=False)
+            self.outputs[key][0].transformer.keras_model.compile(optimizer=optimizer, loss=self.losses[key], metrics=self.metrics[key], loss_weights=self.losses_weights[key], weighted_metrics=self.weighted_metrics[key], jit_compile=False, run_eagerly=run_eagerly)
 
     def fit(self, key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, verbose=1, logs_dir=None, initial_epoch=0, steps_per_epoch=None, validation_steps=None, validation_batch_size=None):
         """Trains the model on the data generated batch-by-batch by the sampler.
@@ -501,7 +501,7 @@ class DvnModel(object):
         dvn_model.creator.set_keras_models(keras_models)
 
     @staticmethod
-    def load_model(file_dir, load_keras_models=True):
+    def load_model(file_dir, load_keras_models=True, compile=False):
         with open(os.path.join(file_dir, "dvn_model.pkl"), "rb") as f:
             dvn_model = pickle.load(f)
 
@@ -516,7 +516,7 @@ class DvnModel(object):
             keras_model_dir = os.path.join(file_dir, "keras_models")
             keras_models = dvn_model.creator.clear_keras_models()
             for name in keras_models:
-                keras_models[name] = keras.models.load_model(os.path.join(keras_model_dir, f"{name}.keras"), custom_objects=custom_objects_dict, compile=False)
+                keras_models[name] = keras.models.load_model(os.path.join(keras_model_dir, f"{name}.keras"), custom_objects=custom_objects_dict, compile=compile)
 
             dvn_model.creator.set_keras_models(keras_models)
 
