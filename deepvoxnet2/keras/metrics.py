@@ -46,14 +46,13 @@ def squared_error(y_true, y_pred, **kwargs):
     return err ** 2
 
 
-def cross_entropy(y_true, y_pred, from_logits=False, component_wise=False, component_wise_reference_count=None, **kwargs):
+def cross_entropy(y_true, y_pred, from_logits=False, component_wise=False, **kwargs):
     if component_wise:
-        assert y_true.shape[0] == 1 and y_pred.shape[0] == 1
         assert y_true.shape[-1] == 1 and y_pred.shape[-1] == 1
-        # voxel_weights = _get_voxel_weights(y_true, reference_count=component_wise_reference_count)
-        voxel_weights = _get_voxel_weights(y_true)
+        voxel_weights = tf.map_fn(_get_voxel_weights, y_true, tf.float32)
         voxel_weights.set_shape(y_true.shape)
-    
+        voxel_weights = tf.reduce_sum(voxel_weights, axis=-1, keepdims=True) - (y_true.shape[-1] - 1)
+
     else:
         voxel_weights = 1
 
@@ -123,7 +122,7 @@ def true_negative_rate(y_true, y_pred, eps=keras.backend.epsilon(), **kwargs):
     return (tn + eps) / (tn + fp + eps)
 
 
-def dice_coefficient(y_true, y_pred, component_wise=False, component_wise_reference_count=None, dice_semimetric_loss=False, eps=keras.backend.epsilon(), reduce_along_batch=False, reduce_along_features=False, feature_weights=None, threshold=None, **kwargs):
+def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=False, eps=keras.backend.epsilon(), reduce_along_batch=False, reduce_along_features=False, feature_weights=None, threshold=None, **kwargs):
     if feature_weights is None:
         feature_weights = 1
 
@@ -132,9 +131,9 @@ def dice_coefficient(y_true, y_pred, component_wise=False, component_wise_refere
         y_pred = tf.cast(tf.math.greater(y_pred, threshold), y_pred.dtype)
 
     if component_wise:
-        assert y_true.shape[0] == 1 and y_pred.shape[0] == 1
         assert y_true.shape[-1] == 1 and y_pred.shape[-1] == 1
-        voxel_weights = _get_voxel_weights(y_true)
+        voxel_weights = tf.map_fn(_get_voxel_weights, y_true, tf.float32)
+        voxel_weights = tf.reduce_sum(voxel_weights, axis=-1, keepdims=True) - (y_true.shape[-1] - 1)
         voxel_weights.set_shape(y_true.shape)    
 
     else:
@@ -272,6 +271,7 @@ def auc(y_true, y_pred, thresholds=np.linspace(0 - keras.backend.epsilon(), 1, 5
         return riemann_sum(x, y, reduce_mean_axes=tuple([i for i in range(5) if i != auc_threshold_axis]))
 
 
+# @tf.autograph.experimental.do_not_convert 
 def hausdorff_distance(y_true, y_pred, min_edge_diff=1, voxel_size=1, hd_percentile=95, **kwargs):
     import tensorflow_probability as tfp
 
@@ -623,6 +623,7 @@ if __name__ == "__main__":
 
     y_true = tf.convert_to_tensor([0, 0, 1, 1, 0, 0, 1, 1, 1, 0])[None, None, ..., None, None]
     y_pred = tf.convert_to_tensor([0, 1, 0, 1, 0, 0, 0, 1, 1, 0])[None, None, ..., None, None]
+    print(6 / 9)
 
     print("dice_coefficient: default")
     metric = get_metric("dice_coefficient", component_wise=False, component_wise_reference_count=None, dice_semimetric_loss=False)
