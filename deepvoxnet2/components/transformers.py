@@ -1680,7 +1680,11 @@ class GaussianNoise(Transformer):
 class Filter(Transformer):
     def __init__(self, filter_size, method="uniform", mode="nearest", cval=0, **kwargs):
         super(Filter, self).__init__(**kwargs)
-        self.filter_size = filter_size if isinstance(filter_size, (tuple, list)) else [filter_size]
+        self.filter_size = tuple(filter_size) if isinstance(filter_size, (tuple, list)) else (1, filter_size, filter_size, filter_size, 1)
+        if len(self.filter_size) == 3:
+            self.filter_size = (1,) + self.filter_size + (1,)
+        
+        assert len(self.filter_size) == 5
         assert method in ["uniform", "gaussian"]
         self.method = method
         self.mode = mode
