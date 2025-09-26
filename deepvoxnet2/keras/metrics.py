@@ -5,6 +5,24 @@ from functools import partial
 from collections.abc import Iterable
 
 
+@tf.py_function(Tout=tf.float32)
+def _get_voxel_weights(y_true):
+    import cupy as cp
+    from cupyx.scipy.ndimage import label
+    reference_count = None
+    label_map, nb_labels = label(cp.asarray(y_true))
+    label_map, nb_labels = tf.convert_to_tensor(label_map.get()), tf.convert_to_tensor(nb_labels)
+    if nb_labels > 0 and reference_count is None:
+        reference_count = tf.math.count_nonzero(label_map, dtype=tf.float32) / tf.cast(nb_labels, tf.float32)
+
+    voxel_weights = tf.ones_like(y_true, dtype=tf.float32)
+    for l in tf.range(nb_labels):
+        l_map = tf.equal(label_map, l + 1)
+        voxel_weights = tf.where(l_map, reference_count / tf.reduce_sum(tf.cast(l_map, tf.float32)), voxel_weights)
+
+    return voxel_weights
+
+
 def _expand_binary(y_true, y_pred):
     y_true_shape, y_pred_shape = y_true.shape, y_pred.shape
     if y_true_shape[-1] == 1 or y_pred_shape[-1] == 1:
@@ -28,9 +46,19 @@ def squared_error(y_true, y_pred, **kwargs):
     return err ** 2
 
 
-def cross_entropy(y_true, y_pred, from_logits=False, **kwargs):
+def cross_entropy(y_true, y_pred, from_logits=False, component_wise=False, component_wise_reference_count=None, **kwargs):
+    if component_wise:
+        assert y_true.shape[0] == 1 and y_pred.shape[0] == 1
+        assert y_true.shape[-1] == 1 and y_pred.shape[-1] == 1
+        # voxel_weights = _get_voxel_weights(y_true, reference_count=component_wise_reference_count)
+        voxel_weights = _get_voxel_weights(y_true)
+        voxel_weights.set_shape(y_true.shape)
+    
+    else:
+        voxel_weights = 1
+
     y_true, y_pred = _expand_binary(y_true, y_pred)
-    return keras.ops.categorical_crossentropy(y_true, y_pred, from_logits=from_logits)[..., None]
+    return voxel_weights * keras.ops.categorical_crossentropy(y_true, y_pred, from_logits=from_logits)[..., None]
 
 
 def accuracy(y_true, y_pred, **kwargs):
@@ -95,27 +123,51 @@ def true_negative_rate(y_true, y_pred, eps=keras.backend.epsilon(), **kwargs):
     return (tn + eps) / (tn + fp + eps)
 
 
-def dice_coefficient(y_true, y_pred, eps=keras.backend.epsilon(), reduce_along_batch=False, reduce_along_features=False, feature_weights=None, threshold=None, **kwargs):
-    ndim = tf.rank(y_true)
-    ax   = tf.range(1, ndim - 1)
+def dice_coefficient(y_true, y_pred, component_wise=False, component_wise_reference_count=None, dice_semimetric_loss=False, eps=keras.backend.epsilon(), reduce_along_batch=False, reduce_along_features=False, feature_weights=None, threshold=None, **kwargs):
+    if feature_weights is None:
+        feature_weights = 1
+
     if threshold is not None:
         y_true = tf.cast(tf.math.greater(y_true, threshold), y_true.dtype)
         y_pred = tf.cast(tf.math.greater(y_pred, threshold), y_pred.dtype)
 
-    intersection = tf.math.reduce_sum(y_true * y_pred, axis=ax, keepdims=True)
-    denom = tf.math.reduce_sum(y_true, axis=ax, keepdims=True) + tf.math.reduce_sum(y_pred, axis=ax, keepdims=True)
-    if reduce_along_features:
-        if feature_weights is None:
-            feature_weights = 1
+    if component_wise:
+        assert y_true.shape[0] == 1 and y_pred.shape[0] == 1
+        assert y_true.shape[-1] == 1 and y_pred.shape[-1] == 1
+        voxel_weights = _get_voxel_weights(y_true)
+        voxel_weights.set_shape(y_true.shape)    
 
-        intersection = tf.math.reduce_sum(intersection * feature_weights, axis=-1, keepdims=True)
-        denom = tf.math.reduce_sum(denom * feature_weights, axis=-1, keepdims=True)
+    else:
+        voxel_weights = 1
+            
+    if dice_semimetric_loss:
+        y = tf.math.reduce_sum(y_true * voxel_weights, axis=(1, 2, 3), keepdims=True)
+        x = tf.math.reduce_sum(y_pred * voxel_weights, axis=(1, 2, 3), keepdims=True)
+        x_y = tf.math.reduce_sum(tf.abs(y_pred - y_true) * voxel_weights, axis=(1, 2, 3), keepdims=True)
+        if reduce_along_features:
+            y = tf.math.reduce_sum(y * feature_weights, axis=4, keepdims=True)
+            x = tf.math.reduce_sum(x * feature_weights, axis=4, keepdims=True)
+            x_y = tf.math.reduce_sum(x_y * feature_weights, axis=4, keepdims=True)
 
-    if reduce_along_batch:
-        intersection = tf.math.reduce_sum(intersection, axis=0, keepdims=True)
-        denom = tf.math.reduce_sum(denom, axis=0, keepdims=True)
+        if reduce_along_batch:
+            y = tf.math.reduce_sum(y, axis=0, keepdims=True)
+            x = tf.math.reduce_sum(x, axis=0, keepdims=True)
+            x_y = tf.math.reduce_sum(x_y, axis=0, keepdims=True)      
 
-    return (2 * intersection + eps) / (denom + eps)
+        return (x + y - x_y + eps) / (x + y + eps)
+
+    else:
+        intersection = tf.math.reduce_sum(y_true * y_pred * voxel_weights, axis=(1, 2, 3), keepdims=True)
+        denom = tf.math.reduce_sum(y_true * voxel_weights, axis=(1, 2, 3), keepdims=True) + tf.math.reduce_sum(y_pred * voxel_weights, axis=(1, 2, 3), keepdims=True)
+        if reduce_along_features:
+            intersection = tf.math.reduce_sum(intersection * feature_weights, axis=-1, keepdims=True)
+            denom = tf.math.reduce_sum(denom * feature_weights, axis=-1, keepdims=True)
+
+        if reduce_along_batch:
+            intersection = tf.math.reduce_sum(intersection, axis=0, keepdims=True)
+            denom = tf.math.reduce_sum(denom, axis=0, keepdims=True)
+
+        return (2 * intersection + eps) / (denom + eps)
 
 
 def coefficient_of_determination(y_true, y_pred, **kwargs):
@@ -533,38 +585,61 @@ def get_metric_at_multiple_thresholds(metric_name, thresholds, threshold_axis=No
 
 
 if __name__ == "__main__":
-    from matplotlib import pyplot as plt
-    y_true = np.random.rand(1, 100, 100, 100, 1)
-    # y_pred = np.random.rand(1, 100, 100, 100, 1)
-    y_pred = np.clip(y_true + np.random.rand(1, 100, 100, 100, 1) / 2, 0, 1)
-    y_true = y_true > 0.5
+    # from matplotlib import pyplot as plt
+    # y_true = np.random.rand(1, 100, 100, 100, 1)
+    # # y_pred = np.random.rand(1, 100, 100, 100, 1)
+    # y_pred = np.clip(y_true + np.random.rand(1, 100, 100, 100, 1) / 2, 0, 1)
+    # y_true = y_true > 0.5
 
-    # ECE checking
-    ece_0 = get_metric("ece", quantiles_as_bins=False, ece_from_bin_stats=False)(y_true, y_pred)
-    ece_1 = get_metric("ece", quantiles_as_bins=True, ece_from_bin_stats=False)(y_true, y_pred)
-    ece_2 = get_metric("ece", quantiles_as_bins=False, ece_from_bin_stats=True)(y_true, y_pred)
-    ece_3 = get_metric("ece", quantiles_as_bins=True, ece_from_bin_stats=True)(y_true, y_pred)
-    print(ece_0, ece_1, ece_2, ece_3)
-    bin_stats_0 = get_metric("ece", quantiles_as_bins=False, ece_from_bin_stats=False, return_bin_stats=True)(y_true, y_pred)
-    bin_stats_1 = get_metric("ece", quantiles_as_bins=True, ece_from_bin_stats=False, return_bin_stats=True)(y_true, y_pred)
-    confidence_0, accuracy_0 = bin_stats_0[0, :, 0, 0, 0], bin_stats_0[0, :, 1, 0, 0]
-    confidence_1, accuracy_1 = bin_stats_1[0, :, 0, 0, 0], bin_stats_1[0, :, 1, 0, 0]
-    plt.figure()
-    plt.plot(confidence_0, accuracy_0, "b.")
-    plt.plot(confidence_1, accuracy_1, "r.")
-    plt.title("ECE")
-    plt.show()
+    # # ECE checking
+    # ece_0 = get_metric("ece", quantiles_as_bins=False, ece_from_bin_stats=False)(y_true, y_pred)
+    # ece_1 = get_metric("ece", quantiles_as_bins=True, ece_from_bin_stats=False)(y_true, y_pred)
+    # ece_2 = get_metric("ece", quantiles_as_bins=False, ece_from_bin_stats=True)(y_true, y_pred)
+    # ece_3 = get_metric("ece", quantiles_as_bins=True, ece_from_bin_stats=True)(y_true, y_pred)
+    # print(ece_0, ece_1, ece_2, ece_3)
+    # bin_stats_0 = get_metric("ece", quantiles_as_bins=False, ece_from_bin_stats=False, return_bin_stats=True)(y_true, y_pred)
+    # bin_stats_1 = get_metric("ece", quantiles_as_bins=True, ece_from_bin_stats=False, return_bin_stats=True)(y_true, y_pred)
+    # confidence_0, accuracy_0 = bin_stats_0[0, :, 0, 0, 0], bin_stats_0[0, :, 1, 0, 0]
+    # confidence_1, accuracy_1 = bin_stats_1[0, :, 0, 0, 0], bin_stats_1[0, :, 1, 0, 0]
+    # plt.figure()
+    # plt.plot(confidence_0, accuracy_0, "b.")
+    # plt.plot(confidence_1, accuracy_1, "r.")
+    # plt.title("ECE")
+    # plt.show()
 
-    # AUC checking
-    auc_0 = get_metric("auc", y_true_thresholds=None)(y_true, y_pred)
-    auc_1 = get_metric("auc", y_true_thresholds=0.5)(y_true, y_pred)
-    print(auc_0, auc_1)
-    auc_stats_0 = get_metric("auc", return_auc_stats=True, y_true_thresholds=None)(y_true, y_pred)
-    auc_stats_1 = get_metric("auc", return_auc_stats=True, y_true_thresholds=0.5)(y_true, y_pred)
-    x_0, y_0 = auc_stats_0[0, :auc_stats_0.shape[1] // 2, 0, 0, 0], auc_stats_0[0, auc_stats_0.shape[1] // 2:, 0, 0, 0]
-    x_1, y_1 = auc_stats_1[0, :auc_stats_1.shape[1] // 2, 0, 0, 0], auc_stats_1[0, auc_stats_1.shape[1] // 2:, 0, 0, 0]
-    plt.figure()
-    plt.plot(x_0, y_0, "b.")
-    plt.plot(x_1, y_1, "r.")
-    plt.title("AUC")
-    plt.show()
+    # # AUC checking
+    # auc_0 = get_metric("auc", y_true_thresholds=None)(y_true, y_pred)
+    # auc_1 = get_metric("auc", y_true_thresholds=0.5)(y_true, y_pred)
+    # print(auc_0, auc_1)
+    # auc_stats_0 = get_metric("auc", return_auc_stats=True, y_true_thresholds=None)(y_true, y_pred)
+    # auc_stats_1 = get_metric("auc", return_auc_stats=True, y_true_thresholds=0.5)(y_true, y_pred)
+    # x_0, y_0 = auc_stats_0[0, :auc_stats_0.shape[1] // 2, 0, 0, 0], auc_stats_0[0, auc_stats_0.shape[1] // 2:, 0, 0, 0]
+    # x_1, y_1 = auc_stats_1[0, :auc_stats_1.shape[1] // 2, 0, 0, 0], auc_stats_1[0, auc_stats_1.shape[1] // 2:, 0, 0, 0]
+    # plt.figure()
+    # plt.plot(x_0, y_0, "b.")
+    # plt.plot(x_1, y_1, "r.")
+    # plt.title("AUC")
+    # plt.show()
+
+    y_true = tf.convert_to_tensor([0, 0, 1, 1, 0, 0, 1, 1, 1, 0])[None, None, ..., None, None]
+    y_pred = tf.convert_to_tensor([0, 1, 0, 1, 0, 0, 0, 1, 1, 0])[None, None, ..., None, None]
+
+    print("dice_coefficient: default")
+    metric = get_metric("dice_coefficient", component_wise=False, component_wise_reference_count=None, dice_semimetric_loss=False)
+    print(metric(y_true, y_pred))
+
+    print("dice_coefficient: semi-metric")
+    metric = get_metric("dice_coefficient", component_wise=False, component_wise_reference_count=None, dice_semimetric_loss=True)
+    print(metric(y_true, y_pred))
+
+    print("dice_coefficient: component-wise")
+    metric = get_metric("dice_coefficient", component_wise=True, component_wise_reference_count=None, dice_semimetric_loss=True)
+    print(metric(y_true, y_pred))
+
+    print("cross_entropy: default")
+    metric = get_metric("cross_entropy", component_wise=False, component_wise_reference_count=None)
+    print(metric(y_true, y_pred))    
+    
+    print("cross_entropy: component-wise")
+    metric = get_metric("cross_entropy", component_wise=True, component_wise_reference_count=None)
+    print(metric(y_true, y_pred))
