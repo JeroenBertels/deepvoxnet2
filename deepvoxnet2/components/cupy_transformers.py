@@ -2,10 +2,9 @@ import random
 import numpy as np
 import cupy as cp
 from scipy.spatial.transform import Rotation
-from scipy.ndimage import gaussian_filter, uniform_filter, distance_transform_edt
-from cupyx.scipy.ndimage import affine_transform
+from cupyx.scipy.ndimage import affine_transform, gaussian_filter, uniform_filter, distance_transform_edt
 from deepvoxnet2.components.sample import Sample
-from deepvoxnet2.components.transformers import Transformer
+from deepvoxnet2.components.transformers import Transformer, Filter
 
 
 class CupyThreshold(Transformer):
@@ -19,6 +18,7 @@ class CupyThreshold(Transformer):
             cp_sample = cp.asarray(sample)
             cp_sample[...] = (cp_sample > self.lower_threshold) * (cp_sample < self.upper_threshold)
             self.outputs[idx][idx_] = Sample(cp_sample.get(), sample.affine)
+            del cp_sample
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -26,6 +26,20 @@ class CupyThreshold(Transformer):
 
     def _randomize(self):
         pass
+
+
+class CupyFilter(Filter):
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            cp_sample = cp.asarray(sample)
+            if self.method == "uniform":
+                cp_sample = uniform_filter(cp_sample, self.filter_size, mode=self.mode, cval=self.cval)
+
+            else:
+                cp_sample = gaussian_filter(cp_sample, [s_f if s_f > 1 else 0 for s_f in self.filter_size], mode=self.mode, cval=self.cval)
+
+            self.outputs[idx][idx_] = Sample(cp_sample.get(), sample.affine)
+            del cp_sample
 
 
 class CupyClip(Transformer):
@@ -39,7 +53,7 @@ class CupyClip(Transformer):
             cp_sample = cp.asarray(sample)
             cp.clip(cp_sample, self.lower_clip, self.higher_clip, out=cp_sample)
             self.outputs[idx][idx_] = Sample(cp_sample.get(), sample.affine)
-            # del cp_sample
+            del cp_sample
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -65,7 +79,7 @@ class CupyIntensityTransform(Transformer):
             cp_sample[...] += self.shift
             cp_sample[...] *= self.scale
             self.outputs[idx][idx_] = Sample(cp_sample.get(), sample.affine)
-            # del cp_sample
+            del cp_sample
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -125,7 +139,7 @@ class CupyResampledAffineCropper(Transformer):
 
             transformed_affine = Sample.update_affine(sample.affine, transformation_matrix=self.backward_affine)
             self.outputs[idx][idx_] = Sample(transformed_sample.get(), transformed_affine)
-            # del transformed_sample
+            del transformed_sample
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -201,6 +215,11 @@ class CupyPut(Transformer):
                 
                 mask = (transformed_array != self.cval).get()
                 self.outputs[idx][idx_][mask] = transformed_array[mask].get()
+                del backward_affine
+                del transformed_array
+
+            del cp_sample
+            del cp_output
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -286,6 +305,7 @@ class CupyCrop(Transformer):
             )
             transformed_affine = Sample.update_affine(sample.affine, transformation_matrix=backward_affine)
             self.outputs[idx][idx_] = Sample(transformed_sample, transformed_affine)
+            del transformed_sample
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -342,10 +362,10 @@ class CupyCrop(Transformer):
         if prefilter is not None:
             assert prefilter in ["uniform", "gaussian"]
             if prefilter == "gaussian":
-                I = gaussian_filter(I.astype(cp.float64), [s_f if s_f > 1 else 0 for s_f in subsample_factors], mode="nearest").astype(cp.float32)
+                I = gaussian_filter(I, [s_f if s_f > 1 else 0 for s_f in subsample_factors], mode="nearest")
 
             elif prefilter == "uniform":
-                I = uniform_filter(I.astype(cp.float64), subsample_factors, mode="nearest").astype(cp.float32)
+                I = uniform_filter(I, subsample_factors, mode="nearest")
 
         S_size = tuple(S_size) + tuple(I.shape[len(S_size):])
         S = cp.full(S_size, fill_value=default_value, dtype=cp.float32)
@@ -439,7 +459,7 @@ class CupyResampledAffineCropperV2(Transformer):
 
             transformed_affine = Sample.update_affine(sample.affine, transformation_matrix=self.backward_affine)
             self.outputs[idx][idx_] = Sample(transformed_sample.get(), transformed_affine)
-            # del transformed_sample
+            del transformed_sample
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
