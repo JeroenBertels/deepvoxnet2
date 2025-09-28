@@ -5,21 +5,47 @@ from functools import partial
 from collections.abc import Iterable
 
 
-@tf.py_function(Tout=tf.float32)
-def _get_voxel_weights(y_true):
+@tf.py_function(Tout=[tf.int32, tf.int32])
+def _get_labelmap_and_nb_labels(tensor):
     import cupy as cp
     from cupyx.scipy.ndimage import label
-    reference_count = None
-    label_map, nb_labels = label(cp.asarray(y_true))
-    label_map, nb_labels = tf.convert_to_tensor(label_map.get()), tf.convert_to_tensor(nb_labels)
-    if nb_labels > 0 and reference_count is None:
-        reference_count = tf.math.count_nonzero(label_map, dtype=tf.float32) / tf.cast(nb_labels, tf.float32)
+    assert len(tensor.shape) == 5 and tensor.shape[0] == 1 and tensor.shape[-1] == 1 and tensor.dtype == tf.float32
+    tensor_cp = cp.greater(cp.asarray(tensor, cp.float32), 0).astype(cp.int32)
+    nb_labels_cp = label(tensor_cp, output=tensor_cp)
+    labelmap, nb_labels = tf.convert_to_tensor(tensor_cp.get(), tf.int32), tf.convert_to_tensor(nb_labels_cp, dtype=tf.int32)
+    del tensor_cp
+    del nb_labels_cp
+    return labelmap, nb_labels
 
-    voxel_weights = tf.ones_like(y_true, dtype=tf.float32)
-    for l in tf.range(nb_labels):
-        l_map = tf.equal(label_map, l + 1)
-        voxel_weights = tf.where(l_map, reference_count / tf.reduce_sum(tf.cast(l_map, tf.float32)), voxel_weights)
 
+def _get_voxel_weights(y_true):
+    assert len(y_true.shape) == 5 and y_true.shape[-1] == 1 and y_true.dtype == tf.float32
+    labels_dict = {}
+    for b in range(y_true.shape[0]):
+        labels_dict[b] = {}
+        for f in range(y_true.shape[-1]):
+            labels_dict[b][f] = {}
+            labels_dict[b][f]["labelmap"], labels_dict[b][f]["nb_labels"] = _get_labelmap_and_nb_labels(y_true[b:b + 1, ..., f:f + 1])
+            labels_dict[b][f]["labelmap"].set_shape((1,) + y_true.shape[1:4] + (1,))
+            labels_dict[b][f]["nb_labels"].set_shape(())
+            labels_dict[b][f]["labelmasks"] = {}
+            for l in tf.range(labels_dict[b][f]["nb_labels"]):
+                labels_dict[b][f]["labelmasks"][l.ref()] = {}
+                labels_dict[b][f]["labelmasks"][l.ref()]["mask"] = tf.equal(labels_dict[b][f]["labelmap"], l + 1)
+                labels_dict[b][f]["labelmasks"][l.ref()]["count"] = tf.cast(tf.math.count_nonzero(labels_dict[b][f]["labelmasks"][l.ref()]["mask"]), tf.float32)
+    
+    labelcounts = tf.convert_to_tensor([labels_dict[b][f]["labelmasks"][l]["count"] for b in labels_dict for f in labels_dict[b] for l in labels_dict[b][f]["labelmasks"]], dtype=tf.float32)
+    reference_count = tf.reduce_sum(labelcounts) / len(labelcounts)
+    voxel_weights_dict = {}
+    for b in labels_dict:
+        voxel_weights_dict[b] = tf.ones_like(y_true, dtype=tf.float32)
+        for f in labels_dict[b]:
+            for l in labels_dict[b][f]["labelmasks"]:
+                voxel_weights_dict[b] = tf.where(labels_dict[b][f]["labelmasks"][l]["mask"], reference_count / labels_dict[b][f]["labelmasks"][l]["count"], voxel_weights_dict[b])
+
+    del labels_dict
+    voxel_weights = tf.concat([voxel_weights_dict[b] for b in voxel_weights_dict], axis=0)
+    del voxel_weights_dict
     return voxel_weights
 
 
@@ -49,9 +75,8 @@ def squared_error(y_true, y_pred, **kwargs):
 def cross_entropy(y_true, y_pred, from_logits=False, component_wise=False, **kwargs):
     if component_wise:
         assert y_true.shape[-1] == 1 and y_pred.shape[-1] == 1
-        voxel_weights = tf.map_fn(_get_voxel_weights, y_true, tf.float32)
-        voxel_weights.set_shape(y_true.shape)
-        voxel_weights = tf.reduce_sum(voxel_weights, axis=-1, keepdims=True) - (y_true.shape[-1] - 1)
+        voxel_weights = _get_voxel_weights(y_true)
+        assert y_true.shape[0] == voxel_weights.shape[0] and voxel_weights.shape[-1] == 1
 
     else:
         voxel_weights = 1
@@ -132,9 +157,8 @@ def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=
 
     if component_wise:
         assert y_true.shape[-1] == 1 and y_pred.shape[-1] == 1
-        voxel_weights = tf.map_fn(_get_voxel_weights, y_true, tf.float32)
-        voxel_weights = tf.reduce_sum(voxel_weights, axis=-1, keepdims=True) - (y_true.shape[-1] - 1)
-        voxel_weights.set_shape(y_true.shape)    
+        voxel_weights = _get_voxel_weights(y_true)
+        assert y_true.shape[0] == voxel_weights.shape[0] and voxel_weights.shape[-1] == 1
 
     else:
         voxel_weights = 1
@@ -620,7 +644,6 @@ if __name__ == "__main__":
     # plt.plot(x_1, y_1, "r.")
     # plt.title("AUC")
     # plt.show()
-
     y_true = tf.convert_to_tensor([0, 0, 1, 1, 0, 0, 1, 1, 1, 0])[None, None, ..., None, None]
     y_pred = tf.convert_to_tensor([0, 1, 0, 1, 0, 0, 0, 1, 1, 0])[None, None, ..., None, None]
     print(6 / 9)
