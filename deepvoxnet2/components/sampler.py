@@ -201,6 +201,7 @@ class Sampler(object):
         self.shuffle = shuffle
         self.weights = weights
         self.randomize()
+        self._randomizing = False
 
     def __len__(self):
         """Returns the number of identifiers in the sampler.
@@ -210,8 +211,9 @@ class Sampler(object):
         int:
             Number of identifiers in the sampler.
         """
-
-        return len(self.identifiers)
+        while True:
+            if not self._randomizing:
+                return len(self.identifiers)
 
     def __getitem__(self, idx):
         """Returns the Identifier object at the given index in the identifiers list.
@@ -226,8 +228,9 @@ class Sampler(object):
         Identifier:
             Identifier object at the given index in the identifiers list.
         """
-
-        return self.identifiers[idx]
+        while True:
+            if not self._randomizing:
+                return self.identifiers[idx]
 
     def __iter__(self):
         """Returns an iterator over the identifiers list.
@@ -237,8 +240,9 @@ class Sampler(object):
         Iterator:
             Iterator over the identifiers list.
         """
-
-        return iter(self.identifiers)
+        while True:
+            if not self._randomizing:
+                return iter(self.identifiers)
 
     def randomize(self):
         """Re-orders the identifiers list based on the specified sampling method, shuffle and weights.
@@ -251,6 +255,7 @@ class Sampler(object):
         in `identifiers`.
         """
 
+        self._randomizing = True
         self._randomize()
         if self.shuffle:
             if self.weights is None:
@@ -268,6 +273,8 @@ class Sampler(object):
         else:
             self.identifiers = self.base_identifiers
 
+        self._randomizing = False
+    
     def _randomize(self):
         """Internal method used to randomly shuffle the `base_identifiers` list.
 
