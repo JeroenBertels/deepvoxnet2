@@ -59,9 +59,9 @@ class TfDataset(tf.data.Dataset, ABC):
 
         def _generator_fn(idx):
             identifier = sampler[idx]
-            if idx == len(sampler) - 1:
+            if tf.reduce_all(idx == len(sampler) - 1):
                 sampler.randomize()
-
+    
             outputs = [output for output in Creator(creator.outputs).eval(identifier)]
             if len(outputs) > 0:
                 outputs = [[Sample(np.concatenate([output[j][i] for output in outputs]), np.concatenate([output[j][i].affine for output in outputs])) for i in range(len(outputs[0][j]))] for j in range(len(outputs[0]))]
@@ -381,6 +381,7 @@ class DvnModel(object):
             assert len(sampler) == len(output_dirs)
 
         evaluations = []
+        evaluations_start_time = time.time()
         for identifier_i, identifier in enumerate(sampler):
             start_time = time.time()
             samples = self.predict(key, Sampler([identifier]), mode=mode, output_dirs=[output_dirs[identifier_i]] if output_dirs is not None else output_dirs, name_tag=name_tag, save_x=save_x, save_y=save_y, save_sample_weight=save_sample_weight)[0]
@@ -408,9 +409,10 @@ class DvnModel(object):
                             evaluation[weighted_metric_name] = (weighted_metric_(samples[1][i], samples[0][i]).numpy() * samples[2][i]).mean().item()
 
                 evaluations.append(evaluation)
-                print("Evaluated {} with {} in {:.0f} s: \n{}".format(identifier(), key, time.time() - start_time, json.dumps(evaluation, indent=2)))
+                print("Evaluated {}/{} {} with {} in {:.0f} s: \n{}".format(identifier_i + 1, len(sampler), identifier(), key, time.time() - start_time, json.dumps(evaluation, indent=2)))
         
         print("\nMean evaluation results: ")
+        print("Total time: {:.0f} s".format(time.time() - evaluations_start_time))
         for metric_name in evaluations[0]:
             print("{}: {:.2f}".format(metric_name, np.mean([evaluation[metric_name] for evaluation in evaluations])))
 
@@ -457,7 +459,7 @@ class DvnModel(object):
                 self.save_sample(key, samples, output_dirs[identifier_i], name_tag=name_tag, save_x=save_x, save_y=save_y, save_sample_weight=save_sample_weight)
 
             predictions.append(samples)
-            print("Predicted {} with {} in {:.0f} s.".format(sampler[identifier_i](), key, time.time() - start_time))
+            print("Predicted {}/{} {} with {} in {:.0f} s.".format(identifier_i + 1, len(sampler), sampler[identifier_i](), key, time.time() - start_time))
 
         return predictions
 
