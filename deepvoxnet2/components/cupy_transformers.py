@@ -423,7 +423,6 @@ class CupyResampledAffineCropperV2(Transformer):
             order=1, 
             **kwargs):
         super(CupyResampledAffineCropperV2, self).__init__(extra_connections=reference_connection, **kwargs)
-        assert self.n is not None
         self.reference_connection = reference_connection
         self.segment_size = segment_size
         self.voxel_size = voxel_size
@@ -451,7 +450,7 @@ class CupyResampledAffineCropperV2(Transformer):
                     affine_transform(
                         cp.asarray(sample[batch_i, ..., feature_i]),
                         cp.asarray(self.backward_affine),
-                        output_shape=self.segment_size,
+                        output_shape=tuple(self.segment_size),
                         cval=cval,
                         order=self.order[idx] if isinstance(self.order, (tuple, list)) else self.order,
                         output=transformed_sample[batch_i, ..., feature_i]
@@ -466,6 +465,7 @@ class CupyResampledAffineCropperV2(Transformer):
         return [tuple([output_shape_ if axis_i not in [1, 2, 3] else (self.segment_size[idx][axis_i - 1] if isinstance(self.segment_size, list) else self.segment_size[axis_i - 1]) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
 
     def _randomize(self):
+        assert self.n is not None
         assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
         if self.n_ == 0:
             self.nonzero_coordinates = cp.argwhere(cp.any(cp.asarray(self.reference_connection[0]) != 0, axis=(0, -1))).get()
