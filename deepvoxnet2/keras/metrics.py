@@ -147,7 +147,7 @@ def true_negative_rate(y_true, y_pred, eps=keras.backend.epsilon(), **kwargs):
     return (tn + eps) / (tn + fp + eps)
 
 
-def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=False, eps=keras.backend.epsilon(), reduce_along_batch=False, reduce_along_features=False, feature_weights=None, threshold=None, **kwargs):
+def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=False, eps=keras.backend.epsilon(), eps_neg=None, reduce_along_batch=False, reduce_along_features=False, feature_weights=None, threshold=None, **kwargs):
     if feature_weights is None:
         feature_weights = 1
 
@@ -177,20 +177,27 @@ def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=
             x = tf.math.reduce_sum(x, axis=0, keepdims=True)
             x_y = tf.math.reduce_sum(x_y, axis=0, keepdims=True)      
 
-        return (x + y - x_y + eps) / (x + y + eps)
+        nom = x + y - x_y
+        denom = x + y
 
     else:
-        intersection = tf.math.reduce_sum(y_true * y_pred * voxel_weights, axis=(1, 2, 3), keepdims=True)
+        y = tf.math.reduce_sum(y_true, axis=(1, 2, 3), keepdims=True)
+        nom = 2 * tf.math.reduce_sum(y_true * y_pred * voxel_weights, axis=(1, 2, 3), keepdims=True)
         denom = tf.math.reduce_sum(y_true * voxel_weights, axis=(1, 2, 3), keepdims=True) + tf.math.reduce_sum(y_pred * voxel_weights, axis=(1, 2, 3), keepdims=True)
         if reduce_along_features:
-            intersection = tf.math.reduce_sum(intersection * feature_weights, axis=-1, keepdims=True)
+            y = tf.math.reduce_sum(y, axis=-1, keepdims=True)
+            nom = tf.math.reduce_sum(nom * feature_weights, axis=-1, keepdims=True)
             denom = tf.math.reduce_sum(denom * feature_weights, axis=-1, keepdims=True)
 
         if reduce_along_batch:
-            intersection = tf.math.reduce_sum(intersection, axis=0, keepdims=True)
+            y = tf.math.reduce_sum(y, axis=0, keepdims=True)
+            nom = tf.math.reduce_sum(nom, axis=0, keepdims=True)
             denom = tf.math.reduce_sum(denom, axis=0, keepdims=True)
 
-        return (2 * intersection + eps) / (denom + eps)
+    if eps_neg is not None:
+        eps = tf.where(tf.equal(y, 0), eps_neg, eps)
+ 
+    return (nom + eps) / (denom + eps)
 
 
 def coefficient_of_determination(y_true, y_pred, **kwargs):
