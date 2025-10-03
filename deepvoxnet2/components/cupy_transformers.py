@@ -210,14 +210,24 @@ class CupyPut(Transformer):
                 if self.keep_counts:
                     kernel = CupyPut.gaussian_kernel_cupy(sample[i, ..., 0].shape, [max(1, s // 2) for s in sample[i, ..., 0].shape])
                     transformed_array_counts = affine_transform(kernel, backward_affine, output_shape=reference.shape[1:4], cval=0, order=self.order)[None, ..., None]
-                    transformed_array = self.output_array_counts[idx][idx_] / (self.output_array_counts[idx][idx_] + transformed_array_counts) * cp_output + transformed_array_counts / (self.output_array_counts[idx][idx_] + transformed_array_counts) * transformed_array
+                    transformed_array *= transformed_array_counts
+                    cp_output *= self.output_array_counts[idx][idx_]
                     self.output_array_counts[idx][idx_] += transformed_array_counts
+                    transformed_array /= self.output_array_counts[idx][idx_]
+                    cp_output /= self.output_array_counts[idx][idx_]
+                    cp_output += transformed_array
+                    del kernel
+                    del transformed_array_counts
                 
-                mask = (transformed_array != self.cval).get()
-                self.outputs[idx][idx_][mask] = transformed_array[mask].get()
+                else:
+                    mask = transformed_array != self.cval
+                    cp_output[mask] = transformed_array[mask]
+                    del mask
+
                 del backward_affine
                 del transformed_array
-
+        
+            self.outputs[idx][idx_][...] = cp_output.get()
             del cp_sample
             del cp_output
 
@@ -512,3 +522,126 @@ class CupyResampledAffineCropperV2(Transformer):
         F[:-1, :-1] = np.diag(flip)
         T2s[:-1, -1] = -np.array(translation)
         self.backward_affine = T2c @ Sc @ R @ Sh @ F @ T2s
+
+
+class CupyResampledAffineCropperV2Grid(CupyResampledAffineCropperV2):
+    def __init__(
+            self, 
+            reference_connection, 
+            segment_size,
+            voxel_size,
+            n=None,
+            max_rel_step_size=1,
+            shear_window_width=(0, 0, 0), 
+            rotation_window_width=(0, 0, 0), 
+            translation_window_width=(0, 0, 0), 
+            scaling_window_width=(0, 0, 0), 
+            flip_probabilities=(0, 0, 0),
+            nonzero=0,
+            nonzero_grid=False, 
+            cval=0, 
+            order=1, 
+            verbose=True,
+            **kwargs):
+        super(CupyResampledAffineCropperV2Grid, self).__init__(
+            reference_connection=reference_connection, 
+            segment_size=segment_size,
+            voxel_size=voxel_size,
+            shear_window_width=shear_window_width, 
+            rotation_window_width=rotation_window_width, 
+            translation_window_width=translation_window_width, 
+            scaling_window_width=scaling_window_width, 
+            flip_probabilities=flip_probabilities,
+            nonzero=nonzero,
+            cval=cval, 
+            order=order,
+            n = n,
+            **kwargs)
+        self.verbose = verbose
+        self.nonzero_grid = nonzero_grid
+        self.max_rel_step_size = max_rel_step_size if isinstance(max_rel_step_size, (tuple, list)) else (max_rel_step_size,) * 3
+        self.segment_size = np.array(self.segment_size)
+
+    def _randomize(self):
+        assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
+        if self.n_ == 0:
+            self.nonzero_coordinates = []
+            if self.nonzero or self.nonzero_grid:
+                # self.nonzero_coordinates = cp.argwhere(cp.any(cp.asarray(self.reference_connection[0]) != 0, axis=(0, -1))).get()
+                self.nonzero_coordinates = np.argwhere(np.any(np.asarray(self.reference_connection[0]) != 0, axis=(0, -1)))
+
+            self.voxel_size_ref = np.linalg.norm(self.reference_connection[0].affine[0, :3, :3], 2, axis=1)
+            self.scaling = self.voxel_size_ref / self.voxel_size
+            self.ss = self.segment_size / self.scaling
+            self.hss = self.ss / 2
+            ranges = []
+            for i in range(3):
+                if self.nonzero_grid and len(self.nonzero_coordinates) > 0:
+                    start = max(np.min(self.nonzero_coordinates[:, i]), self.hss[i])
+                    end = min(np.max(self.nonzero_coordinates[:, i]), self.reference_connection[0].shape[i + 1] - self.hss[i])
+                
+                elif self.nonzero_grid:
+                    start = end = self.reference_connection[0].shape[i + 1] / 2
+
+                else:
+                    start = self.hss[i]
+                    end = self.reference_connection[0].shape[i + 1] - self.hss[i]
+                
+                if end < start:
+                    start = end = self.reference_connection[0].shape[i + 1] / 2
+
+                nb_steps = 1
+                while True:
+                    nb_steps += 1
+                    steps = np.linspace(start, end, nb_steps)
+                    if (steps[1] - steps[0]) / self.ss[i] < self.max_rel_step_size[i]:
+                        break
+
+                ranges.append(set(steps))
+
+            self.coordinates = [np.array((x, y, z)) for x in ranges[0] for y in ranges[1] for z in ranges[2]]
+            if self.n is None and self.verbose:
+                print(f"CupyResampledAffineCropperV2Grid will generate {len(self.coordinates)} samples of shape {self.reference_connection[0].shape[1:4]} (voxel size of reference: {self.voxel_size_ref})")
+
+        if self.n is None:
+            if self.n_ < len(self.coordinates):
+                coordinates = self.coordinates[self.n_]
+            
+            else:
+                raise StopIteration
+        
+        elif len(self.nonzero_coordinates) == 0:
+            coordinates = random.choice(self.coordinates)
+
+        elif random.random() < self.nonzero:
+            tries = 0
+            while True:
+                coordinates = random.choice(self.coordinates)
+                c0 = coordinates - self.hss
+                c1 = coordinates + self.hss
+                if np.any(np.all(np.greater(self.nonzero_coordinates, c0) * np.less(self.nonzero_coordinates, c1), axis=1)):
+                    break
+                
+                tries += 1
+                if tries == 1000:
+                    coordinates = random.choice(self.coordinates)
+                    break
+
+        else:
+            coordinates = random.choice(self.coordinates)        
+
+        rotation = [random.uniform(-w, w) for w in self.rotation_window_width]
+        translation = [t + random.uniform(-w, w) for t, w in zip(np.array(self.segment_size) // 2, self.translation_window_width)]
+        scaling = [s * (1 + random.uniform(-w, w)) for s, w in zip(self.scaling, self.scaling_window_width)] 
+        flip = [-1 if random.random() < p else 1 for p in self.flip_probabilities]
+        shear = [random.uniform(-w, w) for w in self.shear_window_width]
+
+        T2c, Sc, R, Sh, F, T2s = np.eye(4), np.eye(4), np.eye(4), np.eye(4), np.eye(4), np.eye(4)
+        T2c[:-1, -1] = coordinates
+        Sc[:-1, :-1] = np.diag(1 / np.array(scaling))
+        R[:-1, :-1] = Rotation.from_euler('zyx', -np.array(rotation)).as_matrix()
+        Sh[0, 1], Sh[0, 2], Sh[1, 0], Sh[1, 2], Sh[2, 0], Sh[2, 1] = -shear[0], -shear[0], -shear[1], -shear[1], -shear[2], -shear[2]
+        F[:-1, :-1] = np.diag(flip)
+        T2s[:-1, -1] = -np.array(translation)
+        self.backward_affine = T2c @ Sc @ R @ Sh @ F @ T2s
+
