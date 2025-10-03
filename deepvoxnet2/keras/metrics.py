@@ -6,47 +6,32 @@ from collections.abc import Iterable
 
 
 @tf.py_function(Tout=[tf.int32, tf.int32])
-def _get_labelmap_and_nb_labels(tensor):
+def _get_labelcountmap_and_nb_labels(tensor):
     import cupy as cp
     from cupyx.scipy.ndimage import label
-    assert len(tensor.shape) == 5 and tensor.shape[0] == 1 and tensor.shape[-1] == 1 and tensor.dtype == tf.float32
-    tensor_cp = cp.greater(cp.asarray(tensor, cp.float32), 0).astype(cp.int32)
-    nb_labels_cp = label(tensor_cp, output=tensor_cp)
-    labelmap, nb_labels = tf.convert_to_tensor(tensor_cp.get(), tf.int32), tf.convert_to_tensor(nb_labels_cp, dtype=tf.int32)
-    del tensor_cp
+    assert len(tensor.shape) == 3 and tensor.dtype == tf.float32
+    labelmap_cp = cp.greater(cp.asarray(tensor, cp.float32), 0).astype(cp.int32)
+    nb_labels_cp = label(labelmap_cp, output=labelmap_cp)
+    labelcountmap_cp = cp.zeros_like(labelmap_cp)
+    for l in range(nb_labels_cp):
+        mask_cp = cp.equal(labelmap_cp, l + 1)
+        labelcountmap_cp = cp.where(mask_cp, cp.count_nonzero(mask_cp), labelcountmap_cp)
+        del mask_cp
+
+    labelcountmap, nb_labels = tf.convert_to_tensor(labelcountmap_cp.get(), tf.int32), tf.convert_to_tensor(nb_labels_cp, dtype=tf.int32)
+    del labelmap_cp
+    del labelcountmap_cp
     del nb_labels_cp
-    return labelmap, nb_labels
+    return labelcountmap, nb_labels
 
 
 def _get_voxel_weights(y_true):
     assert len(y_true.shape) == 5 and y_true.shape[-1] == 1 and y_true.dtype == tf.float32
-    labels_dict = {}
-    for b in range(y_true.shape[0]):
-        labels_dict[b] = {}
-        for f in range(y_true.shape[-1]):
-            labels_dict[b][f] = {}
-            labels_dict[b][f]["labelmap"], labels_dict[b][f]["nb_labels"] = _get_labelmap_and_nb_labels(y_true[b:b + 1, ..., f:f + 1])
-            labels_dict[b][f]["labelmap"].set_shape((1,) + y_true.shape[1:4] + (1,))
-            labels_dict[b][f]["nb_labels"].set_shape(())
-            labels_dict[b][f]["labelmasks"] = {}
-            for l in tf.range(labels_dict[b][f]["nb_labels"]):
-                labels_dict[b][f]["labelmasks"][l.ref()] = {}
-                labels_dict[b][f]["labelmasks"][l.ref()]["mask"] = tf.equal(labels_dict[b][f]["labelmap"], l + 1)
-                labels_dict[b][f]["labelmasks"][l.ref()]["count"] = tf.cast(tf.math.count_nonzero(labels_dict[b][f]["labelmasks"][l.ref()]["mask"]), tf.float32)
-    
-    labelcounts = tf.convert_to_tensor([labels_dict[b][f]["labelmasks"][l]["count"] for b in labels_dict for f in labels_dict[b] for l in labels_dict[b][f]["labelmasks"]], dtype=tf.float32)
-    reference_count = tf.reduce_sum(labelcounts) / len(labelcounts)
-    voxel_weights_dict = {}
-    for b in labels_dict:
-        voxel_weights_dict[b] = tf.ones_like(y_true, dtype=tf.float32)
-        for f in labels_dict[b]:
-            for l in labels_dict[b][f]["labelmasks"]:
-                voxel_weights_dict[b] = tf.where(labels_dict[b][f]["labelmasks"][l]["mask"], reference_count / labels_dict[b][f]["labelmasks"][l]["count"], voxel_weights_dict[b])
-
-    del labels_dict
-    voxel_weights = tf.concat([voxel_weights_dict[b] for b in voxel_weights_dict], axis=0)
-    del voxel_weights_dict
-    return voxel_weights
+    y_true_reshaped = tf.reshape(tf.transpose(y_true, (0, 4, 1, 2, 3)), [-1, y_true.shape[1], y_true.shape[2], y_true.shape[3]])
+    labelcountmaps, nb_labels = tf.map_fn(_get_labelcountmap_and_nb_labels, y_true_reshaped, fn_output_signature=[tf.int32, tf.int32])
+    reference_count = tf.math.count_nonzero(labelcountmaps, dtype=tf.float32) / tf.cast(tf.reduce_sum(nb_labels), tf.float32)
+    voxel_weights = tf.where(tf.greater(labelcountmaps, 0), reference_count / tf.cast(labelcountmaps, tf.float32), 1)
+    return tf.transpose(tf.reshape(voxel_weights, [-1, y_true.shape[4], y_true.shape[1], y_true.shape[2], y_true.shape[3]]), (0, 2, 3, 4, 1))
 
 
 def _expand_binary(y_true, y_pred):
@@ -195,7 +180,7 @@ def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=
             denom = tf.math.reduce_sum(denom, axis=0, keepdims=True)
 
     if eps_neg is not None:
-        eps = tf.where(tf.equal(y, 0), eps_neg, eps)
+        eps = tf.where(tf.equal(y, 0), tf.cast(eps_neg, tf.float32), eps)
  
     return (nom + eps) / (denom + eps)
 
