@@ -532,6 +532,7 @@ class CupyResampledAffineCropperV2Grid(CupyResampledAffineCropperV2):
             voxel_size,
             n=None,
             max_rel_step_size=1,
+            grid_size=None,
             shear_window_width=(0, 0, 0), 
             rotation_window_width=(0, 0, 0), 
             translation_window_width=(0, 0, 0), 
@@ -561,6 +562,8 @@ class CupyResampledAffineCropperV2Grid(CupyResampledAffineCropperV2):
         self.nonzero_grid = nonzero_grid
         self.max_rel_step_size = max_rel_step_size if isinstance(max_rel_step_size, (tuple, list)) else (max_rel_step_size,) * 3
         self.segment_size = np.array(self.segment_size)
+        self.grid_size = self.segment_size if grid_size is None else np.array(grid_size)
+        assert len(self.segment_size) == len(self.grid_size) == 3
 
     def _randomize(self):
         assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
@@ -574,6 +577,8 @@ class CupyResampledAffineCropperV2Grid(CupyResampledAffineCropperV2):
             self.scaling = self.voxel_size_ref / self.voxel_size
             self.ss = self.segment_size / self.scaling
             self.hss = self.ss / 2
+            self.gs = self.grid_size / self.scaling
+            self.hgs = self.gs / 2
             ranges = []
             for i in range(3):
                 if self.nonzero_grid and len(self.nonzero_coordinates) > 0:
@@ -594,7 +599,7 @@ class CupyResampledAffineCropperV2Grid(CupyResampledAffineCropperV2):
                 while True:
                     nb_steps += 1
                     steps = np.linspace(start, end, nb_steps)
-                    if (steps[1] - steps[0]) / self.ss[i] < self.max_rel_step_size[i]:
+                    if (steps[1] - steps[0]) / self.gs[i] < self.max_rel_step_size[i]:
                         break
 
                 ranges.append(set(steps))
@@ -617,8 +622,8 @@ class CupyResampledAffineCropperV2Grid(CupyResampledAffineCropperV2):
             tries = 0
             while True:
                 coordinates = random.choice(self.coordinates)
-                c0 = coordinates - self.hss
-                c1 = coordinates + self.hss
+                c0 = coordinates - self.hgs
+                c1 = coordinates + self.hgs
                 if np.any(np.all(np.greater(self.nonzero_coordinates, c0) * np.less(self.nonzero_coordinates, c1), axis=1)):
                     break
                 
@@ -631,7 +636,7 @@ class CupyResampledAffineCropperV2Grid(CupyResampledAffineCropperV2):
             coordinates = random.choice(self.coordinates)        
 
         rotation = [random.uniform(-w, w) for w in self.rotation_window_width]
-        translation = [t + random.uniform(-w, w) for t, w in zip(np.array(self.segment_size) // 2, self.translation_window_width)]
+        translation = [t + random.uniform(-w, w) for t, w in zip(self.hss, self.translation_window_width)]
         scaling = [s * (1 + random.uniform(-w, w)) for s, w in zip(self.scaling, self.scaling_window_width)] 
         flip = [-1 if random.random() < p else 1 for p in self.flip_probabilities]
         shear = [random.uniform(-w, w) for w in self.shear_window_width]
