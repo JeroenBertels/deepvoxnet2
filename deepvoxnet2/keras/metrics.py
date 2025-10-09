@@ -132,7 +132,7 @@ def true_negative_rate(y_true, y_pred, eps=keras.backend.epsilon(), **kwargs):
     return (tn + eps) / (tn + fp + eps)
 
 
-def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=False, eps=keras.backend.epsilon(), eps_neg=None, reduce_along_batch=False, reduce_along_features=False, feature_weights=None, threshold=None, **kwargs):
+def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=False, eps=keras.backend.epsilon(), eps_neg=None, fill_zeros=False, reduce_along_batch=False, reduce_along_features=False, feature_weights=None, threshold=None, **kwargs):
     if feature_weights is None:
         feature_weights = 1
 
@@ -147,7 +147,11 @@ def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=
 
     else:
         voxel_weights = 1
-            
+    
+    if fill_zeros:
+        fill_value = 1 / tf.cast(tf.reduce_prod(y_true.shape[1:4]), tf.float32)
+        y_true = tf.where(tf.less_equal(y_true, fill_value), fill_value, y_true)
+
     if dice_semimetric_loss:
         y = tf.math.reduce_sum(y_true * voxel_weights, axis=(1, 2, 3), keepdims=True)
         x = tf.math.reduce_sum(y_pred * voxel_weights, axis=(1, 2, 3), keepdims=True)
