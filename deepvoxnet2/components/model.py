@@ -54,6 +54,7 @@ class TfDataset(tf.data.Dataset, ABC):
             A TensorFlow Dataset object containing the samples produced by the creator function and selected by the sampler.
         """
 
+        creator.default_outputs = [[tf.fill((1, output_shape[1] or 1, output_shape[2] or 1, output_shape[3] or 1, output_shape[4] or 1), 1234567890.) for output_shape in output_shapes] for output_shapes in creator.output_shapes]
         if sampler is None:
             sampler = Sampler([Identifier()])
 
@@ -62,26 +63,41 @@ class TfDataset(tf.data.Dataset, ABC):
             if tf.reduce_all(idx == len(sampler) - 1):
                 sampler.randomize()
     
-            outputs = [output for output in Creator(creator.outputs).eval(identifier)]
-            if len(outputs) > 0:
-                outputs = [[Sample(np.concatenate([output[j][i] for output in outputs]), np.concatenate([output[j][i].affine for output in outputs])) for i in range(len(outputs[0][j]))] for j in range(len(outputs[0]))]
+            outputs_ = [output for output in Creator(creator.outputs).eval(identifier)]
+            if len(outputs_) == 0:
+                outputs = creator.default_outputs
 
             else:
-                outputs = [[np.full((1, output_shape[1] or 1, output_shape[2] or 1, output_shape[3] or 1, output_shape[4] or 1), 1234567890, dtype=np.float32) for output_shape in output_shapes] for output_shapes in creator.output_shapes]
+                outputs = [[None for j in range(len(outputs_[0][i]))] for i in range(len(outputs_[0]))]
+                for i in range(len(outputs)):
+                    for j in range(len(outputs[i])):
+                        outputs_i_j = []
+                        for output in outputs_:
+                            if not tf.is_tensor(output[i][j]):
+                                output = tf.convert_to_tensor(output[i][j])
 
+                            outputs_i_j.append(output)
+
+                        if len(outputs_i_j) == 1:
+                            outputs[i][j] = outputs_i_j[0]
+                        
+                        else:
+                            outputs[i][j] = tf.concat(outputs_i_j, axis=0)
+
+            del outputs_
             gc.collect()
             return [output_ for output in outputs for output_ in output]
 
         def _map_fn(idx):
-            outputs = tf.py_function(_generator_fn, [idx], [tf.dtypes.float32 for output in creator.outputs for _ in output])
+            outputs = tf.py_function(_generator_fn, [idx], [tf.float32 for output in creator.outputs for _ in output])
             output_shapes = [(None, output_shape[1], output_shape[2], output_shape[3], output_shape[4]) for output_shapes in creator.output_shapes for output_shape in output_shapes]  # batch size depends on how many samples the creator generates
             for output, output_shape in zip(outputs, output_shapes):
                 output.set_shape(output_shape)
 
-            return tuple([tuple([outputs.pop(0) for _ in range(len(creator.outputs[i]))]) for i in range(len(creator.outputs))])
+            return tuple(tuple(outputs.pop(0) for _ in range(len(creator.outputs[i]))) for i in range(len(creator.outputs)))
 
         def _filter_fn(*x):
-            return tf.math.reduce_any(tf.not_equal(x[0][0], 1234567890))
+            return tf.math.reduce_any(tf.not_equal(x[0][0], 1234567890.))
 
         dataset = tf.data.Dataset.from_tensor_slices(list(range(len(sampler)))).repeat(repeat)
         dataset = dataset.map(_map_fn, num_parallel_calls=num_parallel_calls, deterministic=True).filter(_filter_fn)
@@ -454,8 +470,22 @@ class DvnModel(object):
         predictions = []
         for identifier_i, identifier in enumerate(sampler):
             start_time = time.time()
-            samples = [sample for sample in Creator(self.outputs[key]).eval(identifier)][0 if mode == "all" else -1:]
-            samples = [[Sample(np.concatenate([output[j][i] for output in samples]), np.concatenate([output[j][i].affine for output in samples])) for i in range(len(samples[0][j]))] for j in range(len(samples[0]))]
+            samples_ = [sample for sample in Creator(self.outputs[key]).eval(identifier)][0 if mode == "all" else -1:]
+            samples = [[None for j in range(len(samples_[0][i]))] for i in range(len(samples_[0]))]
+            for i in range(len(samples)):
+                for j in range(len(samples[i])):
+                    samples_i_j = []
+                    for sample in samples_:
+                        assert isinstance(sample[i][j], Sample)
+                        samples_i_j.append(sample[i][j])
+
+                    if len(samples_i_j) == 1:
+                        samples[i][j] = samples_i_j[0]
+                    
+                    else:
+                        samples[i][j] = Sample(np.concatenate(samples_i_j, axis=0), np.concatenate([s.affine for s in samples_i_j], axis=0)) 
+
+            del samples_
             if output_dirs is not None:
                 self.save_sample(key, samples, output_dirs[identifier_i], name_tag=name_tag, save_x=save_x, save_y=save_y, save_sample_weight=save_sample_weight)
 
