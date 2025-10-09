@@ -593,7 +593,7 @@ class CupyResampledAffineCropperV2Grid(CupyResampledAffineCropperV2):
                     end = self.reference_connection[0].shape[i + 1] - self.hss[i]
                 
                 if end < start:
-                    start = end = self.reference_connection[0].shape[i + 1] / 2
+                    start = end = (start + end) / 2
 
                 nb_steps = 1
                 while True:
