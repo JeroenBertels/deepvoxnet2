@@ -5,7 +5,7 @@ with open("README.md", 'r') as f:
 
 setuptools.setup(
     name='deepvoxnet2',
-    version='2.20.0',
+    version='2.20.1',
     description='Yet another CNN framework: From pre- to postprocessing and keeping track of the spatial origin of the data.',
     long_description=long_description,
     long_description_content_type='text/markdown',
