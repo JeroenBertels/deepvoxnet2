@@ -7,22 +7,16 @@ Additionally, the module includes several utility functions for working with fil
 
 import os
 import glob
-import pymirc
 import transforms3d
 import numpy as np
 import nibabel as nib
-try:
-    import SimpleITK as sitk
-
-except ModuleNotFoundError:
-    pass
-
-from pydicom import dcmread
 from tempfile import mkdtemp
 from shutil import rmtree
 
 
 def check_dcm_list(dcm_list):
+    from pydicom import dcmread
+
     """Check if the DICOM files in the given list satisfy certain criteria.
 
     The following criteria are checked:
@@ -133,6 +127,8 @@ def ras_to_lps(img_affine):
 
 
 def dcm_to_array(dcm_list, dcm_check=False, **kwargs):
+    import pymirc
+
     """Convert a list of DICOM files to a 3D NumPy array and affine matrix.
 
     Parameters
@@ -170,6 +166,8 @@ def dcm_to_array(dcm_list, dcm_check=False, **kwargs):
 
 
 def sitk_to_nii(sitk_img):
+    import SimpleITK as sitk
+
     """Convert a SimpleITK image to a Nifti1Image object.
 
     Parameters
@@ -193,6 +191,8 @@ def sitk_to_nii(sitk_img):
 
 
 def nii_to_sitk(nii_img):
+    import SimpleITK as sitk
+
     """Convert a nifti image to a SimpleITK image.
 
     Parameters
@@ -244,6 +244,8 @@ def dcm_to_nii(dcm_dir_or_list, nii_path=None, dcm_check=True, **kwargs):
 
 
 def rt_to_nii(rt_path, reference_dir_or_list=None, reference_affine=None, reference_shape=None, nii_path=None, contour_indices=None, roi_number_as_label=False, dcm_check=True, **kwargs):
+    import pymirc
+
     """Converts a DICOM RTSTRUCT file to a NIfTI label file.
 
     Parameters
@@ -304,6 +306,8 @@ def rt_to_nii(rt_path, reference_dir_or_list=None, reference_affine=None, refere
 
 
 def dcmperf_to_nii(dcm_dir_or_list, nii_path=None, verbose=True, **kwargs):
+    from pydicom import dcmread
+
     """Convert a folder with DICOM perfusion images to a 4D NIfTI file with the time series.
 
     Parameters

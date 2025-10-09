@@ -4,7 +4,7 @@ import cupy as cp
 from scipy.spatial.transform import Rotation
 from cupyx.scipy.ndimage import affine_transform, gaussian_filter, uniform_filter, distance_transform_edt
 from deepvoxnet2.components.sample import Sample
-from deepvoxnet2.components.transformers import Transformer
+from deepvoxnet2.components.transformers import Transformer, Filter
 
 
 class CupyThreshold(Transformer):
@@ -18,6 +18,7 @@ class CupyThreshold(Transformer):
             cp_sample = cp.asarray(sample)
             cp_sample[...] = (cp_sample > self.lower_threshold) * (cp_sample < self.upper_threshold)
             self.outputs[idx][idx_] = Sample(cp_sample.get(), sample.affine)
+            del cp_sample
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -25,6 +26,20 @@ class CupyThreshold(Transformer):
 
     def _randomize(self):
         pass
+
+
+class CupyFilter(Filter):
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            cp_sample = cp.asarray(sample)
+            if self.method == "uniform":
+                cp_sample = uniform_filter(cp_sample, self.filter_size, mode=self.mode, cval=self.cval)
+
+            else:
+                cp_sample = gaussian_filter(cp_sample, [s_f if s_f > 1 else 0 for s_f in self.filter_size], mode=self.mode, cval=self.cval)
+
+            self.outputs[idx][idx_] = Sample(cp_sample.get(), sample.affine)
+            del cp_sample
 
 
 class CupyClip(Transformer):
@@ -38,7 +53,7 @@ class CupyClip(Transformer):
             cp_sample = cp.asarray(sample)
             cp.clip(cp_sample, self.lower_clip, self.higher_clip, out=cp_sample)
             self.outputs[idx][idx_] = Sample(cp_sample.get(), sample.affine)
-            # del cp_sample
+            del cp_sample
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -64,7 +79,7 @@ class CupyIntensityTransform(Transformer):
             cp_sample[...] += self.shift
             cp_sample[...] *= self.scale
             self.outputs[idx][idx_] = Sample(cp_sample.get(), sample.affine)
-            # del cp_sample
+            del cp_sample
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -124,7 +139,7 @@ class CupyResampledAffineCropper(Transformer):
 
             transformed_affine = Sample.update_affine(sample.affine, transformation_matrix=self.backward_affine)
             self.outputs[idx][idx_] = Sample(transformed_sample.get(), transformed_affine)
-            # del transformed_sample
+            del transformed_sample
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -193,17 +208,29 @@ class CupyPut(Transformer):
                 backward_affine = cp.asarray(np.linalg.inv(sample.affine[i]) @ reference.affine[0])
                 transformed_array = cp.stack([affine_transform(cp_sample[i, ..., j], backward_affine, output_shape=reference.shape[1:4], cval=self.cval, order=self.order) for j in range(sample.shape[4])], axis=-1)[None, ...]
                 if self.keep_counts:
-                    kernel = cp.ones_like(cp_sample[i, ..., 0])
-                    if self.gaussian_counts:
-                        kernel = gaussian_filter(kernel, sigma=[max(1, s // 2) for s in kernel.shape])
-
+                    kernel = CupyPut.gaussian_kernel_cupy(sample[i, ..., 0].shape, [max(1, s // 2) for s in sample[i, ..., 0].shape])
                     transformed_array_counts = affine_transform(kernel, backward_affine, output_shape=reference.shape[1:4], cval=0, order=self.order)[None, ..., None]
-                    transformed_array = self.output_array_counts[idx][idx_] / (self.output_array_counts[idx][idx_] + transformed_array_counts) * cp_output + transformed_array_counts / (self.output_array_counts[idx][idx_] + transformed_array_counts) * transformed_array
+                    transformed_array *= transformed_array_counts
+                    cp_output *= self.output_array_counts[idx][idx_]
                     self.output_array_counts[idx][idx_] += transformed_array_counts
+                    transformed_array /= self.output_array_counts[idx][idx_]
+                    cp_output /= self.output_array_counts[idx][idx_]
+                    cp_output += transformed_array
+                    del kernel
+                    del transformed_array_counts
                 
-                mask = (transformed_array != self.cval).get()
-                self.outputs[idx][idx_][mask] = transformed_array[mask].get()
+                else:
+                    mask = transformed_array != self.cval
+                    cp_output[mask] = transformed_array[mask]
+                    del mask
+
+                del backward_affine
+                del transformed_array
         
+            self.outputs[idx][idx_][...] = cp_output.get()
+            del cp_sample
+            del cp_output
+
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
         assert len(self.connections[idx][0]) == len(self.reference_connection), "The length of the connection to be put must be equal to the length of the reference connection."
@@ -222,6 +249,44 @@ class CupyPut(Transformer):
                     self.outputs[idx][idx_] = Sample(np.full(self.reference_connection[idx_].shape[:4] + sample.shape[4:], self.cval), self.reference_connection[idx_].affine)
                     if self.keep_counts:
                         self.output_array_counts[idx][idx_] = cp.full(self.reference_connection[idx_].shape[:4] + (1,), 1e-7)
+
+    @staticmethod
+    def gaussian_kernel(shape, sigmas):
+        assert len(shape) == len(sigmas)
+        nd = len(shape)
+        kernel = np.ones(shape, dtype=cp.float32)
+        for i in range(nd):
+            g = np.linspace(-(shape[i] - 1) / 2., (shape[i] - 1) / 2., shape[i])
+            g = np.exp(-0.5 * np.square(g) / np.square(sigmas[i]))
+            for j in range(i):
+                g = np.expand_dims(g, 0)
+            
+            for j in range(i + 1, nd):
+                g = np.expand_dims(g, -1)
+
+            kernel *= g
+        
+        kernel /= np.sum(kernel)
+        return kernel
+    
+    @staticmethod
+    def gaussian_kernel_cupy(shape, sigmas):
+        assert len(shape) == len(sigmas)
+        nd = len(shape)
+        kernel = cp.ones(shape)
+        for i in range(nd):
+            g = cp.linspace(-(shape[i] - 1) / 2., (shape[i] - 1) / 2., shape[i])
+            g = cp.exp(-0.5 * cp.square(g) / cp.square(sigmas[i]))
+            for _ in range(i):
+                g = cp.expand_dims(g, 0)
+            
+            for _ in range(i + 1, nd):
+                g = cp.expand_dims(g, -1)
+
+            kernel *= g
+        
+        kernel /= cp.sum(kernel)
+        return kernel
 
 
 class CupyCrop(Transformer):
@@ -250,6 +315,7 @@ class CupyCrop(Transformer):
             )
             transformed_affine = Sample.update_affine(sample.affine, transformation_matrix=backward_affine)
             self.outputs[idx][idx_] = Sample(transformed_sample, transformed_affine)
+            del transformed_sample
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
@@ -306,10 +372,10 @@ class CupyCrop(Transformer):
         if prefilter is not None:
             assert prefilter in ["uniform", "gaussian"]
             if prefilter == "gaussian":
-                I = gaussian_filter(I.astype(cp.float64), [s_f if s_f > 1 else 0 for s_f in subsample_factors], mode="nearest").astype(cp.float32)
+                I = gaussian_filter(I, [s_f if s_f > 1 else 0 for s_f in subsample_factors], mode="nearest")
 
             elif prefilter == "uniform":
-                I = uniform_filter(I.astype(cp.float64), subsample_factors, mode="nearest").astype(cp.float32)
+                I = uniform_filter(I, subsample_factors, mode="nearest")
 
         S_size = tuple(S_size) + tuple(I.shape[len(S_size):])
         S = cp.full(S_size, fill_value=default_value, dtype=cp.float32)
@@ -367,7 +433,6 @@ class CupyResampledAffineCropperV2(Transformer):
             order=1, 
             **kwargs):
         super(CupyResampledAffineCropperV2, self).__init__(extra_connections=reference_connection, **kwargs)
-        assert self.n is not None
         self.reference_connection = reference_connection
         self.segment_size = segment_size
         self.voxel_size = voxel_size
@@ -395,7 +460,7 @@ class CupyResampledAffineCropperV2(Transformer):
                     affine_transform(
                         cp.asarray(sample[batch_i, ..., feature_i]),
                         cp.asarray(self.backward_affine),
-                        output_shape=self.segment_size,
+                        output_shape=tuple(self.segment_size),
                         cval=cval,
                         order=self.order[idx] if isinstance(self.order, (tuple, list)) else self.order,
                         output=transformed_sample[batch_i, ..., feature_i]
@@ -403,13 +468,14 @@ class CupyResampledAffineCropperV2(Transformer):
 
             transformed_affine = Sample.update_affine(sample.affine, transformation_matrix=self.backward_affine)
             self.outputs[idx][idx_] = Sample(transformed_sample.get(), transformed_affine)
-            # del transformed_sample
+            del transformed_sample
 
     def _calculate_output_shape_at_idx(self, idx):
         assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
         return [tuple([output_shape_ if axis_i not in [1, 2, 3] else (self.segment_size[idx][axis_i - 1] if isinstance(self.segment_size, list) else self.segment_size[axis_i - 1]) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
 
     def _randomize(self):
+        assert self.n is not None
         assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
         if self.n_ == 0:
             self.nonzero_coordinates = cp.argwhere(cp.any(cp.asarray(self.reference_connection[0]) != 0, axis=(0, -1))).get()
@@ -456,3 +522,131 @@ class CupyResampledAffineCropperV2(Transformer):
         F[:-1, :-1] = np.diag(flip)
         T2s[:-1, -1] = -np.array(translation)
         self.backward_affine = T2c @ Sc @ R @ Sh @ F @ T2s
+
+
+class CupyResampledAffineCropperV2Grid(CupyResampledAffineCropperV2):
+    def __init__(
+            self, 
+            reference_connection, 
+            segment_size,
+            voxel_size,
+            n=None,
+            max_rel_step_size=1,
+            grid_size=None,
+            shear_window_width=(0, 0, 0), 
+            rotation_window_width=(0, 0, 0), 
+            translation_window_width=(0, 0, 0), 
+            scaling_window_width=(0, 0, 0), 
+            flip_probabilities=(0, 0, 0),
+            nonzero=0,
+            nonzero_grid=False, 
+            cval=0, 
+            order=1, 
+            verbose=True,
+            **kwargs):
+        super(CupyResampledAffineCropperV2Grid, self).__init__(
+            reference_connection=reference_connection, 
+            segment_size=segment_size,
+            voxel_size=voxel_size,
+            shear_window_width=shear_window_width, 
+            rotation_window_width=rotation_window_width, 
+            translation_window_width=translation_window_width, 
+            scaling_window_width=scaling_window_width, 
+            flip_probabilities=flip_probabilities,
+            nonzero=nonzero,
+            cval=cval, 
+            order=order,
+            n = n,
+            **kwargs)
+        self.verbose = verbose
+        self.nonzero_grid = nonzero_grid
+        self.max_rel_step_size = max_rel_step_size if isinstance(max_rel_step_size, (tuple, list)) else (max_rel_step_size,) * 3
+        self.segment_size = np.array(self.segment_size)
+        self.grid_size = self.segment_size if grid_size is None else np.array(grid_size)
+        assert len(self.segment_size) == len(self.grid_size) == 3
+
+    def _randomize(self):
+        assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
+        if self.n_ == 0:
+            self.nonzero_coordinates = []
+            if self.nonzero or self.nonzero_grid:
+                # self.nonzero_coordinates = cp.argwhere(cp.any(cp.asarray(self.reference_connection[0]) != 0, axis=(0, -1))).get()
+                self.nonzero_coordinates = np.argwhere(np.any(np.asarray(self.reference_connection[0]) != 0, axis=(0, -1)))
+
+            self.voxel_size_ref = np.linalg.norm(self.reference_connection[0].affine[0, :3, :3], 2, axis=1)
+            self.scaling = self.voxel_size_ref / self.voxel_size
+            self.ss = self.segment_size / self.scaling
+            self.hss = self.ss / 2
+            self.gs = self.grid_size / self.scaling
+            self.hgs = self.gs / 2
+            ranges = []
+            for i in range(3):
+                if self.nonzero_grid and len(self.nonzero_coordinates) > 0:
+                    start = max(np.min(self.nonzero_coordinates[:, i]), self.hss[i])
+                    end = min(np.max(self.nonzero_coordinates[:, i]), self.reference_connection[0].shape[i + 1] - self.hss[i])
+                
+                elif self.nonzero_grid:
+                    start = end = self.reference_connection[0].shape[i + 1] / 2
+
+                else:
+                    start = self.hss[i]
+                    end = self.reference_connection[0].shape[i + 1] - self.hss[i]
+                
+                if end < start:
+                    start = end = (start + end) / 2
+
+                nb_steps = 1
+                while True:
+                    nb_steps += 1
+                    steps = np.linspace(start, end, nb_steps)
+                    if (steps[1] - steps[0]) / self.gs[i] < self.max_rel_step_size[i]:
+                        break
+
+                ranges.append(set(steps))
+
+            self.coordinates = [np.array((x, y, z)) for x in ranges[0] for y in ranges[1] for z in ranges[2]]
+            if self.n is None and self.verbose:
+                print(f"CupyResampledAffineCropperV2Grid will generate {len(self.coordinates)} samples of shape {self.reference_connection[0].shape[1:4]} (voxel size of reference: {self.voxel_size_ref})")
+
+        if self.n is None:
+            if self.n_ < len(self.coordinates):
+                coordinates = self.coordinates[self.n_]
+            
+            else:
+                raise StopIteration
+        
+        elif len(self.nonzero_coordinates) == 0:
+            coordinates = random.choice(self.coordinates)
+
+        elif random.random() < self.nonzero:
+            tries = 0
+            while True:
+                coordinates = random.choice(self.coordinates)
+                c0 = coordinates - self.hgs
+                c1 = coordinates + self.hgs
+                if np.any(np.all(np.greater(self.nonzero_coordinates, c0) * np.less(self.nonzero_coordinates, c1), axis=1)):
+                    break
+                
+                tries += 1
+                if tries == 1000:
+                    coordinates = random.choice(self.coordinates)
+                    break
+
+        else:
+            coordinates = random.choice(self.coordinates)        
+
+        rotation = [random.uniform(-w, w) for w in self.rotation_window_width]
+        translation = [t + random.uniform(-w, w) for t, w in zip(self.hss, self.translation_window_width)]
+        scaling = [s * (1 + random.uniform(-w, w)) for s, w in zip(self.scaling, self.scaling_window_width)] 
+        flip = [-1 if random.random() < p else 1 for p in self.flip_probabilities]
+        shear = [random.uniform(-w, w) for w in self.shear_window_width]
+
+        T2c, Sc, R, Sh, F, T2s = np.eye(4), np.eye(4), np.eye(4), np.eye(4), np.eye(4), np.eye(4)
+        T2c[:-1, -1] = coordinates
+        Sc[:-1, :-1] = np.diag(1 / np.array(scaling))
+        R[:-1, :-1] = Rotation.from_euler('zyx', -np.array(rotation)).as_matrix()
+        Sh[0, 1], Sh[0, 2], Sh[1, 0], Sh[1, 2], Sh[2, 0], Sh[2, 1] = -shear[0], -shear[0], -shear[1], -shear[1], -shear[2], -shear[2]
+        F[:-1, :-1] = np.diag(flip)
+        T2s[:-1, -1] = -np.array(translation)
+        self.backward_affine = T2c @ Sc @ R @ Sh @ F @ T2s
+

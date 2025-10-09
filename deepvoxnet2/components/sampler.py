@@ -7,6 +7,7 @@ Overall, this module provides a flexible way to sample data from different sourc
 """
 
 import random
+import numpy as np
 
 
 class Identifier(dict):
@@ -183,7 +184,7 @@ class Sampler(object):
         Re-orders the identifiers list based on the specified sampling method, shuffle and weights.
     """
 
-    def __init__(self, identifiers=None, shuffle=False, weights=None):
+    def __init__(self, identifiers=None, shuffle=False, weights=None, n=None):
         """Initializes the Sampler object.
 
         Parameters:
@@ -197,11 +198,14 @@ class Sampler(object):
         """
 
         self.identifiers = [] if identifiers is None else identifiers
-        self.base_identifiers = self.identifiers
+        self.base_identifiers = self.identifiers.copy()
         self.shuffle = shuffle
         self.weights = weights
+        self.n = n
+        self._nb_randomized = 0
+        self._randomizing = False
         self.randomize()
-
+        
     def __len__(self):
         """Returns the number of identifiers in the sampler.
 
@@ -210,8 +214,9 @@ class Sampler(object):
         int:
             Number of identifiers in the sampler.
         """
-
-        return len(self.identifiers)
+        while True:
+            if not self._randomizing:
+                return len(self.identifiers)
 
     def __getitem__(self, idx):
         """Returns the Identifier object at the given index in the identifiers list.
@@ -226,8 +231,9 @@ class Sampler(object):
         Identifier:
             Identifier object at the given index in the identifiers list.
         """
-
-        return self.identifiers[idx]
+        while True:
+            if not self._randomizing:
+                return self.identifiers[idx]
 
     def __iter__(self):
         """Returns an iterator over the identifiers list.
@@ -237,8 +243,9 @@ class Sampler(object):
         Iterator:
             Iterator over the identifiers list.
         """
-
-        return iter(self.identifiers)
+        while True:
+            if not self._randomizing:
+                return iter(self.identifiers)
 
     def randomize(self):
         """Re-orders the identifiers list based on the specified sampling method, shuffle and weights.
@@ -251,25 +258,26 @@ class Sampler(object):
         in `identifiers`.
         """
 
+        self._randomizing = True
+        self.identifiers = self.base_identifiers.copy()
         self._randomize()
         if self.shuffle:
             if self.weights is None:
-                random.shuffle(self.base_identifiers)
+                random.shuffle(self.identifiers)
 
             else:
-                _ = list(zip(self.base_identifiers, self.weights))
-                random.shuffle(_)
-                self.base_identifiers, self.weights = zip(*_)
+                assert len(self.identifiers) == len(self.weights), "When sample weights are specified, you must specify a weight for each identifier."
+                weights = [w[self._nb_randomized] if isinstance(w, (tuple, list)) else w for w in self.weights]
+                sum_weights = np.sum(weights)
+                weights = [w / sum_weights for w in weights]
+                self.identifiers = random.choices(self.identifiers, weights=weights, k=self.n or len(self.identifiers))
 
-        if len(self.base_identifiers) > 0 and self.weights is not None:
-            assert len(self.base_identifiers) == len(self.weights), "When sample weights are specified, you must specify a weight for each identifier."
-            self.identifiers = random.choices(self.base_identifiers, weights=self.weights, k=len(self.base_identifiers))
-
-        else:
-            self.identifiers = self.base_identifiers
-
+        self.identifiers = self.identifiers[:self.n]
+        self._nb_randomized += 1
+        self._randomizing = False
+    
     def _randomize(self):
-        """Internal method used to randomly shuffle the `base_identifiers` list.
+        """Internal method used to randomly shuffle the `base_identifiers` into the `identifiers` list.
 
         This method can be overwritten by child classes that need to implement custom randomization.
         """
@@ -338,7 +346,22 @@ class MircSampler(Sampler):
 
         self.mirc = mirc
         self.mode = mode
-        super(MircSampler, self).__init__(**kwargs)
+        identifiers = []
+        if self.mode == "per_record":
+            for dataset_id in self.mirc:
+                for case_id in self.mirc[dataset_id]:
+                    for record_id in self.mirc[dataset_id][case_id]:
+                        identifiers.append(MircIdentifier(self.mirc, dataset_id, case_id, record_id))
+
+        elif self.mode == "per_case":
+            for dataset_id in self.mirc:
+                for case_id in self.mirc[dataset_id]:
+                    identifiers.append([MircIdentifier(self.mirc, dataset_id, case_id, record_id) for record_id in self.mirc[dataset_id][case_id]])
+
+        else:
+            raise NotImplementedError
+        
+        super(MircSampler, self).__init__(identifiers=identifiers, **kwargs)
         if self.mode == "per_case" and not self.shuffle:
             print("Watch out in MircSampler: shuffle=False with mode='per_case' will result in always taking the first record!")
 
@@ -351,21 +374,11 @@ class MircSampler(Sampler):
             If an unsupported sampling mode is selected.
         """
 
-        self.base_identifiers = []
         if self.mode == "per_record":
-            for dataset_id in self.mirc:
-                for case_id in self.mirc[dataset_id]:
-                    for record_id in self.mirc[dataset_id][case_id]:
-                        self.base_identifiers.append(MircIdentifier(self.mirc, dataset_id, case_id, record_id))
+            pass
 
         elif self.mode == "per_case":
-            for dataset_id in self.mirc:
-                for case_id in self.mirc[dataset_id]:
-                    record_id_i = random.randint(0, len(self.mirc[dataset_id][case_id]) - 1) if self.shuffle else 0
-                    for i, record_id in enumerate(self.mirc[dataset_id][case_id]):
-                        if i == record_id_i:
-                            self.base_identifiers.append(MircIdentifier(self.mirc, dataset_id, case_id, record_id))
-                            break
+            self.identifiers = [random.choice(_) for _ in self.identifiers]
 
         else:
             raise NotImplementedError

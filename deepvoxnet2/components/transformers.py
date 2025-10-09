@@ -12,7 +12,7 @@ import numpy as np
 import scipy.ndimage
 from deepvoxnet2.components.sample import Sample
 from deepvoxnet2.utilities import transformations
-from tensorflow.keras.utils import to_categorical
+from keras.utils import to_categorical
 
 
 class Connection(object):
@@ -1680,7 +1680,11 @@ class GaussianNoise(Transformer):
 class Filter(Transformer):
     def __init__(self, filter_size, method="uniform", mode="nearest", cval=0, **kwargs):
         super(Filter, self).__init__(**kwargs)
-        self.filter_size = filter_size if isinstance(filter_size, (tuple, list)) else [filter_size]
+        self.filter_size = tuple(filter_size) if isinstance(filter_size, (tuple, list)) else (1, filter_size, filter_size, filter_size, 1)
+        if len(self.filter_size) == 3:
+            self.filter_size = (1,) + self.filter_size + (1,)
+        
+        assert len(self.filter_size) == 5
         assert method in ["uniform", "gaussian"]
         self.method = method
         self.mode = mode
@@ -2004,7 +2008,8 @@ class KerasModel(Transformer):
         if not hasattr(self, "output_to_input"):
             self.output_to_input = [0] * len(self.keras_model.outputs)
 
-        y = self.keras_model.predict(self.connections[idx][0].get())
+        # y = self.keras_model.predict(self.connections[idx][0].get())
+        y = self.keras_model(self.connections[idx][0].get(), training=False)
         y = y if isinstance(y, list) else [y]
         for idx_, (y_, output_affine, output_to_input) in enumerate(zip(y, self.output_affines, self.output_to_input)):
             if output_affine is None:

@@ -62,11 +62,10 @@ def create_generalized_deepmedic_v2_model(
         extra_output_activation_final_layer=None,
         dynamic_input_shapes=False,
         **kwargs):
-    from tensorflow.keras.layers import Input, Dropout, MaxPooling3D, Concatenate, Multiply, Add, Reshape, Conv3DTranspose, AveragePooling3D, Conv3D, UpSampling3D, Cropping3D, LeakyReLU, PReLU, BatchNormalization
-    from tensorflow.keras import regularizers
-    from tensorflow.keras import backend as K
-    from tensorflow_addons.layers import InstanceNormalization
-    from tensorflow.keras import Model
+    from keras.layers import Input, Dropout, MaxPooling3D, Concatenate, Multiply, Add, Reshape, Conv3DTranspose, AveragePooling3D, Conv3D, UpSampling3D, Cropping3D, LeakyReLU, PReLU, BatchNormalization, GroupNormalization
+    from keras import regularizers
+    from keras import backend as K
+    from keras import Model
 
     # Define some in-house functions
     def normalization_function():
@@ -74,7 +73,7 @@ def create_generalized_deepmedic_v2_model(
             normalization_function_ = BatchNormalization()
 
         elif instance_normalization_on_input or instance_normalization:
-            normalization_function_ = InstanceNormalization()
+            normalization_function_ = GroupNormalization(-1)
 
         else:
             raise NotImplementedError

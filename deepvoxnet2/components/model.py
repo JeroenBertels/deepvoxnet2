@@ -10,6 +10,7 @@ import time
 import json
 import pickle
 import gc
+import keras
 import numpy as np
 import nibabel as nib
 import tensorflow as tf
@@ -53,34 +54,50 @@ class TfDataset(tf.data.Dataset, ABC):
             A TensorFlow Dataset object containing the samples produced by the creator function and selected by the sampler.
         """
 
+        creator.default_outputs = [[tf.fill((1, output_shape[1] or 1, output_shape[2] or 1, output_shape[3] or 1, output_shape[4] or 1), 1234567890.) for output_shape in output_shapes] for output_shapes in creator.output_shapes]
         if sampler is None:
             sampler = Sampler([Identifier()])
 
         def _generator_fn(idx):
             identifier = sampler[idx]
-            if idx == len(sampler) - 1:
+            if tf.reduce_all(idx == len(sampler) - 1):
                 sampler.randomize()
-
-            outputs = [output for output in Creator(creator.outputs).eval(identifier)]
-            if len(outputs) > 0:
-                outputs = [[Sample(np.concatenate([output[j][i] for output in outputs]), np.concatenate([output[j][i].affine for output in outputs])) for i in range(len(outputs[0][j]))] for j in range(len(outputs[0]))]
+    
+            outputs_ = [output for output in Creator(creator.outputs).eval(identifier)]
+            if len(outputs_) == 0:
+                outputs = creator.default_outputs
 
             else:
-                outputs = [[np.full((1, output_shape[1] or 1, output_shape[2] or 1, output_shape[3] or 1, output_shape[4] or 1), 1234567890, dtype=np.float32) for output_shape in output_shapes] for output_shapes in creator.output_shapes]
+                outputs = [[None for j in range(len(outputs_[0][i]))] for i in range(len(outputs_[0]))]
+                for i in range(len(outputs)):
+                    for j in range(len(outputs[i])):
+                        outputs_i_j = []
+                        for output in outputs_:
+                            if not tf.is_tensor(output[i][j]):
+                                output = tf.convert_to_tensor(output[i][j])
 
+                            outputs_i_j.append(output)
+
+                        if len(outputs_i_j) == 1:
+                            outputs[i][j] = outputs_i_j[0]
+                        
+                        else:
+                            outputs[i][j] = tf.concat(outputs_i_j, axis=0)
+
+            del outputs_
             gc.collect()
             return [output_ for output in outputs for output_ in output]
 
         def _map_fn(idx):
-            outputs = tf.py_function(_generator_fn, [idx], [tf.dtypes.float32 for output in creator.outputs for _ in output])
+            outputs = tf.py_function(_generator_fn, [idx], [tf.float32 for output in creator.outputs for _ in output])
             output_shapes = [(None, output_shape[1], output_shape[2], output_shape[3], output_shape[4]) for output_shapes in creator.output_shapes for output_shape in output_shapes]  # batch size depends on how many samples the creator generates
             for output, output_shape in zip(outputs, output_shapes):
                 output.set_shape(output_shape)
 
-            return tuple([tuple([outputs.pop(0) for _ in range(len(creator.outputs[i]))]) for i in range(len(creator.outputs))])
+            return tuple(tuple(outputs.pop(0) for _ in range(len(creator.outputs[i]))) for i in range(len(creator.outputs)))
 
         def _filter_fn(*x):
-            return tf.math.reduce_any(tf.not_equal(x[0][0], 1234567890))
+            return tf.math.reduce_any(tf.not_equal(x[0][0], 1234567890.))
 
         dataset = tf.data.Dataset.from_tensor_slices(list(range(len(sampler)))).repeat(repeat)
         dataset = dataset.map(_map_fn, num_parallel_calls=num_parallel_calls, deterministic=True).filter(_filter_fn)
@@ -165,16 +182,16 @@ class DvnModel(object):
             self.weighted_metrics[key] = [[] for _ in range(len(self.outputs[key][0]))]
             i += len(self.outputs[key])
 
-    def compile(self, key, optimizer=None, losses=None, metrics=None, losses_weights=None, weighted_metrics=None):
+    def compile(self, key, optimizer=None, losses=None, metrics=None, losses_weights=None, weighted_metrics=None, run_eagerly=False):
         """Compiles a Keras model for a specified output key with the given optimizer, losses, metrics, and metrics weights.
 
         Parameters
         ----------
         key : str
             The output key to compile the model for.
-        optimizer : tf.keras.optimizers.Optimizer or str or dict, optional
+        optimizer : keras.optimizers.Optimizer or str or dict, optional
             The optimizer to use for training the model. If None, the model will not be compiled with an optimizer.
-            If a str or dict is given, the optimizer will be retrieved using `tf.keras.optimizers.get()`.
+            If a str or dict is given, the optimizer will be retrieved using `keras.optimizers.get()`.
             Default is None.
         losses : list or None, optional
             The loss functions to use for each output in the format [x/y_, y]. If None, no losses will be used.
@@ -253,11 +270,11 @@ class DvnModel(object):
         if optimizer is not None:
             assert isinstance(self.outputs[key][0].transformer, KerasModel), "When using compile with an optimizer specified the output and index 0 (i.e. x/y_) must be after a KerasTransformer."
             if isinstance(optimizer, (str, dict)):
-                optimizer = tf.keras.optimizers.get(optimizer)
+                optimizer = keras.optimizers.get(optimizer)
 
-            assert isinstance(optimizer, tf.keras.optimizers.Optimizer), "Please specify the optimizer as a Keras optimizer or a str/dict representation thereof."
+            assert isinstance(optimizer, keras.optimizers.Optimizer), "Please specify the optimizer as a Keras optimizer or a str/dict representation thereof."
             self.optimizer[key] = optimizer.get_config()
-            self.outputs[key][0].transformer.keras_model.compile(optimizer=optimizer, loss=self.losses[key], metrics=self.metrics[key], loss_weights=self.losses_weights[key], weighted_metrics=self.weighted_metrics[key])
+            self.outputs[key][0].transformer.keras_model.compile(optimizer=optimizer, loss=self.losses[key], metrics=self.metrics[key], loss_weights=self.losses_weights[key], weighted_metrics=self.weighted_metrics[key], jit_compile=False, run_eagerly=run_eagerly)
 
     def fit(self, key, sampler, batch_size=1, epochs=1, callbacks=None, validation_sampler=None, validation_key=None, validation_freq=1, num_parallel_calls=tf.data.experimental.AUTOTUNE, prefetch_size=tf.data.experimental.AUTOTUNE, shuffle_samples=False, verbose=1, logs_dir=None, initial_epoch=0, steps_per_epoch=None, validation_steps=None, validation_batch_size=None):
         """Trains the model on the data generated batch-by-batch by the sampler.
@@ -335,7 +352,7 @@ class DvnModel(object):
 
         return self.outputs[key][0].transformer.keras_model.fit(x=fit_dataset, epochs=epochs, callbacks=callbacks, validation_data=validation_fit_dataset, validation_freq=validation_freq, verbose=verbose, initial_epoch=initial_epoch, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps)
 
-    def evaluate(self, key, sampler, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False, device="CPU"):
+    def evaluate(self, key, sampler, mode="last", output_dirs=None, name_tag=None, save_x=True, save_y=False, save_sample_weight=False, device="CPU", continue_from=None):
         """Evaluate the performance of a model using a given key and sampler.
 
         Parameters:
@@ -380,36 +397,39 @@ class DvnModel(object):
             assert len(sampler) == len(output_dirs)
 
         evaluations = []
+        evaluations_start_time = time.time()
         for identifier_i, identifier in enumerate(sampler):
-            start_time = time.time()
-            samples = self.predict(key, Sampler([identifier]), mode=mode, output_dirs=[output_dirs[identifier_i]] if output_dirs is not None else output_dirs, name_tag=name_tag, save_x=save_x, save_y=save_y, save_sample_weight=save_sample_weight)[0]
-            with tf.device(device):
-                samples = [[tf.constant(sample) for sample in samples_] for samples_ in samples]
-                evaluation = {}
-                if len(self.losses[key]) > 0:
-                    total_loss_value = 0
-                    for i, loss in enumerate(self.losses[key]):
-                        loss_name = f"{key}__{loss.__name__}"
-                        evaluation[loss_name] = loss(samples[1][i], samples[0][i]).numpy().mean().item() if len(samples) == 2 else (loss(samples[1][i], samples[0][i]).numpy() * samples[2][i]).mean().item()
-                        total_loss_value += evaluation[loss_name] * self.losses_weights[key][i]
+            if continue_from is None or identifier_i >= continue_from:
+                start_time = time.time()
+                samples = self.predict(key, Sampler([identifier]), mode=mode, output_dirs=[output_dirs[identifier_i]] if output_dirs is not None else output_dirs, name_tag=name_tag, save_x=save_x, save_y=save_y, save_sample_weight=save_sample_weight)[0]
+                with tf.device(device):
+                    samples = [[tf.constant(sample) for sample in samples_] for samples_ in samples]
+                    evaluation = {}
+                    if len(self.losses[key]) > 0:
+                        total_loss_value = 0
+                        for i, loss in enumerate(self.losses[key]):
+                            loss_name = f"{key}__{loss.__name__}"
+                            evaluation[loss_name] = loss(samples[1][i], samples[0][i]).numpy().mean().item() if len(samples) == 2 else (loss(samples[1][i], samples[0][i]).numpy() * samples[2][i]).mean().item()
+                            total_loss_value += evaluation[loss_name] * self.losses_weights[key][i]
 
-                    evaluation[f"{key}__loss__combined"] = total_loss_value
+                        evaluation[f"{key}__loss__combined"] = total_loss_value
 
-                for i, metric in enumerate(self.metrics[key]):
-                    for metric_ in metric:
-                        metric_name = f"{key}__{metric_.__name__}"
-                        evaluation[metric_name] = metric_(samples[1][i], samples[0][i]).numpy().mean().item()
+                    for i, metric in enumerate(self.metrics[key]):
+                        for metric_ in metric:
+                            metric_name = f"{key}__{metric_.__name__}"
+                            evaluation[metric_name] = metric_(samples[1][i], samples[0][i]).numpy().mean().item()
 
-                if len(samples) == 3:
-                    for i, weighted_metric in enumerate(self.weighted_metrics[key]):
-                        for weighted_metric_ in weighted_metric:
-                            weighted_metric_name = f"{key}__weighted_{weighted_metric_.__name__}"
-                            evaluation[weighted_metric_name] = (weighted_metric_(samples[1][i], samples[0][i]).numpy() * samples[2][i]).mean().item()
+                    if len(samples) == 3:
+                        for i, weighted_metric in enumerate(self.weighted_metrics[key]):
+                            for weighted_metric_ in weighted_metric:
+                                weighted_metric_name = f"{key}__weighted_{weighted_metric_.__name__}"
+                                evaluation[weighted_metric_name] = (weighted_metric_(samples[1][i], samples[0][i]).numpy() * samples[2][i]).mean().item()
 
-                evaluations.append(evaluation)
-                print("Evaluated {} with {} in {:.0f} s: \n{}".format(identifier(), key, time.time() - start_time, json.dumps(evaluation, indent=2)))
-
+                    evaluations.append(evaluation)
+                    print("Evaluated {}/{} {} with {} in {:.0f} s: \n{}".format(identifier_i + 1, len(sampler), identifier(), key, time.time() - start_time, json.dumps(evaluation, indent=2)))
+        
         print("\nMean evaluation results: ")
+        print("Total time: {:.0f} s".format(time.time() - evaluations_start_time))
         for metric_name in evaluations[0]:
             print("{}: {:.2f}".format(metric_name, np.mean([evaluation[metric_name] for evaluation in evaluations])))
 
@@ -450,13 +470,27 @@ class DvnModel(object):
         predictions = []
         for identifier_i, identifier in enumerate(sampler):
             start_time = time.time()
-            samples = [sample for sample in Creator(self.outputs[key]).eval(identifier)][0 if mode == "all" else -1:]
-            samples = [[Sample(np.concatenate([output[j][i] for output in samples]), np.concatenate([output[j][i].affine for output in samples])) for i in range(len(samples[0][j]))] for j in range(len(samples[0]))]
+            samples_ = [sample for sample in Creator(self.outputs[key]).eval(identifier)][0 if mode == "all" else -1:]
+            samples = [[None for j in range(len(samples_[0][i]))] for i in range(len(samples_[0]))]
+            for i in range(len(samples)):
+                for j in range(len(samples[i])):
+                    samples_i_j = []
+                    for sample in samples_:
+                        assert isinstance(sample[i][j], Sample)
+                        samples_i_j.append(sample[i][j])
+
+                    if len(samples_i_j) == 1:
+                        samples[i][j] = samples_i_j[0]
+                    
+                    else:
+                        samples[i][j] = Sample(np.concatenate(samples_i_j, axis=0), np.concatenate([s.affine for s in samples_i_j], axis=0)) 
+
+            del samples_
             if output_dirs is not None:
                 self.save_sample(key, samples, output_dirs[identifier_i], name_tag=name_tag, save_x=save_x, save_y=save_y, save_sample_weight=save_sample_weight)
 
             predictions.append(samples)
-            print("Predicted {} with {} in {:.0f} s.".format(sampler[identifier_i](), key, time.time() - start_time))
+            print("Predicted {}/{} {} with {} in {:.0f} s.".format(identifier_i + 1, len(sampler), sampler[identifier_i](), key, time.time() - start_time))
 
         return predictions
 
@@ -492,7 +526,7 @@ class DvnModel(object):
                 if not os.path.isdir(keras_model_dir):
                     os.makedirs(keras_model_dir)
 
-                keras_models[name].save(os.path.join(keras_model_dir, name))
+                keras_models[name].save(os.path.join(keras_model_dir, f"{name}.keras"))
 
         with open(os.path.join(file_dir, "dvn_model.pkl"), "wb") as f:
             pickle.dump(dvn_model, f)
@@ -500,7 +534,7 @@ class DvnModel(object):
         dvn_model.creator.set_keras_models(keras_models)
 
     @staticmethod
-    def load_model(file_dir, load_keras_models=True):
+    def load_model(file_dir, load_keras_models=True, compile=False):
         with open(os.path.join(file_dir, "dvn_model.pkl"), "rb") as f:
             dvn_model = pickle.load(f)
 
@@ -515,7 +549,7 @@ class DvnModel(object):
             keras_model_dir = os.path.join(file_dir, "keras_models")
             keras_models = dvn_model.creator.clear_keras_models()
             for name in keras_models:
-                keras_models[name] = tf.keras.models.load_model(os.path.join(keras_model_dir, name), custom_objects=custom_objects_dict)
+                keras_models[name] = keras.models.load_model(os.path.join(keras_model_dir, f"{name}.keras"), custom_objects=custom_objects_dict, compile=compile)
 
             dvn_model.creator.set_keras_models(keras_models)
 
