@@ -262,8 +262,11 @@ class Sampler(object):
         self.identifiers = self.base_identifiers.copy()
         self._randomize()
         if self.shuffle:
-            if self.weights is None:
+            if self.weights is None and (self.n is None or self.n <= len(self.identifiers)):
                 random.shuffle(self.identifiers)
+
+            elif self.weights is None:
+                self.identifiers = random.choices(self.identifiers, k=self.n)
 
             else:
                 assert len(self.identifiers) == len(self.weights), "When sample weights are specified, you must specify a weight for each identifier."
