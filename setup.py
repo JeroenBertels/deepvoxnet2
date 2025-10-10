@@ -28,7 +28,8 @@ setuptools.setup(
         'scikit-learn==1.7.2',
         'cupy-cuda12x==13.6.0',
         'pydot==4.0.1',
-        'matplotlib==3.10.7'
+        'matplotlib==3.10.7',
+        'numba==0.62.1'
     ],
     extras_require={
         "full": [

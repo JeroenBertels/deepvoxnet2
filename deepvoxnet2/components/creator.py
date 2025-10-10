@@ -139,7 +139,6 @@ class Creator(object):
             except (StopIteration, RuntimeError):
                 break
 
-            # yield [[sample.copy() for sample in output] for output in self.outputs]
             yield [[sample for sample in output] for output in self.outputs]
 
     def reset(self):

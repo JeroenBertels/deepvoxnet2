@@ -10,6 +10,7 @@ import uuid
 import transforms3d
 import numpy as np
 import scipy.ndimage
+import scipy.spatial
 from deepvoxnet2.components.sample import Sample
 from deepvoxnet2.utilities import transformations
 from keras.utils import to_categorical
@@ -370,7 +371,6 @@ class Transformer(object):
         The outputs of this transformer.
         """
 
-        # print(f"--> {self.name}")
         if sample_id is None:
             sample_id = uuid.uuid4()
 
@@ -389,8 +389,7 @@ class Transformer(object):
                 self.generator = self._update()
 
             next(self.generator)
-
-        # print(f"<-- {self.name}")
+        
         return self.outputs
 
     def reset(self):
@@ -2089,6 +2088,50 @@ class Put(Transformer):
                         self.output_array_counts[idx][idx_] = np.full(self.reference_connection[idx_].shape[:4] + (1,), 1e-7)
 
 
+class PutV2(Put):
+    def __init__(self, reference_connection, caching=True, cval=0, order=0, keep_counts=False, gaussian_counts=False, **kwargs):
+        super(PutV2, self).__init__(reference_connection, caching=caching, cval=cval, order=order, keep_counts=keep_counts, **kwargs)
+        self.gaussian_counts = gaussian_counts
+
+    def _update_idx(self, idx):
+        for idx_, (reference, sample) in enumerate(zip(self.reference_connection.get(), self.connections[idx][0].get())):
+            for i in range(sample.shape[0]):
+                backward_affine = np.linalg.inv(sample.affine[i]) @ reference.affine[0]
+                transformed_array = np.stack([transformations.affine_deformation(sample[i, ..., j], backward_affine, output_shape=reference.shape[1:4], cval=self.cval, order=self.order) for j in range(sample.shape[4])], axis=-1)[None, ...]
+                if self.keep_counts:
+                    kernel = PutV2.gaussian_kernel(sample[i, ..., 0].shape, [max(1, s // 2) for s in sample[i, ..., 0].shape])
+                    transformed_array_counts = transformations.affine_deformation(kernel, backward_affine, output_shape=reference.shape[1:4], cval=0, order=self.order)[None, ..., None]
+                    transformed_array *= transformed_array_counts
+                    self.outputs[idx][idx_] *= self.output_array_counts[idx][idx_]
+                    self.output_array_counts[idx][idx_] += transformed_array_counts
+                    transformed_array /= self.output_array_counts[idx][idx_]
+                    self.outputs[idx][idx_] /= self.output_array_counts[idx][idx_]
+                    self.outputs[idx][idx_] += transformed_array
+                
+                else:
+                    mask = transformed_array != self.cval
+                    self.outputs[idx][idx_][mask] = transformed_array[mask]
+
+    @staticmethod
+    def gaussian_kernel(shape, sigmas):
+        assert len(shape) == len(sigmas)
+        nd = len(shape)
+        kernel = np.ones(shape, dtype=np.float32)
+        for i in range(nd):
+            g = np.linspace(-(shape[i] - 1) / 2., (shape[i] - 1) / 2., shape[i])
+            g = np.exp(-0.5 * np.square(g) / np.square(sigmas[i]))
+            for j in range(i):
+                g = np.expand_dims(g, 0)
+            
+            for j in range(i + 1, nd):
+                g = np.expand_dims(g, -1)
+
+            kernel *= g
+        
+        kernel /= np.sum(kernel)
+        return kernel
+
+
 class ToCategorical(Transformer):
     """Transforms integer class labels to categorical labels.
     """
@@ -2144,3 +2187,150 @@ class ArgMax(Transformer):
 
     def _randomize(self):
         pass
+
+
+class ResampledAffineGridCropper(Transformer):
+    def __init__(
+            self, 
+            reference_connection, 
+            segment_size,
+            voxel_size,
+            n=None,
+            max_rel_step_size=1,
+            grid_size=None,
+            shear_window_width=(0, 0, 0), 
+            rotation_window_width=(0, 0, 0), 
+            translation_window_width=(0, 0, 0), 
+            scaling_window_width=(0, 0, 0), 
+            flip_probabilities=(0, 0, 0),
+            nonzero=0,
+            nonzero_grid=False, 
+            nonzero_skips=1,
+            cval=0, 
+            order=1, 
+            verbose=True,
+            **kwargs):
+        super(ResampledAffineGridCropper, self).__init__(extra_connections=reference_connection, n=n, **kwargs)
+        self.reference_connection = reference_connection
+        self.segment_size = np.array(segment_size)
+        self.voxel_size = voxel_size
+        self.max_rel_step_size = max_rel_step_size if isinstance(max_rel_step_size, (tuple, list)) else (max_rel_step_size,) * 3
+        self.grid_size = self.segment_size if grid_size is None else np.array(grid_size)
+        assert len(self.segment_size) == len(self.grid_size) == 3
+        self.shear_window_width = shear_window_width
+        self.rotation_window_width = rotation_window_width
+        self.translation_window_width = translation_window_width
+        self.scaling_window_width = scaling_window_width
+        self.flip_probabilities = flip_probabilities
+        self.nonzero = nonzero
+        self.nonzero_grid = nonzero_grid     
+        self.nonzero_skips = nonzero_skips
+        self.cval = cval
+        self.order = order
+        self.verbose = verbose
+        self.backward_affine = None
+        self.nonzero_coordinates = None
+        
+    def _update_idx(self, idx):
+        for idx_, sample in enumerate(self.connections[idx][0]):
+            assert self.backward_affine is not None
+            self.outputs[idx][idx_] = Sample(np.zeros((sample.shape[0], *self.segment_size, sample.shape[-1])), Sample.update_affine(sample.affine, transformation_matrix=self.backward_affine))
+            for batch_i in range(len(sample)):
+                for feature_i in range(sample.shape[-1]):
+                    cval = self.cval[idx] if isinstance(self.cval, (tuple, list)) else self.cval
+                    cval = cval[feature_i] if isinstance(cval, (tuple, list)) else cval
+                    self.outputs[idx][idx_][batch_i, ..., feature_i] = transformations.affine_deformation(
+                        sample[batch_i, ..., feature_i],
+                        self.backward_affine,
+                        output_shape=tuple(self.segment_size),
+                        cval=cval,
+                        order=self.order[idx] if isinstance(self.order, (tuple, list)) else self.order
+                    )
+
+    def _calculate_output_shape_at_idx(self, idx):
+        assert len(self.connections[idx]) == 1, "This transformer accepts only a single connection at every idx."
+        return [tuple([output_shape_ if axis_i not in [1, 2, 3] else (self.segment_size[idx][axis_i - 1] if isinstance(self.segment_size, list) else self.segment_size[axis_i - 1]) for axis_i, output_shape_ in enumerate(output_shape)]) for output_shape in self.connections[idx][0].shapes]
+
+    def _randomize(self):
+        assert all([np.array_equal(self.reference_connection[0].shape[1:4], sample.shape[1:4]) for connection in self.connections for sample in connection[0] if sample is not None])
+        if self.n_ == 0:
+            self.nonzero_coordinates = []
+            if self.nonzero or self.nonzero_grid:
+                self.nonzero_coordinates = np.argwhere(np.any(self.reference_connection[0][:, slice(0, None, self.nonzero_skips), slice(0, None, self.nonzero_skips), slice(0, None, self.nonzero_skips), :] != 0, axis=(0, -1))) * self.nonzero_skips
+
+            self.voxel_size_ref = np.linalg.norm(self.reference_connection[0].affine[0, :3, :3], 2, axis=1)
+            self.scaling = self.voxel_size_ref / self.voxel_size
+            self.ss = self.segment_size / self.scaling
+            self.hss = self.ss / 2
+            self.gs = self.grid_size / self.scaling
+            self.hgs = self.gs / 2
+            ranges = []
+            for i in range(3):
+                if self.nonzero_grid and len(self.nonzero_coordinates) > 0:
+                    start = max(np.min(self.nonzero_coordinates[:, i]), self.hss[i])
+                    end = min(np.max(self.nonzero_coordinates[:, i]), self.reference_connection[0].shape[i + 1] - self.hss[i])
+                
+                elif self.nonzero_grid:
+                    start = end = self.reference_connection[0].shape[i + 1] / 2
+
+                else:
+                    start = self.hss[i]
+                    end = self.reference_connection[0].shape[i + 1] - self.hss[i]
+                
+                if end < start:
+                    start = end = (start + end) / 2
+
+                nb_steps = 1
+                while True:
+                    nb_steps += 1
+                    steps = np.linspace(start, end, nb_steps)
+                    if (steps[1] - steps[0]) / self.gs[i] < self.max_rel_step_size[i]:
+                        break
+
+                ranges.append(set(steps))
+
+            self.coordinates = [np.array((x, y, z)) for x in ranges[0] for y in ranges[1] for z in ranges[2]]
+            if self.n is None and self.verbose:
+                print(f"CupyResampledAffineCropperV2Grid will generate {len(self.coordinates)} samples of shape {self.reference_connection[0].shape[1:4]} (voxel size of reference: {self.voxel_size_ref})")
+
+        if self.n is None:
+            if self.n_ < len(self.coordinates):
+                coordinates = self.coordinates[self.n_]
+            
+            else:
+                raise StopIteration
+        
+        elif len(self.nonzero_coordinates) == 0:
+            coordinates = random.choice(self.coordinates)
+
+        elif random.random() < self.nonzero:
+            tries = 0
+            while True:
+                coordinates = random.choice(self.coordinates)
+                c0 = coordinates - self.hgs
+                c1 = coordinates + self.hgs
+                if np.any(np.all(np.greater(self.nonzero_coordinates, c0) * np.less(self.nonzero_coordinates, c1), axis=1)):
+                    break
+                
+                tries += 1
+                if tries == 1000:
+                    coordinates = random.choice(self.coordinates)
+                    break
+
+        else:
+            coordinates = random.choice(self.coordinates)        
+
+        rotation = [random.uniform(-w, w) for w in self.rotation_window_width]
+        translation = [t + random.uniform(-w, w) for t, w in zip(self.hss, self.translation_window_width)]
+        scaling = [s * (1 + random.uniform(-w, w)) for s, w in zip(self.scaling, self.scaling_window_width)] 
+        flip = [-1 if random.random() < p else 1 for p in self.flip_probabilities]
+        shear = [random.uniform(-w, w) for w in self.shear_window_width]
+
+        T2c, Sc, R, Sh, F, T2s = np.eye(4), np.eye(4), np.eye(4), np.eye(4), np.eye(4), np.eye(4)
+        T2c[:-1, -1] = coordinates
+        Sc[:-1, :-1] = np.diag(1 / np.array(scaling))
+        R[:-1, :-1] = scipy.spatial.transform.Rotation.from_euler('zyx', -np.array(rotation)).as_matrix()
+        Sh[0, 1], Sh[0, 2], Sh[1, 0], Sh[1, 2], Sh[2, 0], Sh[2, 1] = -shear[0], -shear[0], -shear[1], -shear[1], -shear[2], -shear[2]
+        F[:-1, :-1] = np.diag(flip)
+        T2s[:-1, -1] = -np.array(translation)
+        self.backward_affine = T2c @ Sc @ R @ Sh @ F @ T2s
