@@ -2092,25 +2092,30 @@ class PutV2(Put):
     def __init__(self, reference_connection, caching=True, cval=0, order=0, keep_counts=False, gaussian_counts=False, **kwargs):
         super(PutV2, self).__init__(reference_connection, caching=caching, cval=cval, order=order, keep_counts=keep_counts, **kwargs)
         self.gaussian_counts = gaussian_counts
+        self.gaussian_kernels_dict = {}
 
     def _update_idx(self, idx):
         for idx_, (reference, sample) in enumerate(zip(self.reference_connection.get(), self.connections[idx][0].get())):
             for i in range(sample.shape[0]):
-                backward_affine = np.linalg.inv(sample.affine[i]) @ reference.affine[0]
-                transformed_array = np.stack([transformations.affine_deformation(sample[i, ..., j], backward_affine, output_shape=reference.shape[1:4], cval=self.cval, order=self.order) for j in range(sample.shape[4])], axis=-1)[None, ...]
+                output_shape, slices, backward_affine = PutV2.get_output_shape_slices_backward_affine(sample.shape[1:4], sample.affine[i], reference.shape[1:4], reference.affine[0]) 
+                if any(o_s <= 0 for o_s in output_shape):
+                    continue
+
+                transformed_array = np.stack([transformations.affine_deformation(sample[i, ..., j], backward_affine, output_shape=output_shape, cval=self.cval, order=self.order) for j in range(sample.shape[4])], axis=-1)[None, ...]
                 if self.keep_counts:
-                    kernel = PutV2.gaussian_kernel(sample[i, ..., 0].shape, [max(1, s // 2) for s in sample[i, ..., 0].shape])
-                    transformed_array_counts = transformations.affine_deformation(kernel, backward_affine, output_shape=reference.shape[1:4], cval=0, order=self.order)[None, ..., None]
+                    kernel = self.gaussian_kernels_dict.get(sample[i, ..., 0].shape, PutV2.gaussian_kernel(sample[i, ..., 0].shape, [max(1, s // 2) for s in sample[i, ..., 0].shape]))
+                    self.gaussian_kernels_dict[sample[i, ..., 0].shape] = kernel
+                    transformed_array_counts = transformations.affine_deformation(kernel, backward_affine, output_shape=output_shape, cval=0, order=self.order)[None, ..., None]
                     transformed_array *= transformed_array_counts
-                    self.outputs[idx][idx_] *= self.output_array_counts[idx][idx_]
-                    self.output_array_counts[idx][idx_] += transformed_array_counts
-                    transformed_array /= self.output_array_counts[idx][idx_]
-                    self.outputs[idx][idx_] /= self.output_array_counts[idx][idx_]
-                    self.outputs[idx][idx_] += transformed_array
+                    self.outputs[idx][idx_][:, *slices, :] *= self.output_array_counts[idx][idx_][:, *slices, :]
+                    self.output_array_counts[idx][idx_][:, *slices, :] += transformed_array_counts
+                    transformed_array /= self.output_array_counts[idx][idx_][:, *slices, :]
+                    self.outputs[idx][idx_][:, *slices, :] /= self.output_array_counts[idx][idx_][:, *slices, :]
+                    self.outputs[idx][idx_][:, *slices, :] += transformed_array
                 
                 else:
                     mask = transformed_array != self.cval
-                    self.outputs[idx][idx_][mask] = transformed_array[mask]
+                    self.outputs[idx][idx_][:, *slices, :][mask] = transformed_array[mask]
 
     @staticmethod
     def gaussian_kernel(shape, sigmas):
@@ -2130,6 +2135,29 @@ class PutV2(Put):
         
         kernel /= np.sum(kernel)
         return kernel
+    
+    @staticmethod
+    def get_output_shape_slices_backward_affine(sample_shape, sample_affine, reference_shape, reference_affine, margin=1):
+        assert len(sample_shape) == len(reference_shape) == 3
+        assert sample_affine.ndim == 2 and reference_affine.ndim == 2
+        forward_affine = np.linalg.inv(reference_affine) @ sample_affine
+        corners = []
+        for i in [0, sample_shape[0]]:
+            for j in [0, sample_shape[1]]:
+                for k in [0, sample_shape[2]]:
+                    corners.append(forward_affine @ [i, j, k, 1])
+
+        corner0 = np.floor(np.min(corners, axis=0))
+        corner1 = np.ceil(np.max(corners, axis=0))
+        output_shape, slices, T = [], [], np.eye(4)
+        for i in range(3):
+            start = max(0, int(corner0[i]) - margin)
+            stop = min(reference_shape[i] - 1, int(corner1[i]) + margin)
+            output_shape.append(stop - start + 1)
+            slices.append(slice(start, stop + 1))
+            T[i, -1] = start
+    
+        return tuple(output_shape), slices, np.linalg.inv(sample_affine) @ reference_affine @ T
 
 
 class ToCategorical(Transformer):
