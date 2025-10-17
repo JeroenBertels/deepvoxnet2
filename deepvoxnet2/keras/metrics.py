@@ -57,7 +57,7 @@ def squared_error(y_true, y_pred, **kwargs):
     return err ** 2
 
 
-def cross_entropy(y_true, y_pred, from_logits=False, component_wise=False, **kwargs):
+def cross_entropy(y_true, y_pred, from_logits=False, component_wise=False, neg_pos_batch_weights=None, **kwargs):
     if component_wise:
         assert y_true.shape[-1] == 1 and y_pred.shape[-1] == 1
         voxel_weights = _get_voxel_weights(y_true)
@@ -65,9 +65,17 @@ def cross_entropy(y_true, y_pred, from_logits=False, component_wise=False, **kwa
 
     else:
         voxel_weights = 1
+    
+    if neg_pos_batch_weights is not None:
+        assert len(neg_pos_batch_weights) == 2
+        batch_weights = tf.where(tf.math.reduce_any(tf.math.greater(y_true, 0), axis=(1, 2, 3, 4), keepdims=True), tf.cast(neg_pos_batch_weights[1], tf.float32), tf.cast(neg_pos_batch_weights[0], tf.float32))
+        batch_weights = batch_weights / tf.reduce_mean(batch_weights)
+
+    else:
+        batch_weights = 1
 
     y_true, y_pred = _expand_binary(y_true, y_pred)
-    return voxel_weights * keras.ops.categorical_crossentropy(y_true, y_pred, from_logits=from_logits)[..., None]
+    return batch_weights * voxel_weights * keras.ops.categorical_crossentropy(y_true, y_pred, from_logits=from_logits)[..., None]
 
 
 def accuracy(y_true, y_pred, **kwargs):
@@ -132,7 +140,7 @@ def true_negative_rate(y_true, y_pred, eps=keras.backend.epsilon(), **kwargs):
     return (tn + eps) / (tn + fp + eps)
 
 
-def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=False, eps=keras.backend.epsilon(), eps_neg=None, fill_zeros=False, reduce_along_batch=False, reduce_along_features=False, feature_weights=None, threshold=None, **kwargs):
+def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=False, eps=keras.backend.epsilon(), eps_neg=None, fill_zeros=False, reduce_along_batch=False, reduce_along_features=False, feature_weights=None, threshold=None, neg_pos_batch_weights=None, **kwargs):
     if feature_weights is None:
         feature_weights = 1
 
@@ -148,6 +156,14 @@ def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=
     else:
         voxel_weights = 1
     
+    if neg_pos_batch_weights is not None:
+        assert len(neg_pos_batch_weights) == 2
+        batch_weights = tf.where(tf.math.reduce_any(tf.math.greater(y_true, 0), axis=(1, 2, 3, 4), keepdims=True), tf.cast(neg_pos_batch_weights[1], tf.float32), tf.cast(neg_pos_batch_weights[0], tf.float32))
+        batch_weights = batch_weights / tf.reduce_mean(batch_weights)
+    
+    else:
+        batch_weights = 1
+    
     if fill_zeros:
         fill_value = 1 / tf.cast(tf.reduce_prod(y_true.shape[1:4]), tf.float32)
         y_true = tf.where(tf.less_equal(y_true, fill_value), fill_value, y_true)
@@ -162,9 +178,9 @@ def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=
             x_y = tf.math.reduce_sum(x_y * feature_weights, axis=4, keepdims=True)
 
         if reduce_along_batch:
-            y = tf.math.reduce_sum(y, axis=0, keepdims=True)
-            x = tf.math.reduce_sum(x, axis=0, keepdims=True)
-            x_y = tf.math.reduce_sum(x_y, axis=0, keepdims=True)      
+            y = tf.math.reduce_sum(y * batch_weights, axis=0, keepdims=True)
+            x = tf.math.reduce_sum(x * batch_weights, axis=0, keepdims=True)
+            x_y = tf.math.reduce_sum(x_y * batch_weights, axis=0, keepdims=True)      
 
         nom = x + y - x_y
         denom = x + y
@@ -180,8 +196,8 @@ def dice_coefficient(y_true, y_pred, component_wise=False, dice_semimetric_loss=
 
         if reduce_along_batch:
             y = tf.math.reduce_sum(y, axis=0, keepdims=True)
-            nom = tf.math.reduce_sum(nom, axis=0, keepdims=True)
-            denom = tf.math.reduce_sum(denom, axis=0, keepdims=True)
+            nom = tf.math.reduce_sum(nom * batch_weights, axis=0, keepdims=True)
+            denom = tf.math.reduce_sum(denom * batch_weights, axis=0, keepdims=True)
 
     if eps_neg is not None:
         eps = tf.where(tf.equal(y, 0), tf.cast(eps_neg, tf.float32), eps)
