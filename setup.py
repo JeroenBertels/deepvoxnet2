@@ -23,22 +23,24 @@ setuptools.setup(
     install_requires=[
         'tensorflow[and-cuda]==2.20.0',
         'nibabel==5.3.2',
-        'transforms3d==0.4.2',
-        'pandas==2.3.3',
         'scikit-learn==1.7.2',
-        'cupy-cuda12x==13.6.0',
         'pydot==4.0.1',
         'matplotlib==3.10.7',
-        'numba==0.62.1'
+        'numba==0.62.1',
+        'pandas==2.3.3',  # optional; could be moved to extras_require later
+        'transforms3d==0.4.2',  # optional; could be moved to extras_require later
     ],
     extras_require={
+        "cupy": [
+            'cupy-cuda12x==13.6.0',
+        ],
         "full": [
-            'tensorflow-probability',
-            'simpleitk-simpleelastix',
-            'pydicom',
-            'numba',
-            'seaborn',
-            'pymirc',
+            'cupy-cuda12x==13.6.0',
+            'tensorflow-probability==0.25.0',
+            'simpleitk-simpleelastix==2.5.0.dev49',
+            'pydicom==3.0.1',
+            'seaborn==0.13.2',
+            'pymirc==0.30.2',
         ]
     }
 )

@@ -1,6 +1,5 @@
 import os
 import numpy as np
-import pandas as pd
 from collections.abc import Iterable
 from deepvoxnet2.components.mirc import NiftiFileModality
 from deepvoxnet2.components.sampler import MircSampler
@@ -189,6 +188,7 @@ class MircStructure(Structure):
             self.update(fold_i=prev_fold_i, round_i=prev_round_i)
 
     def get_df(self, split, key, si=0, bi=0, name_tag=None, x_or_y_or_sample_weight="x"):
+        import pandas as pd
         output_dirs = self.get_split_dirs(split)
         identifiers = self.get_split_identifiers(split)
         assert output_dirs is not None and identifiers is not None, "For this split there were no identifiers or there was no Mirc object specified."

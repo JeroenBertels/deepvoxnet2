@@ -7,7 +7,6 @@ Additionally, the module includes several utility functions for working with fil
 
 import os
 import glob
-import transforms3d
 import numpy as np
 import nibabel as nib
 from tempfile import mkdtemp
@@ -128,6 +127,7 @@ def ras_to_lps(img_affine):
 
 def dcm_to_array(dcm_list, dcm_check=False, **kwargs):
     import pymirc
+    import transforms3d
 
     """Convert a list of DICOM files to a 3D NumPy array and affine matrix.
 

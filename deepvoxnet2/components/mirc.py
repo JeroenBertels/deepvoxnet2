@@ -10,7 +10,6 @@ import json
 import glob
 import numpy as np
 import nibabel as nib
-import pandas as pd
 from deepvoxnet2.components.sample import Sample
 from PIL import Image
 from matplotlib import pyplot as plt
@@ -209,6 +208,7 @@ class Mirc(SortedDict):
         pd.DataFrame
             A Pandas DataFrame containing the specified modality for all records.
         """
+        import pandas as pd
 
         custom_modality_id = modality_id if custom_modality_id is None else custom_modality_id
         indices = pd.MultiIndex.from_tuples([(dataset_id, case_id, record_id) for dataset_id in self for case_id in self[dataset_id] for record_id in self[dataset_id][case_id]], names=["dataset_id", "case_id", "record_id"])

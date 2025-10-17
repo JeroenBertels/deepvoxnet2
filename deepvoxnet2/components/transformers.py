@@ -7,7 +7,6 @@ import os
 import json
 import random
 import uuid
-import transforms3d
 import numpy as np
 import scipy.ndimage
 import scipy.spatial
@@ -2040,6 +2039,7 @@ class Put(Transformer):
         self.keep_counts = keep_counts
 
     def _update_idx(self, idx):
+        import transforms3d
         for idx_, (reference, sample) in enumerate(zip(self.reference_connection.get(), self.connections[idx][0].get())):
             for i in range(sample.shape[0]):
                 backward_affine = np.linalg.inv(sample.affine[i]) @ reference.affine[0]
@@ -2319,7 +2319,7 @@ class ResampledAffineGridCropper(Transformer):
 
             self.coordinates = [np.array((x, y, z)) for x in ranges[0] for y in ranges[1] for z in ranges[2]]
             if self.n is None and self.verbose:
-                print(f"CupyResampledAffineCropperV2Grid will generate {len(self.coordinates)} samples of shape {self.reference_connection[0].shape[1:4]} (voxel size of reference: {self.voxel_size_ref})")
+                print(f"ResampledAffineGridCropper will generate {len(self.coordinates)} samples of shape {self.reference_connection[0].shape[1:4]} (voxel size of reference: {self.voxel_size_ref})")
 
         if self.n is None:
             if self.n_ < len(self.coordinates):
